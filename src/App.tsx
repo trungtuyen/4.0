@@ -6,11 +6,33 @@ import { Teacher } from './types';
 const initialTeachers: Teacher[] = [];
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin'>(() => {
+    const saved = localStorage.getItem('currentView');
+    return saved ? JSON.parse(saved) : 'landing';
+  });
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState(false);
-  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachers);
+  const [teachers, setTeachers] = useState<Teacher[]>(() => {
+    const saved = localStorage.getItem('teachers');
+    return saved ? JSON.parse(saved) : initialTeachers;
+  });
+  const [currentUser, setCurrentUser] = useState<Teacher | 'admin' | null>(() => {
+    const saved = localStorage.getItem('currentUser');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('teachers', JSON.stringify(teachers));
+  }, [teachers]);
+
+  React.useEffect(() => {
+    localStorage.setItem('currentView', JSON.stringify(currentView));
+  }, [currentView]);
+
+  React.useEffect(() => {
+    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+  }, [currentUser]);
 
   const navigateToAuth = (mode: 'login' | 'register') => {
     setAuthMode(mode);
@@ -24,6 +46,7 @@ export default function App() {
     const password = formData.get('password');
 
     if ((loginId === 'admin@example.com' || loginId === 'Admin') && password === 'admin') {
+      setCurrentUser('admin');
       setCurrentView('admin');
       return;
     } 
@@ -37,7 +60,8 @@ export default function App() {
       } else {
         // In a real app, we would check the password here
         alert('Đăng nhập thành công với tư cách giáo viên!');
-        setCurrentView('landing');
+        setCurrentUser(teacher);
+        setCurrentView('admin');
       }
     } else {
       alert('Tên đăng nhập/Email hoặc mật khẩu không đúng! Vui lòng thử lại.');
@@ -55,7 +79,10 @@ export default function App() {
   };
 
   if (currentView === 'admin') {
-    return <AdminDashboard onLogout={() => setCurrentView('landing')} teachers={teachers} setTeachers={setTeachers} />;
+    return <AdminDashboard onLogout={() => {
+      setCurrentUser(null);
+      setCurrentView('landing');
+    }} teachers={teachers} setTeachers={setTeachers} currentUser={currentUser} />;
   }
 
   if (currentView === 'auth') {

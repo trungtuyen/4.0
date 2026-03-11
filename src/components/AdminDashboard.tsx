@@ -98,10 +98,11 @@ interface AdminDashboardProps {
   onLogout: () => void;
   teachers: Teacher[];
   setTeachers: React.Dispatch<React.SetStateAction<Teacher[]>>;
+  currentUser: Teacher | 'admin' | null;
 }
 
-export default function AdminDashboard({ onLogout, teachers, setTeachers }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'teachers' | 'library'>('teachers');
+export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser }: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(currentUser === 'admin' ? 'teachers' : 'library');
   const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards'>('main');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -123,30 +124,44 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
   const [cameraTarget, setCameraTarget] = useState<'new' | 'edit' | 'global_post' | { type: 'category', categoryId: string } | null>(null);
 
   // Categories State
-  const [categories, setCategories] = useState<{ id: string; title: string; color?: string; parentId?: string; author?: string; time?: string; bgType?: 'color' | 'image'; bgValue?: string }>([
-    { id: '1', title: 'Lớp 9 Lam sơn', author: 'TUYEN TRUNG', time: '12g', bgType: 'color', bgValue: '#FFC107' },
-    { id: '2', title: 'Lớp 8 Lam Sơn', author: 'TUYEN TRUNG', time: '12g', bgType: 'color', bgValue: '#B2DFDB' },
-    { id: '3', title: 'LOP 9B. Kim Lư', author: 'TUYEN TRUNG', time: '2ngày', bgType: 'image', bgValue: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1000&auto=format&fit=crop' },
-    { id: '4', title: '9A. Kim Lư', author: 'TUYEN TRUNG', time: '3ngày', bgType: 'color', bgValue: '#D85A4A' },
-  ]);
+  const [categories, setCategories] = useState<{ id: string; title: string; color?: string; parentId?: string; author?: string; time?: string; bgType?: 'color' | 'image'; bgValue?: string; authorId?: string }>(() => {
+    const saved = localStorage.getItem('categories');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryTitle, setEditingCategoryTitle] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryTitle, setNewCategoryTitle] = useState('');
 
   // Posts State
-  const [posts, setPosts] = useState<{ id: string; categoryId: string; imageSrc: string; studentName: string; createdAt: string; score?: number; comments?: { id: string, text: string, createdAt: string }[] }[]>([]);
+  const [posts, setPosts] = useState<{ id: string; categoryId: string; imageSrc: string; studentName: string; createdAt: string; score?: number; comments?: { id: string, text: string, createdAt: string }[] }[]>(() => {
+    const saved = localStorage.getItem('posts');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null);
   const [postFormData, setPostFormData] = useState({ categoryId: '', studentId: '' });
   const [activeScorePostId, setActiveScorePostId] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('categories', JSON.stringify(categories));
+  }, [categories]);
+
+  useEffect(() => {
+    localStorage.setItem('posts', JSON.stringify(posts));
+  }, [posts]);
+
+  const currentUserId = currentUser === 'admin' ? 'admin' : currentUser?.id;
+  const currentUserName = currentUser === 'admin' ? 'Admin' : currentUser?.name;
 
   const handleAddCategory = () => {
     if (newCategoryTitle.trim()) {
       setCategories([...categories, { 
         id: Math.random().toString(36).substr(2, 9), 
         title: newCategoryTitle.trim(),
-        parentId: openedClassId || undefined
+        parentId: openedClassId || undefined,
+        author: currentUserName,
+        authorId: currentUserId
       }]);
       setNewCategoryTitle('');
       setIsAddingCategory(false);
@@ -205,8 +220,17 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
   const [newClass, setNewClass] = useState({ name: '', academicYear: '' });
   
   // Students State
-  const [students, setStudents] = useState<{ id: string; classId: string; name: string; email?: string }[]>([]);
+  const [students, setStudents] = useState<{ id: string; classId: string; name: string; email?: string }[]>(() => {
+    const saved = localStorage.getItem('students');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [excelInput, setExcelInput] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem('students', JSON.stringify(students));
+  }, [students]);
+
+  const myCategories = currentUserId === 'admin' ? categories : categories.filter(c => c.authorId === currentUserId);
 
   const handleCreateClass = (e: React.FormEvent) => {
     e.preventDefault();
@@ -218,7 +242,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
       setCategories([...categories, { 
         id: classId, 
         title: newClass.name.trim(),
-        author: 'TUYEN TRUNG',
+        author: currentUserName,
+        authorId: currentUserId,
         time: 'Vừa xong',
         bgType: 'color',
         bgValue: randomColor
@@ -357,20 +382,22 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
           <div className="bg-indigo-500 p-1.5 rounded text-white">
             <BookOpen className="w-6 h-6" />
           </div>
-          <span className="font-bold text-lg">Admin Portal</span>
+          <span className="font-bold text-lg">{currentUser === 'admin' ? 'Admin Portal' : 'Teacher Portal'}</span>
         </div>
         <nav className="flex-1 p-4 space-y-2">
-          <button 
-            onClick={() => setActiveTab('teachers')}
-            className={`flex items-center gap-3 px-4 py-3 w-full rounded-xl transition-colors ${
-              activeTab === 'teachers' 
-                ? 'bg-indigo-600 text-white' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <Users className="w-5 h-5" />
-            <span className="font-medium">Quản lý giáo viên</span>
-          </button>
+          {currentUser === 'admin' && (
+            <button 
+              onClick={() => setActiveTab('teachers')}
+              className={`flex items-center gap-3 px-4 py-3 w-full rounded-xl transition-colors ${
+                activeTab === 'teachers' 
+                  ? 'bg-indigo-600 text-white' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Users className="w-5 h-5" />
+              <span className="font-medium">Quản lý giáo viên</span>
+            </button>
+          )}
           <button 
             onClick={() => {
               setActiveTab('library');
@@ -584,7 +611,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
         ) : activeLibraryView === 'lucky-draw' || activeLibraryView === 'lucky-draw-cards' ? (
           <LuckyDraw 
             onBack={() => setActiveLibraryView('main')} 
-            categories={categories.filter(c => !c.parentId)}
+            categories={myCategories.filter(c => !c.parentId)}
             allStudents={students}
             initialMode={activeLibraryView === 'lucky-draw-cards' ? 'cards' : 'wheel'}
           />
@@ -610,13 +637,13 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
                   </button>
                   {openedClassId && !activeClassId && (
                     <span className="text-sm font-medium opacity-80 uppercase tracking-wide">
-                      {categories.find(c => c.id === openedClassId)?.author || 'TUYEN TRUNG'} + 14 • {categories.find(c => c.id === openedClassId)?.time || '12ngày'}
+                      {myCategories.find(c => c.id === openedClassId)?.author || 'TUYEN TRUNG'} + 14 • {myCategories.find(c => c.id === openedClassId)?.time || '12ngày'}
                     </span>
                   )}
                 </div>
                 <h1 className="text-3xl font-bold text-slate-900 font-serif">
-                  {activeClassId ? `Danh sách học sinh: ${categories.find(c => c.id === activeClassId)?.title}` : 
-                   openedClassId ? categories.find(c => c.id === openedClassId)?.title : 'Tường học tập'}
+                  {activeClassId ? `Danh sách học sinh: ${myCategories.find(c => c.id === activeClassId)?.title}` : 
+                   openedClassId ? myCategories.find(c => c.id === openedClassId)?.title : 'Tường học tập'}
                 </h1>
               </div>
               <div className="flex items-center gap-3">
@@ -727,7 +754,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
               </div>
             ) : openedClassId ? (
               <div className="flex-1 overflow-x-auto overflow-y-hidden px-8 pb-8 flex items-start gap-6">
-                {categories.filter(c => c.parentId === openedClassId).map(category => (
+                {myCategories.filter(c => c.parentId === openedClassId).map(category => (
                   <div key={category.id} className="w-80 flex-shrink-0 flex flex-col max-h-full">
                     <div className={`flex items-start justify-between mb-3 px-1 ${category.color ? 'p-3 rounded-xl shadow-sm' : ''}`} style={category.color ? { backgroundColor: category.color } : {}}>
                       {editingCategoryId === category.id ? (
@@ -975,7 +1002,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
                     <div className="font-bold text-slate-500 text-[15px] px-1">Tạo một padlet</div>
                   </div>
 
-                  {categories.filter(c => !c.parentId).map(category => (
+                  {myCategories.filter(c => !c.parentId).map(category => (
                     <div 
                       key={category.id} 
                       onClick={() => setOpenedClassId(category.id)}
@@ -1418,7 +1445,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers }: Admi
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                 >
                   <option value="">Chọn hạng mục</option>
-                  {categories.filter(c => c.parentId === openedClassId).map(c => (
+                  {myCategories.filter(c => c.parentId === openedClassId).map(c => (
                     <option key={c.id} value={c.id}>{c.title}</option>
                   ))}
                 </select>
