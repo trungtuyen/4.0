@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isValidString(text, maxLen) {
+      return text is string && text.size() <= maxLen;
+    }
+    
+    match /teachers/{teacherId} {
+      allow read, write: if true; // Public for prototype
+    }
+    
+    match /exams/{examId} {
+      allow read, write: if true; // Public for prototype
+    }
+    
+    match /classes/{classId} {
+      allow read, write: if true; // Public for prototype
+    }
+    
+    match /students/{studentId} {
+      allow read, write: if true; // Public for prototype
+    }
+    
+    match /results/{resultId} {
+      allow read, write: if true; // Public for prototype
+    }
+    
+    match /exam_sessions/{sessionId} {
+      allow read, write: if true; // Public for prototype
+    }
+  }
+}
