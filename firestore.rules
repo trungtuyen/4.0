@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function emailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'tuyenthcskimhy@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. Teachers
+    match /teachers/{teacherId} {
+      allow read, write: if true;
+    }
+
+    // 2. Categories
+    match /categories/{categoryId} {
+      allow read, write: if true;
+    }
+
+    // 3. Wall Posts
+    match /wall_posts/{postId} {
+      allow read, write: if true;
+    }
+
+    // 4. Exams
+    match /exams/{examId} {
+      allow read: if true;
+      allow create: if true; 
+      allow update, delete: if true; 
+    }
+
+    // 5. Classes
+    match /classes/{classId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // 6. Students
+    match /students/{studentId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // 7. Results
+    match /results/{resultId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // 8. Exam Sessions
+    match /exam_sessions/{sessionId} {
+      allow read, write: if true;
+    }
+  }
+}
