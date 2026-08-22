@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ECOSYSTEM_APPLICATIONS } from '../src/ecosystem';
 import { normalizeApiServer } from '../src/lib/api';
+import { isAdministratorAlias, resolveAdministratorLoginEmail } from '../src/lib/adminAuth';
 
 assert.equal(ECOSYSTEM_APPLICATIONS.length, 12, 'The catalog exposes all 12 applications.');
 assert.equal(new Set(ECOSYSTEM_APPLICATIONS.map((app) => app.id)).size, 12, 'Application IDs are unique.');
@@ -13,4 +14,10 @@ assert.throws(() => normalizeApiServer('http://example.edu.vn'));
 assert.throws(() => normalizeApiServer('https://user:secret@example.edu.vn'));
 assert.throws(() => normalizeApiServer('https://example.edu.vn/?token=123'));
 
-console.info('SmartClass ecosystem: 10 checks passed.');
+assert.equal(isAdministratorAlias(' ADMIN '), true);
+assert.equal(isAdministratorAlias('teacher@example.edu.vn'), false);
+assert.equal(resolveAdministratorLoginEmail('admin', { enteredEmail: ' Owner@Example.edu.vn ' }), 'owner@example.edu.vn');
+assert.equal(resolveAdministratorLoginEmail('admin', { configuredEmail: 'owner@example.edu.vn', enteredEmail: 'other@example.edu.vn' }), 'owner@example.edu.vn');
+assert.equal(resolveAdministratorLoginEmail('teacher@example.edu.vn'), 'teacher@example.edu.vn');
+
+console.info('SmartClass ecosystem: 15 checks passed.');

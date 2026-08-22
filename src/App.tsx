@@ -1,10 +1,11 @@
 import React, { lazy, useState, useEffect } from 'react';
 import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Hand, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
-import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, getDoc, getDocs, limit, query } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
+import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ExamManager = lazy(() => import('./components/ExamManager'));
@@ -41,6 +42,24 @@ function isVerifiedAdministrator(user: FirebaseUser): boolean {
   );
 }
 
+async function hasAdministratorAccess(user: FirebaseUser): Promise<boolean> {
+  const verifiedIdentity = user.emailVerified || user.providerData.some(provider => provider.providerId === 'google.com');
+  if (!verifiedIdentity) return false;
+  if (isVerifiedAdministrator(user)) return true;
+
+  try {
+    const token = await user.getIdTokenResult();
+    if (token.claims.admin === true || token.claims.role === 'admin') return true;
+
+    // Firestore's security rules reserve teacher-list access for administrators.
+    // This delegates the role decision to the server instead of trusting browser storage.
+    await getDocs(query(collection(db, 'teachers'), limit(1)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function describeAuthError(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
   const messages: Record<string, string> = {
@@ -74,6 +93,8 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [administratorEmail, setAdministratorEmail] = useState('');
 
   useEffect(() => {
     return onAuthStateChanged(auth, async firebaseUser => {
@@ -84,7 +105,8 @@ export default function App() {
         return;
       }
 
-      if (isVerifiedAdministrator(firebaseUser)) {
+      if (await hasAdministratorAccess(firebaseUser)) {
+        if (firebaseUser.email) rememberVerifiedAdministratorEmail(firebaseUser.email);
         setCurrentUser('admin');
         setAuthReady(true);
         return;
@@ -132,11 +154,13 @@ export default function App() {
   };
 
   const resolveSignedInUser = async (firebaseUser: FirebaseUser): Promise<Teacher | 'admin'> => {
-    if (firebaseUser.email?.toLowerCase() === ADMIN_EMAIL) {
-      if (!isVerifiedAdministrator(firebaseUser)) {
-        throw new Error('Tài khoản quản trị cần xác minh email hoặc đăng nhập bằng Google.');
-      }
+    if (await hasAdministratorAccess(firebaseUser)) {
+      if (firebaseUser.email) rememberVerifiedAdministratorEmail(firebaseUser.email);
       return 'admin';
+    }
+
+    if (ADMIN_EMAIL && firebaseUser.email?.toLowerCase() === ADMIN_EMAIL) {
+      throw new Error('Tài khoản quản trị cần xác minh email hoặc đăng nhập bằng Google.');
     }
 
     const profile = await getDoc(doc(db, 'teachers', firebaseUser.uid));
@@ -154,11 +178,16 @@ export default function App() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const loginId = String(formData.get('loginId') || '').trim();
-    if (loginId.toLowerCase() === 'admin' && !ADMIN_EMAIL) {
-      setAuthMessage('Chưa cấu hình email quản trị. Hãy khai báo biến VITE_ADMIN_EMAIL trong cài đặt GitHub repository.');
+    const loginEmail = resolveAdministratorLoginEmail(loginId, {
+      configuredEmail: ADMIN_EMAIL,
+      rememberedEmail: readRememberedAdministratorEmail(),
+      enteredEmail: String(formData.get('administratorEmail') || ''),
+    });
+
+    if (!loginEmail) {
+      setAuthMessage('Vui lòng nhập email Firebase của tài khoản quản trị hoặc chọn Đăng nhập bằng Google.');
       return;
     }
-    const loginEmail = loginId.toLowerCase() === 'admin' ? ADMIN_EMAIL : loginId;
     const password = String(formData.get('password') || '');
     setAuthBusy(true);
     setAuthMessage('');
@@ -166,6 +195,9 @@ export default function App() {
     try {
       const credential = await signInWithEmailAndPassword(auth, loginEmail, password);
       const verifiedUser = await resolveSignedInUser(credential.user);
+      if (isAdministratorAlias(loginId) && verifiedUser !== 'admin') {
+        throw new Error('Tài khoản đã đăng nhập nhưng chưa được cấp quyền quản trị.');
+      }
       setCurrentUser(verifiedUser);
       setCurrentView('admin');
     } catch (error) {
@@ -386,8 +418,28 @@ export default function App() {
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-slate-400" />
                   </div>
-                  <input name="loginId" type="text" autoComplete="username" required className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Email đăng nhập hoặc admin" />
+                  <input name="loginId" type="text" value={loginIdentifier} onChange={event => { setLoginIdentifier(event.target.value); setAuthMessage(''); }} autoComplete="username" required className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Email đăng nhập hoặc admin" />
                 </div>
+
+                {isAdministratorAlias(loginIdentifier) && !ADMIN_EMAIL && !readRememberedAdministratorEmail() && (
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                    <label htmlFor="administratorEmail" className="mb-2 block text-sm font-medium text-indigo-900">
+                      Email Firebase của quản trị viên
+                    </label>
+                    <input
+                      id="administratorEmail"
+                      name="administratorEmail"
+                      type="email"
+                      value={administratorEmail}
+                      onChange={event => setAdministratorEmail(event.target.value)}
+                      autoComplete="email"
+                      required
+                      className="block w-full rounded-lg border border-indigo-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
+                      placeholder="Nhập email tài khoản quản trị"
+                    />
+                    <p className="mt-2 text-xs leading-5 text-indigo-700">Chỉ cần nhập một lần trong phiên này; hoặc sử dụng Đăng nhập bằng Google.</p>
+                  </div>
+                )}
                 
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
