@@ -28,7 +28,7 @@ export function rememberVerifiedAdministratorEmail(email: string): void {
 
 export function resolveAdministratorLoginEmail(
   loginId: string,
-  options: { configuredEmail?: string; rememberedEmail?: string; enteredEmail?: string } = {},
+  options: { configuredEmail?: string; rememberedEmail?: string } = {},
 ): string {
   const identifier = loginId.trim();
   if (!isAdministratorAlias(identifier)) return identifier;
@@ -36,7 +36,6 @@ export function resolveAdministratorLoginEmail(
   return (
     options.configuredEmail ||
     options.rememberedEmail ||
-    options.enteredEmail ||
     ''
   ).trim().toLowerCase();
 }
