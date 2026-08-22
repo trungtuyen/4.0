@@ -1,7 +1,7 @@
 import React, { lazy, useState, useEffect } from 'react';
 import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Hand, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
-import { collection, onSnapshot, doc, setDoc, getDoc, getDocs, limit, query } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
@@ -49,12 +49,7 @@ async function hasAdministratorAccess(user: FirebaseUser): Promise<boolean> {
 
   try {
     const token = await user.getIdTokenResult();
-    if (token.claims.admin === true || token.claims.role === 'admin') return true;
-
-    // Firestore's security rules reserve teacher-list access for administrators.
-    // This delegates the role decision to the server instead of trusting browser storage.
-    await getDocs(query(collection(db, 'teachers'), limit(1)));
-    return true;
+    return token.claims.admin === true || token.claims.role === 'admin';
   } catch {
     return false;
   }
@@ -94,7 +89,6 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginIdentifier, setLoginIdentifier] = useState('');
-  const [administratorEmail, setAdministratorEmail] = useState('');
 
   useEffect(() => {
     return onAuthStateChanged(auth, async firebaseUser => {
@@ -181,11 +175,10 @@ export default function App() {
     const loginEmail = resolveAdministratorLoginEmail(loginId, {
       configuredEmail: ADMIN_EMAIL,
       rememberedEmail: readRememberedAdministratorEmail(),
-      enteredEmail: String(formData.get('administratorEmail') || ''),
     });
 
     if (!loginEmail) {
-      setAuthMessage('Vui lòng nhập email Firebase của tài khoản quản trị hoặc chọn Đăng nhập bằng Google.');
+      setAuthMessage('Không thể xác định tài khoản quản trị. Vui lòng sử dụng Đăng nhập bằng Google.');
       return;
     }
     const password = String(formData.get('password') || '');
@@ -421,26 +414,6 @@ export default function App() {
                   <input name="loginId" type="text" value={loginIdentifier} onChange={event => { setLoginIdentifier(event.target.value); setAuthMessage(''); }} autoComplete="username" required className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Email đăng nhập hoặc admin" />
                 </div>
 
-                {isAdministratorAlias(loginIdentifier) && !ADMIN_EMAIL && !readRememberedAdministratorEmail() && (
-                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
-                    <label htmlFor="administratorEmail" className="mb-2 block text-sm font-medium text-indigo-900">
-                      Email Firebase của quản trị viên
-                    </label>
-                    <input
-                      id="administratorEmail"
-                      name="administratorEmail"
-                      type="email"
-                      value={administratorEmail}
-                      onChange={event => setAdministratorEmail(event.target.value)}
-                      autoComplete="email"
-                      required
-                      className="block w-full rounded-lg border border-indigo-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Nhập email tài khoản quản trị"
-                    />
-                    <p className="mt-2 text-xs leading-5 text-indigo-700">Chỉ cần nhập một lần trong phiên này; hoặc sử dụng Đăng nhập bằng Google.</p>
-                  </div>
-                )}
-                
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Lock className="h-5 w-5 text-slate-400" />
