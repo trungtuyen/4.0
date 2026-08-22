@@ -1,97 +1,261 @@
-import React, { useState, useEffect } from 'react';
-import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Hand } from 'lucide-react';
-import AdminDashboard from './components/AdminDashboard';
-import ExamManager from './components/ExamManager';
-import AIChatbot from './components/AIChatbot';
-import HeadShakeGame from './components/HeadShakeGame';
-import LuckyDraw from './components/LuckyDraw';
-import DragDropGame from './components/DragDropGame';
-import SecretBoxGame from './components/SecretBoxGame';
-import LearningWall from './components/LearningWall';
-import GestureCoreEdu from './components/GestureCoreEdu';
+import React, { lazy, useState, useEffect } from 'react';
+import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Hand, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
-import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './firebase';
+import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
+
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const ExamManager = lazy(() => import('./components/ExamManager'));
+const AIChatbot = lazy(() => import('./components/AIChatbot'));
+const HeadShakeGame = lazy(() => import('./components/HeadShakeGame'));
+const LuckyDraw = lazy(() => import('./components/LuckyDraw'));
+const DragDropGame = lazy(() => import('./components/DragDropGame'));
+const SecretBoxGame = lazy(() => import('./components/SecretBoxGame'));
+const LearningWall = lazy(() => import('./components/LearningWall'));
+const GestureCoreEdu = lazy(() => import('./components/GestureCoreEdu'));
+const ExcelMerger = lazy(() => import('./components/ExcelMerger'));
+const PdfMerger = lazy(() => import('./components/PdfMerger'));
+
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
+
+const PRODUCT_ICONS: Record<EcosystemApplicationId, LucideIcon> = {
+  'gesture-core': Hand,
+  'lucky-draw': Target,
+  'lucky-draw-cards': Layers,
+  plicker: QrCode,
+  'learning-wall': Layout,
+  'head-shake-game': Smile,
+  chatbot: Brain,
+  'exam-manager': ClipboardCheck,
+  'secret-box': Gift,
+  'drag-drop-game': Gamepad2,
+  'excel-merger': FileSpreadsheet,
+  'pdf-merger': FileText,
+};
+
+function isVerifiedAdministrator(user: FirebaseUser): boolean {
+  return Boolean(ADMIN_EMAIL) && user.email?.toLowerCase() === ADMIN_EMAIL && (
+    user.emailVerified || user.providerData.some(provider => provider.providerId === 'google.com')
+  );
+}
+
+function describeAuthError(error: unknown): string {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+  const messages: Record<string, string> = {
+    'auth/invalid-credential': 'Email hoặc mật khẩu chưa đúng. Vui lòng kiểm tra lại.',
+    'auth/invalid-email': 'Địa chỉ email chưa đúng định dạng.',
+    'auth/email-already-in-use': 'Email này đã có tài khoản. Hãy đăng nhập hoặc chọn quên mật khẩu.',
+    'auth/weak-password': 'Mật khẩu chưa đủ mạnh. Hãy sử dụng ít nhất 8 ký tự.',
+    'auth/operation-not-allowed': 'Phương thức đăng nhập chưa được bật trong Firebase Authentication.',
+    'auth/popup-closed-by-user': 'Cửa sổ đăng nhập Google đã bị đóng.',
+    'auth/unauthorized-domain': 'Tên miền website chưa được thêm vào danh sách Authorized domains của Firebase.',
+    'permission-denied': 'Tài khoản chưa được cấp quyền truy cập dữ liệu Firebase.',
+  };
+  return messages[code] || (error instanceof Error ? error.message : 'Không thể xác thực tài khoản.');
+}
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core'>(() => {
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core' | 'excel-merger' | 'pdf-merger'>(() => {
     const saved = sessionStorage.getItem('currentView');
-    return saved ? JSON.parse(saved) : 'landing';
+    try {
+      return saved ? JSON.parse(saved) : 'landing';
+    } catch {
+      return 'landing';
+    }
   });
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState(false);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [currentUser, setCurrentUser] = useState<Teacher | 'admin' | null>(() => {
-    const saved = sessionStorage.getItem('currentUser');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState<Teacher | 'admin' | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    // We don't use anonymous auth as it might stay restricted. 
-    // Public features rely on permissive Firestore rules.
-  }, []);
+    return onAuthStateChanged(auth, async firebaseUser => {
+      if (!firebaseUser) {
+        setCurrentUser(null);
+        setTeachers([]);
+        setAuthReady(true);
+        return;
+      }
 
-  useEffect(() => {
-    const unsubTeachers = onSnapshot(collection(db, 'teachers'), (snapshot) => {
-      setTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Teacher)));
+      if (isVerifiedAdministrator(firebaseUser)) {
+        setCurrentUser('admin');
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        const profile = await getDoc(doc(db, 'teachers', firebaseUser.uid));
+        if (profile.exists() && profile.data().status === 'active') {
+          setCurrentUser({ id: profile.id, ...profile.data() } as Teacher);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (error) {
+        console.error('Không thể kiểm tra hồ sơ giáo viên:', error);
+        setCurrentUser(null);
+      } finally {
+        setAuthReady(true);
+      }
     });
-    return () => unsubTeachers();
   }, []);
+
+  useEffect(() => {
+    if (currentUser !== 'admin' || !auth.currentUser) return;
+    return onSnapshot(
+      collection(db, 'teachers'),
+      snapshot => setTeachers(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Teacher))),
+      error => console.error('Không thể tải danh sách giáo viên:', error),
+    );
+  }, [currentUser]);
 
   useEffect(() => {
     sessionStorage.setItem('currentView', JSON.stringify(currentView));
   }, [currentView]);
 
   useEffect(() => {
-    sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
-  }, [currentUser]);
+    if (authReady && currentView === 'admin' && !currentUser) {
+      setAuthMode('login');
+      setCurrentView('auth');
+    }
+  }, [authReady, currentView, currentUser]);
 
   const navigateToAuth = (mode: 'login' | 'register') => {
     setAuthMode(mode);
     setCurrentView('auth');
   };
 
-  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+  const resolveSignedInUser = async (firebaseUser: FirebaseUser): Promise<Teacher | 'admin'> => {
+    if (firebaseUser.email?.toLowerCase() === ADMIN_EMAIL) {
+      if (!isVerifiedAdministrator(firebaseUser)) {
+        throw new Error('Tài khoản quản trị cần xác minh email hoặc đăng nhập bằng Google.');
+      }
+      return 'admin';
+    }
+
+    const profile = await getDoc(doc(db, 'teachers', firebaseUser.uid));
+    if (!profile.exists()) {
+      throw new Error('Chưa tìm thấy hồ sơ giáo viên. Vui lòng đăng ký hoặc liên hệ quản trị viên.');
+    }
+    const teacher = { id: profile.id, ...profile.data() } as Teacher;
+    if (teacher.status !== 'active') {
+      throw new Error('Tài khoản giáo viên đang chờ quản trị viên phê duyệt hoặc đã bị khóa.');
+    }
+    return teacher;
+  };
+
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const loginId = formData.get('loginId') as string;
-    const password = formData.get('password');
+    const loginId = String(formData.get('loginId') || '').trim();
+    if (loginId.toLowerCase() === 'admin' && !ADMIN_EMAIL) {
+      setAuthMessage('Chưa cấu hình email quản trị. Hãy khai báo biến VITE_ADMIN_EMAIL trong cài đặt GitHub repository.');
+      return;
+    }
+    const loginEmail = loginId.toLowerCase() === 'admin' ? ADMIN_EMAIL : loginId;
+    const password = String(formData.get('password') || '');
+    setAuthBusy(true);
+    setAuthMessage('');
 
-    // Find teacher by email or username
-    const teacher = teachers.find(t => t.email === loginId || t.username === loginId);
-    
-    if (teacher) {
-      if (teacher.status === 'inactive') {
-        alert('Tài khoản của bạn chưa được duyệt hoặc đã bị khóa. Vui lòng liên hệ quản trị viên.');
-      } else if (teacher.password && teacher.password !== password) {
-        alert('Tên đăng nhập/Email hoặc mật khẩu không đúng! Vui lòng thử lại.');
-      } else {
-        alert('Đăng nhập thành công với tư cách giáo viên!');
-        setCurrentUser(teacher);
-        setCurrentView('admin');
-      }
-    } else {
-      alert('Tên đăng nhập/Email hoặc mật khẩu không đúng! Vui lòng thử lại.');
+    try {
+      const credential = await signInWithEmailAndPassword(auth, loginEmail, password);
+      const verifiedUser = await resolveSignedInUser(credential.user);
+      setCurrentUser(verifiedUser);
+      setCurrentView('admin');
+    } catch (error) {
+      if (auth.currentUser) await signOut(auth).catch(() => undefined);
+      setAuthMessage(describeAuthError(error));
+    } finally {
+      setAuthBusy(false);
     }
   };
 
-  const handleForgotPassword = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('resetEmail');
-    
-    // In a real app, this would send an API request
-    alert(`Hướng dẫn đặt lại mật khẩu đã được gửi đến email: ${email}`);
-    setIsForgotPasswordModalOpen(false);
+  const handleGoogleSignIn = async () => {
+    setAuthBusy(true);
+    setAuthMessage('');
+    try {
+      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+      const verifiedUser = await resolveSignedInUser(credential.user);
+      setCurrentUser(verifiedUser);
+      setCurrentView('admin');
+    } catch (error) {
+      if (auth.currentUser) await signOut(auth).catch(() => undefined);
+      setAuthMessage(describeAuthError(error));
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
-  if (currentView === 'admin') {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = String(formData.get('email') || '').trim().toLowerCase();
+    const password = String(formData.get('password') || '');
+    setAuthBusy(true);
+    setAuthMessage('');
+
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      const newTeacher: Teacher = {
+        id: credential.user.uid,
+        name: String(formData.get('name') || '').trim(),
+        username: email,
+        email,
+        school: String(formData.get('school') || '').trim(),
+        level: String(formData.get('level') || ''),
+        status: 'inactive',
+      };
+      await setDoc(doc(db, 'teachers', credential.user.uid), newTeacher);
+      await sendEmailVerification(credential.user).catch(() => undefined);
+      await signOut(auth);
+      setAuthMode('login');
+      setAuthMessage('Đăng ký thành công. Hãy xác minh email và chờ quản trị viên phê duyệt tài khoản.');
+    } catch (error) {
+      setAuthMessage(describeAuthError(error));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = String(formData.get('resetEmail') || '').trim();
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setIsForgotPasswordModalOpen(false);
+      setAuthMessage(`Nếu tài khoản tồn tại, hướng dẫn đặt lại mật khẩu sẽ được gửi đến ${email}.`);
+    } catch (error) {
+      setAuthMessage(describeAuthError(error));
+      setIsForgotPasswordModalOpen(false);
+    }
+  };
+
+  const launchApplication = (applicationId: EcosystemApplicationId) => {
+    if (applicationId === 'plicker' || applicationId === 'exam-manager') {
+      navigateToAuth('login');
+      return;
+    }
+    setCurrentView(applicationId);
+  };
+
+  if (currentView === 'admin' && currentUser && auth.currentUser) {
     return <AdminDashboard onLogout={() => {
+      void signOut(auth);
       setCurrentUser(null);
       setCurrentView('landing');
     }} teachers={teachers} setTeachers={setTeachers} currentUser={currentUser} />;
+  }
+
+  if (currentView === 'admin') {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang xác minh phiên đăng nhập...</div>;
   }
 
   if (currentView === 'student_exam') {
@@ -134,6 +298,10 @@ export default function App() {
     return <LuckyDraw onBack={() => setCurrentView('landing')} />;
   }
 
+  if (currentView === 'lucky-draw-cards') {
+    return <LuckyDraw initialMode="cards" onBack={() => setCurrentView('landing')} />;
+  }
+
   if (currentView === 'drag-drop-game') {
     return <DragDropGame onBack={() => setCurrentView('landing')} />;
   }
@@ -148,6 +316,14 @@ export default function App() {
 
   if (currentView === 'gesture-core') {
     return <GestureCoreEdu onBack={() => setCurrentView('landing')} />;
+  }
+
+  if (currentView === 'excel-merger') {
+    return <ExcelMerger onBack={() => setCurrentView('landing')} />;
+  }
+
+  if (currentView === 'pdf-merger') {
+    return <PdfMerger onBack={() => setCurrentView('landing')} />;
   }
 
   if (currentView === 'auth') {
@@ -198,59 +374,47 @@ export default function App() {
               {authMode === 'login' ? 'Đăng nhập' : 'Đăng ký'}
             </h2>
 
+            {authMessage && (
+              <div className="mb-5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm leading-6 text-indigo-800" role="status">
+                {authMessage}
+              </div>
+            )}
+
             {authMode === 'login' ? (
               <form className="space-y-4" onSubmit={handleLogin}>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-slate-400" />
                   </div>
-                  <input name="loginId" type="text" required className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Tên đăng nhập / Email đăng nhập" />
+                  <input name="loginId" type="text" autoComplete="username" required className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Email đăng nhập hoặc admin" />
                 </div>
                 
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Lock className="h-5 w-5 text-slate-400" />
                   </div>
-                  <input name="password" type="password" required className="block w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Mật khẩu" />
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer">
-                    <Eye className="h-5 w-5 text-slate-400 hover:text-slate-600" />
-                  </div>
+                  <input name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required className="block w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Mật khẩu" />
+                  <button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer">
+                    {showPassword ? <EyeOff className="h-5 w-5 text-slate-400 hover:text-slate-600" /> : <Eye className="h-5 w-5 text-slate-400 hover:text-slate-600" />}
+                  </button>
                 </div>
 
                 <div className="flex items-center justify-between pt-2">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" className="w-4 h-4 text-blue-500 border-slate-300 rounded focus:ring-blue-500" />
-                    <span className="text-sm text-slate-600">Ghi nhớ mật khẩu</span>
+                    <span className="text-sm text-slate-600">Ghi nhớ phiên đăng nhập</span>
                   </label>
                 </div>
 
-                <button type="submit" className="w-full bg-[#3b82f6] text-white font-medium py-2.5 rounded-lg hover:bg-blue-600 transition-colors mt-2">
-                  Đăng nhập
+                <button type="submit" disabled={authBusy} className="w-full bg-[#3b82f6] text-white font-medium py-2.5 rounded-lg hover:bg-blue-600 transition-colors mt-2 disabled:cursor-not-allowed disabled:opacity-60">
+                  {authBusy ? 'Đang xác thực...' : 'Đăng nhập'}
+                </button>
+                <button type="button" disabled={authBusy} onClick={handleGoogleSignIn} className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
+                  Đăng nhập bằng Google
                 </button>
               </form>
             ) : (
-              <form className="space-y-4" onSubmit={async (e) => { 
-                e.preventDefault(); 
-                const formData = new FormData(e.currentTarget);
-                const newTeacher: Teacher = {
-                  id: Math.random().toString(36).substr(2, 9),
-                  name: formData.get('name') as string,
-                  username: formData.get('email') as string, // Using email as username for registration
-                  email: formData.get('email') as string,
-                  school: formData.get('school') as string,
-                  level: formData.get('level') as string,
-                  status: 'inactive',
-                  password: formData.get('password') as string
-                };
-                try {
-                  await setDoc(doc(db, 'teachers', newTeacher.id), newTeacher);
-                  alert('Đăng ký thành công! Vui lòng chờ quản trị viên kích hoạt tài khoản của bạn để có thể đăng nhập.');
-                  setAuthMode('login');
-                } catch (error) {
-                  console.error("Error registering teacher:", error);
-                  alert('Có lỗi xảy ra khi đăng ký. Vui lòng thử lại.');
-                }
-              }}>
+              <form className="space-y-4" onSubmit={handleRegister}>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-slate-400" />
@@ -317,14 +481,14 @@ export default function App() {
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Lock className="h-5 w-5 text-slate-400" />
                   </div>
-                  <input name="password" type="password" required className="block w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Mật khẩu" />
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer">
-                    <Eye className="h-5 w-5 text-slate-400 hover:text-slate-600" />
-                  </div>
+                  <input name="password" type={showPassword ? 'text' : 'password'} minLength={8} autoComplete="new-password" required className="block w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Mật khẩu từ 8 ký tự" />
+                  <button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute inset-y-0 right-0 pr-3 flex items-center cursor-pointer">
+                    {showPassword ? <EyeOff className="h-5 w-5 text-slate-400 hover:text-slate-600" /> : <Eye className="h-5 w-5 text-slate-400 hover:text-slate-600" />}
+                  </button>
                 </div>
 
-                <button type="submit" className="w-full bg-[#3b82f6] text-white font-medium py-2.5 rounded-lg hover:bg-blue-600 transition-colors mt-2">
-                  Đăng ký
+                <button type="submit" disabled={authBusy} className="w-full bg-[#3b82f6] text-white font-medium py-2.5 rounded-lg hover:bg-blue-600 transition-colors mt-2 disabled:cursor-not-allowed disabled:opacity-60">
+                  {authBusy ? 'Đang tạo tài khoản...' : 'Đăng ký'}
                 </button>
               </form>
             )}
@@ -539,23 +703,23 @@ export default function App() {
               </button>
             </div>
             
-            {/* Stats for investors */}
+            {/* Verified ecosystem metrics */}
             <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto border-t border-white/10 pt-10">
               <div>
-                <div className="text-4xl font-bold text-white mb-2">2M+</div>
-                <div className="text-sm text-slate-400">Người dùng tích cực</div>
+                <div className="text-4xl font-bold text-white mb-2">{ECOSYSTEM_APPLICATIONS.length}</div>
+                <div className="text-sm text-slate-400">Ứng dụng giáo dục</div>
               </div>
               <div>
-                <div className="text-4xl font-bold text-white mb-2">300%</div>
-                <div className="text-sm text-slate-400">Tăng trưởng doanh thu</div>
+                <div className="text-4xl font-bold text-white mb-2">{ECOSYSTEM_APPLICATIONS.filter(application => application.dependency === 'browser').length}</div>
+                <div className="text-sm text-slate-400">Công cụ chạy trên thiết bị</div>
               </div>
               <div>
-                <div className="text-4xl font-bold text-white mb-2">95%</div>
-                <div className="text-sm text-slate-400">Tỷ lệ giữ chân</div>
+                <div className="text-4xl font-bold text-white mb-2">21</div>
+                <div className="text-sm text-slate-400">Điểm nhận dạng bàn tay</div>
               </div>
               <div>
-                <div className="text-4xl font-bold text-white mb-2">50+</div>
-                <div className="text-sm text-slate-400">Đối tác chiến lược</div>
+                <div className="text-4xl font-bold text-white mb-2">A–D</div>
+                <div className="text-sm text-slate-400">Chọn đáp án bằng cử chỉ</div>
               </div>
             </div>
           </div>
@@ -590,95 +754,31 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Product 1 */}
-              <div 
-                onClick={() => setCurrentView('drag-drop-game')}
-                className="group relative bg-white rounded-3xl p-8 border border-slate-200 hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-100 to-transparent rounded-bl-full opacity-50 group-hover:scale-110 transition-transform duration-500"></div>
-                <div className="relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/30 group-hover:-translate-y-1 transition-transform duration-300">
-                    <Gamepad2 className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-blue-600 transition-colors">Trò chơi liên kết thư viện</h3>
-                  <p className="text-slate-600 leading-relaxed">Học tập thông qua các trò chơi tương tác sinh động, kết nối trực tiếp với kho học liệu phong phú giúp học sinh tiếp thu kiến thức tự nhiên.</p>
-                </div>
-              </div>
+              {ECOSYSTEM_APPLICATIONS.filter(application => application.id !== 'gesture-core').map(application => {
+                const ProductIcon = PRODUCT_ICONS[application.id];
+                const needsServer = application.dependency === 'ai-server';
 
-              {/* Product 2 */}
-              <div 
-                onClick={() => setCurrentView('lucky-draw')}
-                className="group relative bg-white rounded-3xl p-8 border border-slate-200 hover:border-emerald-500/50 hover:shadow-2xl hover:shadow-emerald-500/10 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-emerald-100 to-transparent rounded-bl-full opacity-50 group-hover:scale-110 transition-transform duration-500"></div>
-                <div className="relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-emerald-500/30 group-hover:-translate-y-1 transition-transform duration-300">
-                    <Layers className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-emerald-600 transition-colors">Bốc thẻ (Flashcards)</h3>
-                  <p className="text-slate-600 leading-relaxed">Hệ thống thẻ ghi nhớ thông minh với thuật toán lặp lại ngắt quãng, giúp ghi nhớ từ vựng và khái niệm nhanh chóng, hiệu quả lâu dài.</p>
-                </div>
-              </div>
-
-              {/* Product 3 */}
-              <div 
-                onClick={() => setCurrentView('learning-wall')}
-                className="group relative bg-white rounded-3xl p-8 border border-slate-200 hover:border-amber-500/50 hover:shadow-2xl hover:shadow-amber-500/10 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-amber-100 to-transparent rounded-bl-full opacity-50 group-hover:scale-110 transition-transform duration-500"></div>
-                <div className="relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-amber-400 to-orange-500 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-amber-500/30 group-hover:-translate-y-1 transition-transform duration-300">
-                    <Layout className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-amber-600 transition-colors">Tường học tập</h3>
-                  <p className="text-slate-600 leading-relaxed">Không gian thảo luận trực tuyến, nơi học sinh và giáo viên chia sẻ ý tưởng, tài liệu và tương tác đa chiều như một mạng xã hội thu nhỏ.</p>
-                </div>
-              </div>
-
-              {/* Product 4 */}
-              <div 
-                onClick={() => setCurrentView('head-shake-game')}
-                className="group relative bg-white rounded-3xl p-8 border border-slate-200 hover:border-rose-500/50 hover:shadow-2xl hover:shadow-rose-500/10 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-rose-100 to-transparent rounded-bl-full opacity-50 group-hover:scale-110 transition-transform duration-500"></div>
-                <div className="relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-rose-400 to-red-500 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-rose-500/30 group-hover:-translate-y-1 transition-transform duration-300">
-                    <Smile className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-rose-600 transition-colors">Trò chơi lắc đầu chọn đáp án</h3>
-                  <p className="text-slate-600 leading-relaxed">Ứng dụng công nghệ nhận diện chuyển động AI, cho phép học sinh trả lời câu hỏi bằng cử chỉ đầu, mang lại trải nghiệm học tập đầy thú vị.</p>
-                </div>
-              </div>
-
-              {/* Product 5 */}
-              <div 
-                onClick={() => setCurrentView('chatbot')}
-                className="group relative bg-white rounded-3xl p-8 border border-slate-200 hover:border-violet-500/50 hover:shadow-2xl hover:shadow-violet-500/10 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-violet-100 to-transparent rounded-bl-full opacity-50 group-hover:scale-110 transition-transform duration-500"></div>
-                <div className="relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-violet-500 to-purple-600 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-violet-500/30 group-hover:-translate-y-1 transition-transform duration-300">
-                    <Brain className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-violet-600 transition-colors">AI phân tích tâm lý</h3>
-                  <p className="text-slate-600 leading-relaxed">Trí tuệ nhân tạo phân tích biểu cảm và hành vi học tập, giúp giáo viên nắm bắt trạng thái tâm lý và mức độ tập trung của từng học sinh.</p>
-                </div>
-              </div>
-
-              {/* Product 6 */}
-              <div 
-                onClick={() => setCurrentView('auth')}
-                className="group relative bg-white rounded-3xl p-8 border border-slate-200 hover:border-cyan-500/50 hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-cyan-100 to-transparent rounded-bl-full opacity-50 group-hover:scale-110 transition-transform duration-500"></div>
-                <div className="relative z-10">
-                  <div className="w-14 h-14 bg-gradient-to-br from-cyan-400 to-blue-500 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-cyan-500/30 group-hover:-translate-y-1 transition-transform duration-300">
-                    <FileEdit className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-cyan-600 transition-colors">Tạo kỳ thi thông minh</h3>
-                  <p className="text-slate-600 leading-relaxed">Hệ thống tạo đề thi tự động từ ngân hàng câu hỏi, hỗ trợ trộn đề, giám sát chống gian lận và chấm điểm tức thì với báo cáo chi tiết.</p>
-                </div>
-              </div>
+                return (
+                  <button
+                    key={application.id}
+                    type="button"
+                    onClick={() => launchApplication(application.id)}
+                    className="group relative flex min-h-64 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white p-8 text-left transition-all duration-300 hover:border-indigo-400 hover:shadow-xl"
+                  >
+                    <div className="mb-6 flex w-full items-start justify-between gap-3">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white shadow-lg shadow-indigo-500/20 transition-transform group-hover:-translate-y-1">
+                        <ProductIcon className="h-7 w-7" />
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${needsServer ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {ECOSYSTEM_DEPENDENCY_LABELS[application.dependency]}
+                      </span>
+                    </div>
+                    <span className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-600">{application.category}</span>
+                    <h3 className="mb-3 text-xl font-bold text-slate-900 transition-colors group-hover:text-indigo-700">{application.name}</h3>
+                    <p className="text-sm leading-6 text-slate-600">{application.description}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </section>

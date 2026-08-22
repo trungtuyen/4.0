@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Upload, ArrowLeft, FileSpreadsheet, X, Download, AlertCircle, CheckCircle2, ChevronRight, File } from 'lucide-react';
+import { Upload, ArrowLeft, FileSpreadsheet, X, Download, AlertCircle, CheckCircle2, ChevronRight, File as FileIcon } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -9,7 +9,7 @@ interface ExcelMergerProps {
 
 interface FileItem {
   id: string;
-  file: File;
+  file: globalThis.File;
   name: string;
   size: number;
   status: 'pending' | 'processing' | 'done' | 'error';
@@ -24,7 +24,7 @@ export default function ExcelMerger({ onBack }: ExcelMergerProps) {
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files).map(file => ({
+      const newFiles = Array.from(e.target.files as FileList).map((file: globalThis.File) => ({
         id: Math.random().toString(36).substr(2, 9),
         file,
         name: file.name,
@@ -159,7 +159,7 @@ export default function ExcelMerger({ onBack }: ExcelMergerProps) {
                       >
                         <div className="flex items-center gap-3 overflow-hidden">
                           <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center shrink-0">
-                            <File className="w-5 h-5" />
+                            <FileIcon className="w-5 h-5" />
                           </div>
                           <div className="overflow-hidden">
                             <p className="font-medium text-slate-800 text-sm truncate">{file.name}</p>

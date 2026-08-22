@@ -3,6 +3,7 @@ import { Camera, X, RefreshCw, Send, Image as ImageIcon, CheckCircle, AlertCircl
 import { db } from '../firebase';
 import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
+import { postApiJson } from '../lib/api';
 
 interface OMRScannerProps {
   examId: string;
@@ -108,24 +109,14 @@ export default function OMRScanner({ examId, exams, students, classes, teacherId
         Yêu cầu trả về JSON chính xác.
       `;
 
-      const response = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64Data, prompt })
-      });
-
-      if (!response.ok) {
-        throw new Error("Lỗi khi kết nối với máy chủ AI");
-      }
-
-      const data = await response.json();
+      const data = await postApiJson<any>('scan', { image: base64Data, prompt });
       
       // Grading
       const finalResult = gradeExam(data);
       setResults(finalResult);
     } catch (err) {
       console.error("Error processing image:", err);
-      setError("Có lỗi xảy ra khi phân tích ảnh. Vui lòng đảm bảo ảnh chụp phiếu phẳng, đủ sáng và không bị lóa.");
+      setError(err instanceof Error ? err.message : "Có lỗi xảy ra khi phân tích ảnh. Vui lòng đảm bảo ảnh chụp đủ sáng và không bị lóa.");
     } finally {
       setIsProcessing(false);
     }

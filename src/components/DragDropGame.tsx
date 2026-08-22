@@ -614,7 +614,7 @@ export default function DragDropGame({ onBack }: DragDropGameProps) {
 }
 
 // Separate component for draggable label to manage its own animation state
-function DraggableLabel({ label, onDrop, disabled }: { label: Label, onDrop: (info: PanInfo) => boolean, disabled: boolean }) {
+function DraggableLabel({ label, onDrop, disabled }: React.Attributes & { label: Label, onDrop: (info: PanInfo) => boolean, disabled: boolean }) {
   const controls = useAnimation();
   const [isDragging, setIsDragging] = useState(false);
 

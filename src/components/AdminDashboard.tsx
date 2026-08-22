@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Eye, EyeOff, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText } from 'lucide-react';
+import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText } from 'lucide-react';
 import { Teacher } from '../types';
 import LuckyDraw from './LuckyDraw';
 import PlickerScanner from './PlickerScanner';
@@ -10,8 +10,11 @@ import SecretBoxGame from './SecretBoxGame';
 import DragDropGame from './DragDropGame';
 import ExcelMerger from './ExcelMerger';
 import PdfMerger from './PdfMerger';
+import GestureCoreEdu from './GestureCoreEdu';
 import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, arrayUnion } from 'firebase/firestore';
-import { db } from '../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth, db } from '../firebase';
+import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;
@@ -113,7 +116,7 @@ interface AdminDashboardProps {
 
 export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(currentUser === 'admin' ? 'teachers' : 'library');
-  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>('main');
+  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>('main');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -125,11 +128,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
     isOpen: boolean;
     title: string;
     message: string;
-    onConfirm: (value?: string) => void;
-    isResetPassword?: boolean;
+    onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<'new' | 'edit' | 'global_post' | { type: 'category', categoryId: string } | null>(null);
 
@@ -357,20 +357,20 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   };
 
   const handleResetPassword = (id: string) => {
-    setNewPassword('');
+    const teacher = teachers.find(item => item.id === id);
+    if (!teacher?.email) {
+      alert('Chưa có email hợp lệ để gửi hướng dẫn đặt lại mật khẩu.');
+      return;
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: 'Khôi phục mật khẩu',
-      message: 'Vui lòng nhập mật khẩu mới cho giáo viên này:',
-      isResetPassword: true,
-      onConfirm: async (passwordValue?: string) => {
-        if (!passwordValue) {
-          alert('Vui lòng nhập mật khẩu mới');
-          return;
-        }
+      message: `Gửi email đặt lại mật khẩu an toàn đến ${teacher.email}?`,
+      onConfirm: async () => {
         try {
-          await updateDoc(doc(db, 'teachers', id), { password: passwordValue });
-          alert(`Mật khẩu đã được đặt lại thành: ${passwordValue}. Vui lòng thông báo cho giáo viên.`);
+          await sendPasswordResetEmail(auth, teacher.email);
+          alert('Đã gửi hướng dẫn đặt lại mật khẩu đến email của giáo viên.');
           setConfirmDialog(prev => ({ ...prev, isOpen: false }));
         } catch (error) {
           console.error("Error resetting password:", error);
@@ -637,10 +637,24 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
         ) : activeLibraryView === 'main' ? (
           <>
             <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 md:py-5 flex items-center justify-between">
-              <h1 className="text-xl md:text-2xl font-bold text-slate-800">Thư viện tương tác</h1>
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-slate-800">Thư viện tương tác</h1>
+                <p className="mt-1 text-sm text-slate-500">{ECOSYSTEM_APPLICATIONS.length} ứng dụng trong hệ sinh thái lớp học thông minh</p>
+              </div>
             </header>
             <div className="flex-1 overflow-auto p-4 md:p-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
+                <div
+                  onClick={() => setActiveLibraryView('gesture-core')}
+                  className="group cursor-pointer rounded-2xl border border-cyan-300 bg-gradient-to-br from-slate-900 to-indigo-950 p-3 shadow-sm transition-shadow hover:shadow-lg md:p-6"
+                >
+                  <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/20 text-cyan-300 transition-transform group-hover:scale-110 md:mb-4 md:h-12 md:w-12">
+                    <Hand className="h-5 w-5 md:h-6 md:w-6" />
+                  </div>
+                  <h3 className="mb-1 text-sm font-bold text-white md:mb-2 md:text-lg">GestureCore Edu</h3>
+                  <p className="line-clamp-2 text-[10px] text-slate-300 md:text-sm">Trắc nghiệm, lật thẻ và chọn học sinh bằng cử chỉ bàn tay ổn định AGSA.</p>
+                </div>
+
                 <div 
                   onClick={() => setActiveLibraryView('lucky-draw')}
                   className="bg-white p-3 md:p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
@@ -764,6 +778,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               </div>
             </div>
           </>
+        ) : activeLibraryView === 'gesture-core' ? (
+          <GestureCoreEdu onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'create-exam' ? (
           <ExamManager initialMode="teacher" onBack={() => setActiveLibraryView('main')} currentUser={currentUser} />
         ) : activeLibraryView === 'chatbot' ? (
@@ -1597,32 +1613,6 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               <h3 className="text-lg font-bold text-slate-900 mb-2">{confirmDialog.title}</h3>
               <p className="text-slate-600 mb-4">{confirmDialog.message}</p>
               
-              {confirmDialog.isResetPassword && (
-                <div className="mb-6 relative">
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        confirmDialog.onConfirm(newPassword);
-                      }
-                    }}
-                    placeholder="Nhập mật khẩu mới"
-                    className="w-full pl-4 pr-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-slate-900 font-medium"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
-                  >
-                    {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              )}
-              
               <div className="flex justify-end gap-3">
                 <button 
                   onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
@@ -1631,7 +1621,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   Hủy
                 </button>
                 <button 
-                  onClick={() => confirmDialog.onConfirm(newPassword)}
+                  onClick={() => confirmDialog.onConfirm()}
                   className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
                 >
                   Xác nhận
