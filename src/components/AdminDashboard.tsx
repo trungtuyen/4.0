@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText, Eye, EyeOff } from 'lucide-react';
 import { Teacher } from '../types';
 import LuckyDraw from './LuckyDraw';
-import PlickerScanner from './PlickerScanner';
+import PlickerScanner from './PlickerClassroom';
 import HeadShakeGame from './HeadShakeGame';
 import AIChatbot from './AIChatbot';
 import ExamManager from './ExamManager';
@@ -856,7 +856,10 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 authorId: currentUserId === 'admin' ? '' : currentUserId,
                 createdAt: new Date().toISOString()
               };
-              setCategories([...categories, newCategory]);
+              setCategories(previous => [...previous, newCategory]);
+              void setDoc(doc(db, 'categories', classId), newCategory).catch(error => {
+                console.error('Không thể lưu lớp học tương tác thẻ:', error);
+              });
               
               if (studentNames && studentNames.length > 0) {
                 const newStudents = studentNames.map(name => ({
@@ -865,7 +868,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   name,
                   createdAt: new Date().toISOString()
                 }));
-                setStudents([...students, ...newStudents]);
+                setStudents(previous => [...previous, ...newStudents]);
               }
             }}
             onAddStudents={(classId, names) => {
@@ -875,7 +878,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 name,
                 createdAt: new Date().toISOString()
               }));
-              setStudents([...students, ...newStudents]);
+              setStudents(previous => [...previous, ...newStudents]);
             }}
           />
         ) : (
