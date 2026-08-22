@@ -7,5 +7,4 @@ export interface Teacher {
   level: string;
   status: 'active' | 'inactive';
   avatar?: string;
-  password?: string;
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Play, RefreshCw, Camera, AlertCircle, Clock, Star, Edit2, Plus, Trash2, Save, Search, ChevronDown, ChevronUp, Download, Upload, Sparkles, Check, Archive, X, Loader2, User, FolderPlus } from 'lucide-react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import * as XLSX from 'xlsx';
+import { postApiJson } from '../lib/api';
 
 interface HeadShakeGameProps {
   onBack: () => void;
@@ -199,17 +200,7 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
     if (!aiTopic.trim()) return;
     setIsGenerating(true);
     try {
-      const response = await fetch("/api/generate-questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: aiTopic, count: aiCount })
-      });
-
-      if (!response.ok) {
-        throw new Error("Lỗi khi kết nối với máy chủ AI");
-      }
-
-      const generatedData = await response.json();
+      const generatedData = await postApiJson<any[]>('generate-questions', { topic: aiTopic, count: aiCount });
       const newQuestions: Question[] = generatedData.map((q: any) => ({
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         text: q.text,
@@ -227,7 +218,7 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
       setAiTopic('');
     } catch (error) {
       console.error("Lỗi khi tạo câu hỏi bằng AI:", error);
-      setErrorAlert("Đã xảy ra lỗi khi tạo câu hỏi. Vui lòng thử lại.");
+      setErrorAlert(error instanceof Error ? error.message : "Đã xảy ra lỗi khi tạo câu hỏi. Vui lòng thử lại.");
     } finally {
       setIsGenerating(false);
     }

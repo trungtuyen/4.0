@@ -1,12 +1,19 @@
-import {StrictMode} from 'react';
+import {StrictMode, Suspense} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { resolveApiUrl } from './lib/api';
 
 // Prevent library conflict with window.fetch (e.g. Mediapipe/TFLite)
 (function() {
-  const originalFetch = window.fetch;
-  if (!originalFetch) return;
+  if (!window.fetch) return;
+  const nativeFetch = window.fetch.bind(window);
+  const originalFetch: typeof window.fetch = (input, init) => {
+    if (typeof input === 'string' && input.startsWith('/api/')) {
+      return nativeFetch(resolveApiUrl(input.slice('/api/'.length)), init);
+    }
+    return nativeFetch(input, init);
+  };
   
   try {
     const descriptor = Object.getOwnPropertyDescriptor(window, 'fetch');
@@ -43,6 +50,8 @@ console.log = (...args) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang tải ứng dụng...</div>}>
+      <App />
+    </Suspense>
   </StrictMode>,
 );

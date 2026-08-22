@@ -21,7 +21,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'tuyenthcskimhy@gmail.com' ||
+        (emailVerified() && request.auth.token.email == 'tuyenthcskimhy@gmail.com') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -40,50 +40,62 @@ service cloud.firestore {
 
     // 1. Teachers
     match /teachers/{teacherId} {
-      allow read, write: if true;
+      allow get: if isAdmin() || isOwner(teacherId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (
+        isOwner(teacherId) &&
+        incoming().id == teacherId &&
+        incoming().email == request.auth.token.email &&
+        incoming().status == 'inactive' &&
+        !('password' in incoming())
+      );
+      allow update, delete: if isAdmin();
     }
 
     // 2. Categories
     match /categories/{categoryId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
     }
 
     // 3. Wall Posts
     match /wall_posts/{postId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
     }
 
     // 4. Exams
     match /exams/{examId} {
       allow read: if true;
-      allow create: if true; 
-      allow update, delete: if true; 
+      allow create, update, delete: if isSignedIn();
     }
 
     // 5. Classes
     match /classes/{classId} {
       allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 6. Students
     match /students/{studentId} {
       allow read: if true;
+      // Student self-registration currently runs without Firebase Authentication.
       allow create: if true;
-      allow update, delete: if true;
+      allow update, delete: if isSignedIn();
     }
 
     // 7. Results
     match /results/{resultId} {
       allow read: if true;
+      // Public submission remains until student accounts are migrated to Firebase Auth.
       allow create: if true;
-      allow update, delete: if true;
+      allow update, delete: if isSignedIn();
     }
 
     // 8. Exam Sessions
     match /exam_sessions/{sessionId} {
-      allow read, write: if true;
+      allow read, create, update: if true;
+      allow delete: if isSignedIn();
     }
   }
 }

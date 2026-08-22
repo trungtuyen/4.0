@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { ECOSYSTEM_APPLICATIONS } from '../src/ecosystem';
+import { normalizeApiServer } from '../src/lib/api';
+
+assert.equal(ECOSYSTEM_APPLICATIONS.length, 12, 'The catalog exposes all 12 applications.');
+assert.equal(new Set(ECOSYSTEM_APPLICATIONS.map((app) => app.id)).size, 12, 'Application IDs are unique.');
+assert.ok(ECOSYSTEM_APPLICATIONS.some((app) => app.id === 'gesture-core'));
+assert.ok(ECOSYSTEM_APPLICATIONS.some((app) => app.id === 'plicker'));
+assert.equal(normalizeApiServer('https://example.edu.vn/'), 'https://example.edu.vn');
+assert.equal(normalizeApiServer('http://localhost:3000/'), 'http://localhost:3000');
+assert.equal(normalizeApiServer('  '), '');
+assert.throws(() => normalizeApiServer('http://example.edu.vn'));
+assert.throws(() => normalizeApiServer('https://user:secret@example.edu.vn'));
+assert.throws(() => normalizeApiServer('https://example.edu.vn/?token=123'));
+
+console.info('SmartClass ecosystem: 10 checks passed.');

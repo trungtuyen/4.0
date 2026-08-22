@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, ArrowLeft, FileText, X, Download, AlertCircle, CheckCircle2, File } from 'lucide-react';
+import { Upload, ArrowLeft, FileText, X, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -9,7 +9,7 @@ interface PdfMergerProps {
 
 interface FileItem {
   id: string;
-  file: File;
+  file: globalThis.File;
   name: string;
   size: number;
   status: 'pending' | 'processing' | 'done' | 'error';
@@ -23,7 +23,7 @@ export default function PdfMerger({ onBack }: PdfMergerProps) {
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files).map(file => ({
+      const newFiles = Array.from(e.target.files as FileList).map((file: globalThis.File) => ({
         id: Math.random().toString(36).substr(2, 9),
         file,
         name: file.name,
