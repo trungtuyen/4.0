@@ -10,7 +10,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:gesture": "node --import tsx scripts/test-agsa.ts",
-    "test:platform": "node --import tsx scripts/test-platform.ts"
+    "test:platform": "node --import tsx scripts/test-platform.ts",
+    "test:plicker": "node --import tsx scripts/test-plicker.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",
