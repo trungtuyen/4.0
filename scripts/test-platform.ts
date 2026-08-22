@@ -16,8 +16,10 @@ assert.throws(() => normalizeApiServer('https://example.edu.vn/?token=123'));
 
 assert.equal(isAdministratorAlias(' ADMIN '), true);
 assert.equal(isAdministratorAlias('teacher@example.edu.vn'), false);
-assert.equal(resolveAdministratorLoginEmail('admin', { enteredEmail: ' Owner@Example.edu.vn ' }), 'owner@example.edu.vn');
-assert.equal(resolveAdministratorLoginEmail('admin', { configuredEmail: 'owner@example.edu.vn', enteredEmail: 'other@example.edu.vn' }), 'owner@example.edu.vn');
+assert.equal(resolveAdministratorLoginEmail('admin', { configuredEmail: ' Owner@Example.edu.vn ' }), 'owner@example.edu.vn');
+assert.equal(resolveAdministratorLoginEmail('admin', { rememberedEmail: ' Remembered@Example.edu.vn ' }), 'remembered@example.edu.vn');
+assert.equal(resolveAdministratorLoginEmail('admin', { configuredEmail: 'owner@example.edu.vn', rememberedEmail: 'other@example.edu.vn' }), 'owner@example.edu.vn');
+assert.equal(resolveAdministratorLoginEmail('admin'), '');
 assert.equal(resolveAdministratorLoginEmail('teacher@example.edu.vn'), 'teacher@example.edu.vn');
 
-console.info('SmartClass ecosystem: 15 checks passed.');
+console.info('SmartClass ecosystem: 17 checks passed.');
