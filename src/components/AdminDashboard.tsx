@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText } from 'lucide-react';
+import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText, Eye, EyeOff } from 'lucide-react';
 import { Teacher } from '../types';
 import LuckyDraw from './LuckyDraw';
 import PlickerScanner from './PlickerScanner';
@@ -15,6 +15,7 @@ import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, quer
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
+import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;
@@ -123,6 +124,11 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const [newTeacher, setNewTeacher] = useState<Partial<Teacher>>({
     name: '', username: '', email: '', school: '', level: 'THPT', status: 'active'
   });
+  const [newTeacherPassword, setNewTeacherPassword] = useState('');
+  const [newTeacherPasswordConfirmation, setNewTeacherPasswordConfirmation] = useState('');
+  const [showNewTeacherPassword, setShowNewTeacherPassword] = useState(false);
+  const [teacherAccountError, setTeacherAccountError] = useState('');
+  const [isCreatingTeacher, setIsCreatingTeacher] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -318,25 +324,44 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
 
   const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
-    const teacher: Teacher = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newTeacher.name || '',
-      username: newTeacher.username || '',
-      email: newTeacher.email || '',
-      school: newTeacher.school || '',
-      level: newTeacher.level || 'THPT',
-      status: newTeacher.status as 'active' | 'inactive' || 'active',
-    };
-    if (newTeacher.avatar) {
-      teacher.avatar = newTeacher.avatar;
+    const email = (newTeacher.email || '').trim().toLowerCase();
+    const validationError = validateTeacherCredentials(
+      email,
+      newTeacherPassword,
+      newTeacherPasswordConfirmation,
+    );
+    if (validationError) {
+      setTeacherAccountError(validationError);
+      return;
     }
+
+    setTeacherAccountError('');
+    setIsCreatingTeacher(true);
     try {
-      await setDoc(doc(db, 'teachers', teacher.id), teacher);
+      await provisionTeacherAccount(email, newTeacherPassword, async userId => {
+        const teacher: Teacher = {
+          id: userId,
+          name: (newTeacher.name || '').trim(),
+          username: (newTeacher.username || '').trim(),
+          email,
+          school: (newTeacher.school || '').trim(),
+          level: newTeacher.level || 'THPT',
+          status: newTeacher.status as 'active' | 'inactive' || 'active',
+        };
+        if (newTeacher.avatar) teacher.avatar = newTeacher.avatar;
+        await setDoc(doc(db, 'teachers', userId), teacher);
+      });
       setIsAddModalOpen(false);
       setNewTeacher({ name: '', username: '', email: '', school: '', level: 'THPT', status: 'active' });
+      setNewTeacherPassword('');
+      setNewTeacherPasswordConfirmation('');
+      setShowNewTeacherPassword(false);
       alert('Đã cấp tài khoản giáo viên thành công!');
     } catch (error) {
       console.error("Error adding teacher:", error);
+      setTeacherAccountError(describeTeacherAccountError(error));
+    } finally {
+      setIsCreatingTeacher(false);
     }
   };
 
@@ -1364,7 +1389,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       {/* Add Teacher Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-800">Cấp tài khoản giáo viên</h3>
               <button 
@@ -1376,7 +1401,12 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 </svg>
               </button>
             </div>
-            <form onSubmit={handleAddTeacher} className="p-6 space-y-4">
+            <form onSubmit={handleAddTeacher} className="p-6 space-y-4 overflow-y-auto">
+              {teacherAccountError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                  {teacherAccountError}
+                </div>
+              )}
               <div className="flex justify-center mb-6">
                 <div className="relative">
                   <div className="w-24 h-24 rounded-full bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center">
@@ -1433,6 +1463,49 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Mật khẩu cấp cho giáo viên</label>
+                <div className="relative">
+                  <input
+                    type={showNewTeacherPassword ? 'text' : 'password'}
+                    required
+                    minLength={MINIMUM_TEACHER_PASSWORD_LENGTH}
+                    autoComplete="new-password"
+                    value={newTeacherPassword}
+                    onChange={event => {
+                      setNewTeacherPassword(event.target.value);
+                      setTeacherAccountError('');
+                    }}
+                    className="w-full px-3 py-2 pr-11 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Nhập mật khẩu từ 8 ký tự"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewTeacherPassword(value => !value)}
+                    aria-label={showNewTeacherPassword ? 'Ẩn mật khẩu giáo viên' : 'Hiện mật khẩu giáo viên'}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                  >
+                    {showNewTeacherPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Xác nhận mật khẩu</label>
+                <input
+                  type={showNewTeacherPassword ? 'text' : 'password'}
+                  required
+                  minLength={MINIMUM_TEACHER_PASSWORD_LENGTH}
+                  autoComplete="new-password"
+                  value={newTeacherPasswordConfirmation}
+                  onChange={event => {
+                    setNewTeacherPasswordConfirmation(event.target.value);
+                    setTeacherAccountError('');
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Nhập lại mật khẩu giáo viên"
+                />
+                <p className="mt-1 text-xs text-slate-500">Giáo viên đăng nhập bằng email và mật khẩu được cấp.</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị công tác</label>
                 <input 
                   type="text" 
@@ -1468,9 +1541,10 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 </button>
                 <button 
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                  disabled={isCreatingTeacher}
+                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Cấp tài khoản
+                  {isCreatingTeacher ? 'Đang cấp tài khoản...' : 'Cấp tài khoản'}
                 </button>
               </div>
             </form>
