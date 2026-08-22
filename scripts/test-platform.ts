@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { ECOSYSTEM_APPLICATIONS } from '../src/ecosystem';
 import { normalizeApiServer } from '../src/lib/api';
 import { isAdministratorAlias, resolveAdministratorLoginEmail } from '../src/lib/adminAuth';
+import { describeTeacherAccountError, validateTeacherCredentials } from '../src/lib/teacherAccounts';
 
 assert.equal(ECOSYSTEM_APPLICATIONS.length, 12, 'The catalog exposes all 12 applications.');
 assert.equal(new Set(ECOSYSTEM_APPLICATIONS.map((app) => app.id)).size, 12, 'Application IDs are unique.');
@@ -22,4 +23,10 @@ assert.equal(resolveAdministratorLoginEmail('admin', { configuredEmail: 'owner@e
 assert.equal(resolveAdministratorLoginEmail('admin'), '');
 assert.equal(resolveAdministratorLoginEmail('teacher@example.edu.vn'), 'teacher@example.edu.vn');
 
-console.info('SmartClass ecosystem: 17 checks passed.');
+assert.equal(validateTeacherCredentials('teacher@example.edu.vn', 'password-123', 'password-123'), '');
+assert.match(validateTeacherCredentials('teacher@example.edu.vn', 'short', 'short'), /ít nhất 8 ký tự/);
+assert.match(validateTeacherCredentials('teacher@example.edu.vn', 'password-123', 'password-456'), /chưa trùng khớp/);
+assert.match(describeTeacherAccountError({ code: 'auth/email-already-in-use' }), /đã có tài khoản/);
+assert.match(describeTeacherAccountError({ code: 'auth/operation-not-allowed' }), /Email\/Mật khẩu/);
+
+console.info('SmartClass ecosystem: 22 checks passed.');
