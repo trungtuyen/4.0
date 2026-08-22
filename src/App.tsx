@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare } from 'lucide-react';
+import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Hand } from 'lucide-react';
 import AdminDashboard from './components/AdminDashboard';
 import ExamManager from './components/ExamManager';
 import AIChatbot from './components/AIChatbot';
@@ -8,13 +8,14 @@ import LuckyDraw from './components/LuckyDraw';
 import DragDropGame from './components/DragDropGame';
 import SecretBoxGame from './components/SecretBoxGame';
 import LearningWall from './components/LearningWall';
+import GestureCoreEdu from './components/GestureCoreEdu';
 import { Teacher } from './types';
 import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'drag-drop-game' | 'secret-box' | 'learning-wall'>(() => {
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core'>(() => {
     const saved = sessionStorage.getItem('currentView');
     return saved ? JSON.parse(saved) : 'landing';
   });
@@ -58,12 +59,6 @@ export default function App() {
     const loginId = formData.get('loginId') as string;
     const password = formData.get('password');
 
-    if ((loginId === 'admin@example.com' || loginId === 'Admin') && password === '@2026') {
-      setCurrentUser('admin');
-      setCurrentView('admin');
-      return;
-    } 
-    
     // Find teacher by email or username
     const teacher = teachers.find(t => t.email === loginId || t.username === loginId);
     
@@ -149,6 +144,10 @@ export default function App() {
 
   if (currentView === 'learning-wall') {
     return <LearningWall onBack={() => setCurrentView('landing')} />;
+  }
+
+  if (currentView === 'gesture-core') {
+    return <GestureCoreEdu onBack={() => setCurrentView('landing')} />;
   }
 
   if (currentView === 'auth') {
@@ -572,6 +571,25 @@ export default function App() {
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {/* GestureCore Edu */}
+              <div
+                onClick={() => setCurrentView('gesture-core')}
+                className="group relative bg-slate-900 rounded-3xl p-8 border border-cyan-400/40 hover:border-cyan-300 hover:shadow-2xl hover:shadow-cyan-500/20 transition-all duration-300 overflow-hidden cursor-pointer md:col-span-2 lg:col-span-3"
+              >
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.25),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(139,92,246,0.22),transparent_45%)]"></div>
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-7">
+                  <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-violet-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:-translate-y-1 transition-transform duration-300 shrink-0">
+                    <Hand className="w-8 h-8" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="inline-flex px-3 py-1 rounded-full bg-cyan-400/10 text-cyan-300 text-xs font-bold mb-3">DỰ ÁN NGHIÊN CỨU AGSA</div>
+                    <h3 className="text-2xl font-extrabold text-white mb-2">GestureCore Edu — Điều khiển học tập bằng cử chỉ</h3>
+                    <p className="text-slate-300 leading-relaxed max-w-4xl">Nhận dạng 1–4 ngón tay và nắm tay theo thời gian thực, ổn định bằng bộ lọc thích ứng, bỏ phiếu nhiều khung hình và khóa chống kích hoạt lặp. Tích hợp trắc nghiệm, lật thẻ, chọn học sinh và phòng thử nghiệm số liệu.</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-cyan-300 font-bold shrink-0">Mở phần mềm <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></div>
+                </div>
+              </div>
+
               {/* Product 1 */}
               <div 
                 onClick={() => setCurrentView('drag-drop-game')}
