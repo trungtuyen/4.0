@@ -65,7 +65,7 @@ GitHub Pages chỉ triển khai giao diện tĩnh; các địa chỉ `/api/chat`
 
 - Đăng nhập sử dụng Firebase Authentication; ứng dụng không lưu mật khẩu dưới dạng văn bản trong Firestore.
 - Quản trị viên có thể đăng nhập bằng Google hoặc bằng email đã xác minh.
-- Khai báo repository variable `VITE_ADMIN_EMAIL` để ánh xạ tên đăng nhập `admin` đến email quản trị đã xác minh; không ghi cứng địa chỉ quản trị trong mã nguồn frontend.
+- Repository variable `VITE_ADMIN_EMAIL` là tùy chọn. Nếu chưa cấu hình, khi nhập tên `admin` hãy điền email Firebase của quản trị viên; hoặc đăng nhập bằng Google. Sau khi quyền quản trị được Firebase/Firestore xác minh, trình duyệt ghi nhớ email cho phiên hiện tại.
 - Giáo viên mới được tạo ở trạng thái chờ duyệt; quản trị viên phải kích hoạt trước khi sử dụng thư viện.
 - Chức năng khôi phục mật khẩu gửi liên kết bảo mật qua Firebase, không hiển thị hoặc đặt trực tiếp mật khẩu.
 - `firestore.rules` trong kho chỉ có hiệu lực sau khi được quản trị viên Firebase kiểm tra và triển khai.
