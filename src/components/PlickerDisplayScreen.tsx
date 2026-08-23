@@ -67,6 +67,20 @@ export function calculatePlickerDisplayProgress(answered: number, total: number)
   return Math.max(0, Math.min(100, Math.round(answered * 100 / total)));
 }
 
+export function mapPlickerDisplayStudentAnswers(
+  students: PlickerDisplayStudent[],
+  responses: PlickerDisplayResponse[],
+): Map<string, PlickerAnswer> {
+  const validStudentIds = new Set(students.map(student => student.id));
+  const answers = new Map<string, PlickerAnswer>();
+  for (const response of responses) {
+    if (validStudentIds.has(response.studentId) && ANSWERS.includes(response.answer)) {
+      answers.set(response.studentId, response.answer);
+    }
+  }
+  return answers;
+}
+
 export function PlickerDisplayMath({ text }: { text: string }) {
   const nodes: React.ReactNode[] = [];
   const tokens = /\\frac\{([^{}]+)\}\{([^{}]+)\}|(?<![\p{L}\p{N}])(-?\d+)\/([\p{L}]+|\d+)|\^\{([^{}]+)\}|\^(-?\d+)|_\{([^{}]+)\}|_(\d+)/gu;
@@ -106,14 +120,26 @@ export default function PlickerDisplayScreen({
   distribution, phase, showCorrect, showGraph, scannerConnected, connected, scannerUrl,
   onToggleCorrect, onToggleGraph, onClose,
 }: PlickerDisplayScreenProps) {
-  const [showStudents, setShowStudents] = useState(false);
+  const [showStudents, setShowStudents] = useState(() =>
+    Boolean(question && phase && phase !== 'finished' && students.length));
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const progress = calculatePlickerDisplayProgress(responses.length, students.length);
+  const openedRosterKeysRef = useRef(new Set<string>());
+  const answerByStudent = mapPlickerDisplayStudentAnswers(students, responses);
+  const answeredCount = answerByStudent.size;
+  const progress = calculatePlickerDisplayProgress(answeredCount, students.length);
   const availableAnswers = question
     ? ANSWERS.filter(answer => question.options[answer] !== undefined)
     : [];
-  const answerByStudent = new Map(responses.map(response => [response.studentId, response.answer]));
+
+  useEffect(() => {
+    if (!question || !phase || phase === 'finished' || students.length === 0) return;
+    const action = phase === 'scanning' ? 'scan' : 'play';
+    const key = `${className}:${setTitle}:${questionIndex}:${action}`;
+    if (openedRosterKeysRef.current.has(key)) return;
+    openedRosterKeysRef.current.add(key);
+    setShowStudents(true);
+  }, [className, phase, question, questionIndex, setTitle, students.length]);
 
   useEffect(() => {
     const updateFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -217,10 +243,12 @@ export default function PlickerDisplayScreen({
           <p className="mt-6 rounded-lg border border-[#e6e6eb] bg-white px-4 py-3 text-sm text-[#595766]">{scannerUrl}</p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 justify-center overflow-hidden">
+        <div className={`relative flex min-h-0 flex-1 overflow-hidden ${showStudents ? 'justify-start' : 'justify-center'}`}>
           <article
             aria-label="Bài đang chơi trên màn hình lớp học"
-            className="relative flex min-h-0 w-full max-w-[1480px] flex-col overflow-hidden border-x border-[#ececf0] bg-[#fdfdfd]"
+            className={`relative flex min-h-0 w-full flex-col overflow-hidden border-x border-[#ececf0] bg-[#fdfdfd] ${
+              showStudents ? 'xl:w-[58%] xl:max-w-[1120px] xl:shrink-0' : 'max-w-[1480px]'
+            }`}
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-9 md:px-12 md:pt-12 xl:px-[72px] xl:pt-16">
               <div className="flex min-h-full flex-col">
@@ -237,7 +265,7 @@ export default function PlickerDisplayScreen({
                 <section aria-label="Bốn đáp án của câu hỏi" className="mt-auto space-y-1.5 pt-10 md:space-y-2 xl:pt-14">
                   {availableAnswers.map(answer => {
                     const count = distribution[answer] || 0;
-                    const percentage = calculatePlickerDisplayProgress(count, responses.length);
+                    const percentage = calculatePlickerDisplayProgress(count, answeredCount);
                     const correct = showCorrect && question.correctAnswer === answer;
 
                     return (
@@ -280,7 +308,7 @@ export default function PlickerDisplayScreen({
             <div className="shrink-0 px-6 pb-5 pt-1 md:px-12 xl:px-[88px] xl:pb-7">
               <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-[#efeff1]">
                 <div
-                  aria-label={`${responses.length} trên ${students.length} học sinh đã trả lời`}
+                  aria-label={`${answeredCount} trên ${students.length} học sinh đã trả lời`}
                   className="h-full rounded-full bg-[#92bafa] transition-[width] duration-300"
                   style={{ width: `${progress}%` }}
                 />
@@ -293,7 +321,7 @@ export default function PlickerDisplayScreen({
                 </div>
                 <div className="flex shrink-0 items-center gap-2 md:gap-4">
                   <span className="inline-flex items-center gap-1 rounded-sm bg-white/20 px-2 py-1 text-xs font-semibold">
-                    <Users className="h-3.5 w-3.5" />{responses.length}/{students.length}
+                    <Users className="h-3.5 w-3.5" />{answeredCount}/{students.length}
                   </span>
                   <button
                     type="button"
@@ -315,46 +343,60 @@ export default function PlickerDisplayScreen({
               </div>
             </div>
 
-            {showStudents && (
-              <aside className="absolute inset-y-0 right-0 z-10 flex w-[min(380px,92vw)] flex-col border-l border-[#e8e8ec] bg-white shadow-[-12px_0_35px_rgba(0,0,0,0.08)]">
-                <div className="flex items-center justify-between border-b border-[#ececf0] p-5">
-                  <div>
-                    <h2 className="font-semibold text-[#302e3b]">Học sinh đã trả lời</h2>
-                    <p className="mt-1 text-sm text-[#777580]">{responses.length}/{students.length} học sinh</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowStudents(false)}
-                    aria-label="Đóng danh sách học sinh"
-                    className="rounded-md p-2 text-[#777580] hover:bg-[#f2f2f5]"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <div className="grid grid-cols-2 gap-2">
-                    {students.map((student, index) => {
-                      const answer = answerByStudent.get(student.id);
-                      return (
-                        <div
-                          key={student.id}
-                          className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-xs ${
-                            answer ? 'border-[#9ec6f6] bg-[#edf5ff] text-[#285992]' : 'border-[#ececf0] text-[#9998a1]'
-                          }`}
-                        >
-                          <span className="shrink-0 text-[10px] opacity-70">#{student.cardId || index + 1}</span>
-                          <span className="min-w-0 flex-1 truncate font-medium">{student.name}</span>
-                          {answer && (showCorrect || showGraph)
-                            ? <span className="font-bold">{answer}</span>
-                            : answer ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </aside>
-            )}
           </article>
+
+          {showStudents && (
+            <aside
+              aria-label="Danh sách học sinh theo dõi quét thẻ trực tiếp"
+              className="absolute inset-y-0 right-0 z-10 flex w-[min(480px,94vw)] flex-col border-l border-[#e8e8ec] bg-white shadow-[-12px_0_35px_rgba(0,0,0,0.08)] xl:static xl:z-auto xl:min-w-[430px] xl:flex-1 xl:border-l-0 xl:bg-[#f5f5f9] xl:shadow-none"
+            >
+              <div className="flex items-center justify-between border-b border-[#ececf0] px-5 py-4 xl:px-4 xl:py-3">
+                <div>
+                  <h2 className="font-semibold text-[#302e3b]">Học sinh đã trả lời</h2>
+                  <p aria-live="polite" className="mt-1 text-sm text-[#777580]">
+                    {answeredCount}/{students.length} học sinh đã quét
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStudents(false)}
+                  aria-label="Đóng danh sách học sinh"
+                  className="rounded-md p-2 text-[#777580] hover:bg-[#e9e9ef]"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-3 xl:p-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3 min-[1800px]:grid-cols-4">
+                  {students.map((student, index) => {
+                    const answer = answerByStudent.get(student.id);
+                    return (
+                      <div
+                        key={student.id}
+                        aria-label={`${student.name}: ${answer ? 'đã quét thẻ' : 'chưa quét thẻ'}`}
+                        data-card-id={student.cardId || index + 1}
+                        data-scan-status={answer ? 'scanned' : 'waiting'}
+                        title={`#${student.cardId || index + 1} · ${student.name}${answer ? ' · Đã quét' : ' · Chưa quét'}`}
+                        className={`flex min-h-[48px] min-w-0 items-center gap-1.5 rounded-sm border px-3 py-2 transition-colors duration-200 ${
+                          answer
+                            ? 'border-[#31a875] bg-[#39b981] text-white shadow-sm'
+                            : 'border-[#dcdce2] bg-white text-[#252432]'
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[clamp(0.88rem,1.05vw,1.4rem)] font-semibold tracking-[-0.03em]">
+                          {student.name}
+                        </span>
+                        {answer && (showCorrect || showGraph)
+                          ? <span className="shrink-0 rounded-sm bg-white/20 px-1.5 py-0.5 text-sm font-bold">{answer}</span>
+                          : answer ? <Check className="h-4 w-4 shrink-0" /> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </aside>
+          )}
         </div>
       )}
     </div>

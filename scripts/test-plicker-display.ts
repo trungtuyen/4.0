@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import PlickerDisplayScreen, {
   calculatePlickerDisplayProgress,
   formatPlickerDisplayQuestion,
+  mapPlickerDisplayStudentAnswers,
   PlickerDisplayMath,
   type PlickerDisplayQuestion,
   type PlickerDisplayResponse,
@@ -13,8 +14,10 @@ import PlickerDisplayScreen, {
 import {
   createPlickerLiveSession,
   getPlickerDisplayActivationKey,
+  getPlickerLiveResponses,
   movePlickerLiveQuestion,
   recordPlickerLiveResponse,
+  summarizePlickerLiveAnswers,
 } from '../src/lib/plickerLive';
 
 let checks = 0;
@@ -62,6 +65,23 @@ const responses: PlickerDisplayResponse[] = [
 ];
 const distribution = { A: 1, B: 2, C: 0, D: 0 };
 const noop = () => {};
+
+const answersByStudent = mapPlickerDisplayStudentAnswers(students, responses);
+assert.equal(answersByStudent.size, 3);
+assert.equal(answersByStudent.get('an'), 'B');
+assert.equal(answersByStudent.get('binh'), 'A');
+assert.equal(answersByStudent.has('dung'), false);
+const replacedAnswer = mapPlickerDisplayStudentAnswers(students, [
+  { studentId: 'an', answer: 'A' },
+  { studentId: 'an', answer: 'C' },
+  { studentId: 'deleted-student', answer: 'B' },
+]);
+assert.equal(replacedAnswer.size, 1);
+assert.equal(replacedAnswer.get('an'), 'C');
+assert.equal(replacedAnswer.has('deleted-student'), false);
+assert.equal(mapPlickerDisplayStudentAnswers([], responses).size, 0);
+checks += 8;
+
 const props = {
   className: '8. Kim Lư',
   setTitle: 'Bộ không tên',
@@ -98,9 +118,71 @@ assert.match(playing, /width:75%/);
 assert.match(playing, /Hiện biểu đồ/);
 assert.match(playing, /Tiết lộ câu trả lời/);
 assert.match(playing, /Mở toàn màn hình trình chiếu/);
-assert.match(playing, /Hiện danh sách học sinh/);
+assert.match(playing, /Ẩn danh sách học sinh/);
 assert.doesNotMatch(playing, /A: 1 học sinh, 33%/);
 checks += 17;
+
+assert.match(playing, /Danh sách học sinh theo dõi quét thẻ trực tiếp/u);
+assert.match(playing, /Học sinh đã trả lời/u);
+assert.match(playing, /3\/4 học sinh đã quét/u);
+assert.match(playing, /aria-label="An: đã quét thẻ"/u);
+assert.match(playing, /aria-label="Bình: đã quét thẻ"/u);
+assert.match(playing, /aria-label="Chi: đã quét thẻ"/u);
+assert.match(playing, /aria-label="Dung: chưa quét thẻ"/u);
+assert.equal((playing.match(/data-scan-status="scanned"/gu) || []).length, 3);
+assert.equal((playing.match(/data-scan-status="waiting"/gu) || []).length, 1);
+assert.match(playing, /aria-label="Bình: đã quét thẻ"[^>]*bg-\[#39b981\]/u, 'Incorrect answers must still turn the student card green after scanning.');
+assert.match(playing, /aria-label="Dung: chưa quét thẻ"[^>]*bg-white/u);
+assert.match(playing, /xl:w-\[58%\]/u);
+assert.match(playing, /min-\[1800px\]:grid-cols-4/u);
+assert.match(playing, /data-card-id="1"/u);
+checks += 14;
+
+const readyToScan = renderToStaticMarkup(createElement(PlickerDisplayScreen, {
+  ...props,
+  phase: 'launch',
+  responses: [],
+  distribution: { A: 0, B: 0, C: 0, D: 0 },
+}));
+assert.match(readyToScan, /Danh sách học sinh theo dõi quét thẻ trực tiếp/u);
+assert.match(readyToScan, /0\/4 học sinh đã quét/u);
+assert.equal((readyToScan.match(/data-scan-status="waiting"/gu) || []).length, 4);
+assert.doesNotMatch(readyToScan, /data-scan-status="scanned"/u);
+assert.match(readyToScan, /aria-label="An: chưa quét thẻ"/u);
+checks += 5;
+
+const onlyKnownStudents = renderToStaticMarkup(createElement(PlickerDisplayScreen, {
+  ...props,
+  responses: [
+    { studentId: 'an', answer: 'A' },
+    { studentId: 'an', answer: 'B' },
+    { studentId: 'deleted-student', answer: 'C' },
+  ],
+  distribution: { A: 0, B: 1, C: 0, D: 0 },
+}));
+assert.match(onlyKnownStudents, /1 trên 4 học sinh đã trả lời/u);
+assert.match(onlyKnownStudents, /1\/4 học sinh đã quét/u);
+assert.equal((onlyKnownStudents.match(/data-scan-status="scanned"/gu) || []).length, 1);
+assert.match(onlyKnownStudents, /width:25%/u);
+checks += 4;
+
+const fullClass = Array.from({ length: 43 }, (_, index) => ({
+  id: `student-${index + 1}`,
+  name: `Học sinh ${index + 1}`,
+  cardId: index + 1,
+}));
+const fortyThreeStudents = renderToStaticMarkup(createElement(PlickerDisplayScreen, {
+  ...props,
+  students: fullClass,
+  responses: [{ studentId: 'student-17', answer: 'A' }],
+  distribution: { A: 1, B: 0, C: 0, D: 0 },
+}));
+assert.equal((fortyThreeStudents.match(/data-scan-status="scanned"/gu) || []).length, 1);
+assert.equal((fortyThreeStudents.match(/data-scan-status="waiting"/gu) || []).length, 42);
+assert.match(fortyThreeStudents, /aria-label="Học sinh 17: đã quét thẻ"[^>]*bg-\[#39b981\]/u);
+assert.match(fortyThreeStudents, /aria-label="Học sinh 43: chưa quét thẻ"/u);
+assert.match(fortyThreeStudents, /1\/43 học sinh đã quét/u);
+checks += 5;
 
 const graph = renderToStaticMarkup(createElement(PlickerDisplayScreen, {
   ...props,
@@ -157,6 +239,25 @@ let phone = createPlickerLiveSession({
   controllerDeviceId: 'android-phone',
   now: 10,
 });
+const renderLiveComputer = () => {
+  const liveResponses = getPlickerLiveResponses(phone);
+  return renderToStaticMarkup(createElement(PlickerDisplayScreen, {
+    ...props,
+    question: phone.questionSet.questions[phone.questionIndex],
+    questionIndex: phone.questionIndex,
+    questionCount: phone.questionSet.questions.length,
+    students: phone.students,
+    responses: liveResponses,
+    distribution: summarizePlickerLiveAnswers(liveResponses),
+    phase: phone.phase,
+  }));
+};
+const launchedOnComputer = renderLiveComputer();
+assert.match(launchedOnComputer, /Danh sách học sinh theo dõi quét thẻ trực tiếp/u);
+assert.equal((launchedOnComputer.match(/data-scan-status="waiting"/gu) || []).length, 4);
+assert.doesNotMatch(launchedOnComputer, /data-scan-status="scanned"/u);
+checks += 3;
+
 const seenActivations = new Set<string>();
 const openComputerScreen = () => {
   const key = getPlickerDisplayActivationKey('display', phone, 'windows-computer');
@@ -172,10 +273,21 @@ assert.equal(openComputerScreen(), true, 'Pressing scan on the phone opens the c
 phone = recordPlickerLiveResponse(phone, {
   studentId: 'an', studentName: 'An', cardId: 1, answer: 'B', confidence: 0.99, timestamp: 25, source: 'camera',
 });
+const firstCardScanned = renderLiveComputer();
+assert.match(firstCardScanned, /aria-label="An: đã quét thẻ"[^>]*bg-\[#39b981\]/u);
+assert.match(firstCardScanned, /aria-label="Bình: chưa quét thẻ"/u);
+assert.match(firstCardScanned, /1\/4 học sinh đã quét/u);
+checks += 3;
 assert.equal(openComputerScreen(), false, 'Receiving student cards updates content without repeatedly reopening the screen.');
 phone = { ...phone, phase: 'results', updatedAt: 30 };
 assert.equal(openComputerScreen(), false, 'Stopping the scan preserves the current presentation without reopening it.');
 phone = movePlickerLiveQuestion(phone, 1, 40);
+const nextQuestionOnComputer = renderLiveComputer();
+assert.match(nextQuestionOnComputer, /Câu 2\. Câu hỏi tiếp theo/u);
+assert.equal((nextQuestionOnComputer.match(/data-scan-status="waiting"/gu) || []).length, 4);
+assert.doesNotMatch(nextQuestionOnComputer, /data-scan-status="scanned"/u);
+assert.match(nextQuestionOnComputer, /0\/4 học sinh đã quét/u);
+checks += 4;
 assert.equal(openComputerScreen(), true, 'Changing question on the phone opens the new question on the computer.');
 phone = { ...phone, phase: 'scanning', updatedAt: 45 };
 assert.equal(openComputerScreen(), true, 'Scanning the next question reopens the computer presentation.');
@@ -194,6 +306,11 @@ assert.match(displaySource, /requestFullscreen/);
 assert.match(displaySource, /fixed inset-0 z-50/);
 assert.match(displaySource, /Học sinh đã trả lời/);
 assert.match(displaySource, /formatPlickerDisplayQuestion/);
-checks += 8;
+assert.match(displaySource, /openedRosterKeysRef/u);
+assert.match(displaySource, /mapPlickerDisplayStudentAnswers/u);
+assert.match(displaySource, /setShowStudents\(true\)/u);
+assert.match(displaySource, /data-scan-status/u);
+assert.match(displaySource, /bg-\[#39b981\]/u);
+checks += 13;
 
 console.info(`Plicker automatic phone-to-computer fullscreen: ${checks} checks passed.`);
