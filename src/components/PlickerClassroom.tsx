@@ -15,6 +15,21 @@ import PlickerQuestionEditor from './PlickerQuestionEditor';
 import PlickerQuestionMediaGallery, { PlickerRichContent } from './PlickerQuestionContent';
 import { filterPlickerStudentsByClasses } from '../lib/plickerStudents';
 import {
+  buildPlickerStudentScoreRows,
+  createPlickerReportWorkbook,
+  getPlickerReportMaximumScore,
+  inferPlickerSchoolYear,
+  resolvePlickerReportStudents,
+  type PlickerClassroomReport,
+  type PlickerReportSettings,
+  type PlickerReportStudent,
+} from '../lib/plickerReports';
+import {
+  formatPlickerScore,
+  normalizePlickerQuestionPoints,
+  PLICKER_DEFAULT_QUESTION_POINTS,
+} from '../lib/plickerScoring';
+import {
   createPlickerMarker,
   detectPlickerCards,
   PLICKER_CARD_LIMIT,
@@ -81,6 +96,8 @@ interface PlickerClassroomProps {
   onUpdateStudent: (studentId: string, name: string) => void;
   onDeleteStudent: (studentId: string) => void;
   onSyncStudents: (rosters: Record<string, Student[]>) => void;
+  schoolName?: string;
+  teacherName?: string;
 }
 
 interface ClassroomQuestion extends PlickerLiveQuestion {
@@ -106,19 +123,7 @@ interface ClassroomResponse {
   source: 'camera' | 'manual';
 }
 
-interface ClassroomReport {
-  id: string;
-  classId: string;
-  className: string;
-  setTitle: string;
-  completedAt: string;
-  studentCount: number;
-  questions: {
-    text: string;
-    correctAnswer: PlickerAnswer | null;
-    responses: ClassroomResponse[];
-  }[];
-}
+type ClassroomReport = PlickerClassroomReport;
 
 type ClassroomView = 'overview' | 'classes' | 'library' | 'session' | 'reports' | 'cards';
 
@@ -133,6 +138,7 @@ const SETS_STORAGE_KEY = 'plickerQuestionSets';
 const DELETED_SETS_STORAGE_KEY = 'plickerDeletedQuestionSets';
 const DELETED_CLASSES_STORAGE_KEY = 'plickerDeletedClasses';
 const REPORTS_STORAGE_KEY = 'smartclass_plicker_reports_v2';
+const REPORT_SETTINGS_STORAGE_KEY = 'smartclass_plicker_report_settings_v1';
 
 function createIdentifier(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -144,6 +150,7 @@ function defaultQuestion(id = 1): ClassroomQuestion {
     text: '',
     type: 'multiple_choice',
     gradingType: 'graded',
+    points: PLICKER_DEFAULT_QUESTION_POINTS,
     options: { A: '', B: '', C: '', D: '' },
     correctAnswer: null,
   };
@@ -157,12 +164,14 @@ function initialQuestionSets(): ClassroomQuestionSet[] {
       {
         id: 1,
         text: 'Thủ đô của Việt Nam là thành phố nào?',
+        points: PLICKER_DEFAULT_QUESTION_POINTS,
         options: { A: 'Hải Phòng', B: 'Hà Nội', C: 'Đà Nẵng', D: 'Huế' },
         correctAnswer: 'B',
       },
       {
         id: 2,
         text: 'Kết quả của phép tính 7 × 8 là bao nhiêu?',
+        points: PLICKER_DEFAULT_QUESTION_POINTS,
         options: { A: '48', B: '54', C: '56', D: '64' },
         correctAnswer: 'C',
       },
@@ -211,6 +220,29 @@ function initialReports(): ClassroomReport[] {
   }
 }
 
+function initialReportSettings(schoolName = '', teacherName = ''): PlickerReportSettings {
+  const defaults: PlickerReportSettings = {
+    schoolName,
+    teacherName,
+    subject: '',
+    schoolYear: inferPlickerSchoolYear(),
+    examDate: '',
+  };
+  try {
+    const saved = localStorage.getItem(REPORT_SETTINGS_STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) as Partial<PlickerReportSettings> : {};
+    return {
+      schoolName: typeof parsed.schoolName === 'string' && parsed.schoolName.trim() ? parsed.schoolName : defaults.schoolName,
+      teacherName: typeof parsed.teacherName === 'string' && parsed.teacherName.trim() ? parsed.teacherName : defaults.teacherName,
+      subject: typeof parsed.subject === 'string' ? parsed.subject : defaults.subject,
+      schoolYear: typeof parsed.schoolYear === 'string' && parsed.schoolYear.trim() ? parsed.schoolYear : defaults.schoolYear,
+      examDate: '',
+    };
+  } catch {
+    return defaults;
+  }
+}
+
 function readableCameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
   if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -231,7 +263,7 @@ function csvCell(value: string | number): string {
   return `"${String(value).replaceAll('"', '""')}"`;
 }
 
-function downloadReport(report: ClassroomReport): void {
+function downloadDetailedReport(report: ClassroomReport): void {
   const lines = [['Lớp', 'Bộ câu hỏi', 'Câu hỏi', 'Mã thẻ', 'Học sinh', 'Đáp án', 'Đáp án đúng', 'Kết quả']];
   for (const question of report.questions) {
     for (const response of question.responses) {
@@ -252,6 +284,24 @@ function downloadReport(report: ClassroomReport): void {
   link.download = `bao-cao-the-tuong-tac-${report.id}.csv`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadScoreReport(
+  report: ClassroomReport,
+  students: PlickerReportStudent[],
+  settings: PlickerReportSettings,
+): void {
+  const workbook = createPlickerReportWorkbook(report, students, settings);
+  const file = new Blob([new Uint8Array(workbook)], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(file);
+  const link = document.createElement('a');
+  const safeClassName = report.className.trim().replace(/[\\/:*?"<>|]+/gu, '-');
+  link.href = url;
+  link.download = `bang-diem-${safeClassName || 'lop-hoc'}-${(settings.examDate || report.completedAt).slice(0, 10)}.xlsx`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function MarkerSvg({ cardId, className = '' }: { cardId: number; className?: string }) {
@@ -296,7 +346,7 @@ function MetricCard({
 }
 
 export default function PlickerClassroom({
-  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents,
+  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents, schoolName = '', teacherName = '',
 }: PlickerClassroomProps) {
   const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
   const [selectedClassId, setSelectedClassId] = useState(categories[0]?.id || '');
@@ -308,6 +358,7 @@ export default function PlickerClassroom({
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, ClassroomResponse[]>>({});
   const [reports, setReports] = useState<ClassroomReport[]>(initialReports);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [reportSettings, setReportSettings] = useState<PlickerReportSettings>(() => initialReportSettings(schoolName, teacherName));
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [showCorrect, setShowCorrect] = useState(false);
@@ -396,6 +447,12 @@ export default function PlickerClassroom({
     ? currentAnswers.filter(item => item.answer === currentQuestion.correctAnswer).length
     : 0;
   const selectedReport = reports.find(report => report.id === selectedReportId) || null;
+  const selectedReportStudents = useMemo(() => selectedReport
+    ? resolvePlickerReportStudents(selectedReport, registeredStudents)
+    : [], [registeredStudents, selectedReport]);
+  const selectedReportScores = useMemo(() => selectedReport
+    ? buildPlickerStudentScoreRows(selectedReport, selectedReportStudents)
+    : [], [selectedReport, selectedReportStudents]);
   const liveSession = liveRoom?.activeSession || null;
   const questionImportPreview = useMemo(() => parsePlickerQuestionText(questionImportText), [questionImportText]);
 
@@ -678,6 +735,13 @@ export default function PlickerClassroom({
   useEffect(() => {
     localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(reports));
   }, [reports]);
+
+  useEffect(() => {
+    localStorage.setItem(REPORT_SETTINGS_STORAGE_KEY, JSON.stringify({
+      ...reportSettings,
+      examDate: '',
+    }));
+  }, [reportSettings]);
 
   useEffect(() => {
     if ((!selectedClassId || !categories.some(item => item.id === selectedClassId)) && categories[0]) {
@@ -1014,9 +1078,17 @@ export default function PlickerClassroom({
       setTitle: selectedSet.title,
       completedAt: new Date().toISOString(),
       studentCount: classStudents.length,
+      students: classStudents.map(student => ({
+        id: student.id,
+        classId: student.classId,
+        name: student.name,
+        ...(student.cardId ? { cardId: student.cardId } : {}),
+      })),
       questions: selectedSet.questions.map(question => ({
         text: question.text,
         correctAnswer: question.correctAnswer,
+        gradingType: question.gradingType,
+        points: normalizePlickerQuestionPoints(question.points),
         responses: answersByQuestion[`${selectedSet.id}:${question.id}`] || [],
       })),
     };
@@ -1121,6 +1193,7 @@ export default function PlickerClassroom({
       const imported = questionImportPreview.questions.map((question, index) => ({
         ...question,
         id: firstId + index,
+        points: PLICKER_DEFAULT_QUESTION_POINTS,
       }));
       setEditingSet({
         ...editingSet,
@@ -1133,7 +1206,10 @@ export default function PlickerClassroom({
       const importedSet: ClassroomQuestionSet = {
         id: createIdentifier('set'),
         title: questionImportTitle.trim() || questionImportSource.replace(/\.[^.]+$/u, '') || 'Bộ câu hỏi nhập nhanh',
-        questions: questionImportPreview.questions,
+        questions: questionImportPreview.questions.map(question => ({
+          ...question,
+          points: PLICKER_DEFAULT_QUESTION_POINTS,
+        })),
         createdAt: now,
         updatedAt: now,
       };
@@ -1828,7 +1904,123 @@ export default function PlickerClassroom({
         )}
 
         {view === 'reports' && (
-          <div className="grid gap-5 lg:grid-cols-[330px_minmax(0,1fr)]"><section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold">Lịch sử buổi học</h2><div className="mt-4 space-y-2">{reports.map(report => <button key={report.id} onClick={() => setSelectedReportId(report.id)} className={`w-full rounded-xl border p-3 text-left ${selectedReportId === report.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}><p className="font-medium">{report.className}</p><p className="mt-1 text-xs text-slate-500">{report.setTitle}</p><p className="mt-1 text-xs text-slate-400">{formatDate(report.completedAt)}</p></button>)}{reports.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có buổi học được lưu.</p>}</div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{selectedReport ? <><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">{selectedReport.className}</h2><p className="text-sm text-slate-500">{selectedReport.setTitle} · {formatDate(selectedReport.completedAt)}</p></div><button onClick={() => downloadReport(selectedReport)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white"><Download className="h-4 w-4" />Xuất Excel/CSV</button></div><div className="mt-5 space-y-4">{selectedReport.questions.map((question, index) => { const correct = question.correctAnswer ? question.responses.filter(response => response.answer === question.correctAnswer).length : 0; return <article key={`${question.text}-${index}`} className="rounded-xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-medium">Câu {index + 1}: {question.text}</h3>{question.correctAnswer && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">Đáp án {question.correctAnswer}</span>}</div><p className="mt-2 text-xs text-slate-500">{question.responses.length}/{selectedReport.studentCount} trả lời{question.correctAnswer ? ` · ${correct} đúng` : ' · Câu khảo sát'}</p><div className="mt-3 flex flex-wrap gap-2">{ANSWERS.map(answer => <span key={answer} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium">{answer}: {question.responses.filter(response => response.answer === answer).length}</span>)}</div></article>; })}</div></> : <div className="flex min-h-64 flex-col items-center justify-center text-center"><BarChart3 className="h-12 w-12 text-indigo-300" /><h3 className="mt-3 font-semibold">Chọn buổi học để xem kết quả</h3><p className="mt-2 text-sm text-slate-500">Báo cáo có thể xuất CSV mở bằng Microsoft Excel.</p></div>}</section></div>
+          <div className="grid gap-5 lg:grid-cols-[330px_minmax(0,1fr)]">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="font-bold">Lịch sử buổi học</h2>
+              <div className="mt-4 space-y-2">
+                {reports.map(report => (
+                  <button
+                    key={report.id}
+                    onClick={() => {
+                      setSelectedReportId(report.id);
+                      setReportSettings(previous => ({ ...previous, examDate: '' }));
+                    }}
+                    className={`w-full rounded-xl border p-3 text-left ${selectedReportId === report.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
+                  >
+                    <p className="font-medium">{report.className}</p>
+                    <p className="mt-1 text-xs text-slate-500">{report.setTitle}</p>
+                    <p className="mt-1 text-xs text-slate-400">{formatDate(report.completedAt)}</p>
+                  </button>
+                ))}
+                {reports.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có buổi học được lưu.</p>}
+              </div>
+            </section>
+
+            <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              {selectedReport ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-bold">{selectedReport.className}</h2>
+                      <p className="text-sm text-slate-500">{selectedReport.setTitle} · {formatDate(selectedReport.completedAt)}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => downloadScoreReport(selectedReport, selectedReportStudents, {
+                          ...reportSettings,
+                          examDate: reportSettings.examDate || selectedReport.completedAt.slice(0, 10),
+                        })}
+                        className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white"
+                      ><Download className="h-4 w-4" />Xuất bảng điểm Excel</button>
+                      <button
+                        onClick={() => downloadDetailedReport(selectedReport)}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600"
+                      >CSV chi tiết</button>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                    <label className="text-xs font-semibold text-slate-600">Tên trường
+                      <input value={reportSettings.schoolName} onChange={event => setReportSettings(previous => ({ ...previous, schoolName: event.target.value }))} placeholder="Ví dụ: THCS Kim Lư" className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-indigo-400" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Môn học
+                      <input value={reportSettings.subject} onChange={event => setReportSettings(previous => ({ ...previous, subject: event.target.value }))} placeholder={selectedReport.setTitle} className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-indigo-400" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Năm học
+                      <input value={reportSettings.schoolYear} onChange={event => setReportSettings(previous => ({ ...previous, schoolYear: event.target.value }))} placeholder="2026 - 2027" className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-indigo-400" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Ngày kiểm tra
+                      <input type="date" value={reportSettings.examDate || selectedReport.completedAt.slice(0, 10)} onChange={event => setReportSettings(previous => ({ ...previous, examDate: event.target.value }))} className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-indigo-400" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Giáo viên bộ môn
+                      <input value={reportSettings.teacherName} onChange={event => setReportSettings(previous => ({ ...previous, teacherName: event.target.value }))} placeholder="Họ tên giáo viên" className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-indigo-400" />
+                    </label>
+                    <div className="flex items-end"><p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700">{selectedReportStudents.length} học sinh · Tối đa {formatPlickerScore(getPlickerReportMaximumScore(selectedReport))} điểm</p></div>
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="min-w-full border-collapse text-sm">
+                      <thead className="bg-slate-50 text-slate-700">
+                        <tr>
+                          <th rowSpan={2} className="border border-slate-200 px-3 py-2 text-center">STT</th>
+                          <th rowSpan={2} className="min-w-40 border border-slate-200 px-3 py-2 text-left">Họ và tên</th>
+                          <th colSpan={Math.max(1, selectedReport.questions.length)} className="border border-slate-200 px-3 py-2 text-center">Điểm câu hỏi</th>
+                          <th rowSpan={2} className="min-w-24 border border-slate-200 px-3 py-2 text-center">Tổng điểm</th>
+                        </tr>
+                        <tr>{selectedReport.questions.map((question, index) => <th key={`${question.text}-${index}`} className="min-w-14 border border-slate-200 px-3 py-2 text-center">{index + 1}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {selectedReportScores.map((row, index) => (
+                          <tr key={row.student.id} className="odd:bg-white even:bg-slate-50/60">
+                            <td className="border border-slate-200 px-3 py-2 text-center">{index + 1}</td>
+                            <td className="border border-slate-200 px-3 py-2 font-medium">{row.student.name}</td>
+                            {row.questionScores.map((score, scoreIndex) => <td key={scoreIndex} className={`border border-slate-200 px-3 py-2 text-center ${score !== null && score > 0 ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>{score === null ? '—' : formatPlickerScore(score)}</td>)}
+                            <td className="border border-slate-200 px-3 py-2 text-center font-bold text-indigo-700">{formatPlickerScore(row.totalScore)}</td>
+                          </tr>
+                        ))}
+                        {selectedReportScores.length === 0 && <tr><td colSpan={selectedReport.questions.length + 3} className="px-4 py-5 text-center text-slate-500">Lớp chưa có học sinh để lập bảng điểm.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    {selectedReport.questions.map((question, index) => {
+                      const correct = question.correctAnswer ? question.responses.filter(response => response.answer === question.correctAnswer).length : 0;
+                      return (
+                        <article key={`${question.text}-${index}`} className="rounded-xl border border-slate-200 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="font-medium">Câu {index + 1}: {question.text}</h3>
+                            <div className="flex items-center gap-2">
+                              {question.gradingType !== 'survey' && <span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{formatPlickerScore(normalizePlickerQuestionPoints(question.points))} điểm</span>}
+                              {question.correctAnswer && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">Đáp án {question.correctAnswer}</span>}
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-500">{question.responses.length}/{selectedReportStudents.length} trả lời{question.correctAnswer ? ` · ${correct} đúng` : ' · Câu khảo sát'}</p>
+                          <div className="mt-3 flex flex-wrap gap-2">{ANSWERS.map(answer => <span key={answer} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium">{answer}: {question.responses.filter(response => response.answer === answer).length}</span>)}</div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="flex min-h-64 flex-col items-center justify-center text-center">
+                  <BarChart3 className="h-12 w-12 text-indigo-300" />
+                  <h3 className="mt-3 font-semibold">Chọn buổi học để xem kết quả</h3>
+                  <p className="mt-2 text-sm text-slate-500">Xuất bảng điểm Excel gồm danh sách học sinh, điểm từng câu và tổng điểm.</p>
+                </div>
+              )}
+            </section>
+          </div>
         )}
       </main>
 

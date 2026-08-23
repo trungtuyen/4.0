@@ -1,4 +1,5 @@
 import type { PlickerAnswer } from './plickerVision';
+import { normalizePlickerQuestionPoints } from './plickerScoring';
 import {
   sanitizePlickerQuestionMedia,
   sanitizePlickerRichHtml,
@@ -23,6 +24,7 @@ export interface PlickerLiveQuestion {
   media?: PlickerQuestionMedia[];
   type?: 'multiple_choice' | 'true_false';
   gradingType?: 'graded' | 'survey';
+  points?: number;
   options: Partial<Record<PlickerAnswer, string>>;
   correctAnswer: PlickerAnswer | null;
 }
@@ -173,6 +175,7 @@ export function sanitizePlickerQuestionSet(set: PlickerLiveQuestionSet): Plicker
         ...(media.length ? { media } : {}),
         ...(question.type === 'multiple_choice' || question.type === 'true_false' ? { type: question.type } : {}),
         ...(question.gradingType === 'graded' || question.gradingType === 'survey' ? { gradingType: question.gradingType } : {}),
+        ...(question.points !== undefined ? { points: normalizePlickerQuestionPoints(question.points) } : {}),
         options: Object.fromEntries(
           Object.entries(question.options).filter(([answer, text]) => isAnswer(answer) && typeof text === 'string'),
         ) as Partial<Record<PlickerAnswer, string>>,

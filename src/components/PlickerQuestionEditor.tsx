@@ -14,6 +14,13 @@ import {
 import type { PlickerAnswer } from '../lib/plickerVision';
 import type { PlickerLiveQuestion, PlickerLiveQuestionSet } from '../lib/plickerLive';
 import {
+  formatPlickerScore,
+  normalizePlickerQuestionPoints,
+  PLICKER_DEFAULT_QUESTION_POINTS,
+  PLICKER_MAX_QUESTION_POINTS,
+  sumPlickerScores,
+} from '../lib/plickerScoring';
+import {
   createPlickerSoundEffectDataUrl,
   createPlickerYoutubeEmbedUrl,
   extractPlickerYoutubeId,
@@ -474,6 +481,7 @@ export default function PlickerQuestionEditor({
         text: '',
         type: 'multiple_choice',
         gradingType: 'graded',
+        points: PLICKER_DEFAULT_QUESTION_POINTS,
         options: { A: '', B: '', C: '', D: '' },
         correctAnswer: null,
       }],
@@ -570,9 +578,27 @@ export default function PlickerQuestionEditor({
           <ToolbarButton title="Xóa định dạng" onClick={() => activeEditor?.chain().focus().unsetAllMarks().clearNodes().run()}><Eraser className="h-4 w-4" /></ToolbarButton>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => updateQuestion(activeQuestion.id, question => ({ ...question, gradingType: 'graded' }))} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${activeQuestion.gradingType !== 'survey' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500'}`}>Chấm điểm</button>
           <button type="button" onClick={() => updateQuestion(activeQuestion.id, question => ({ ...question, gradingType: 'survey', correctAnswer: null }))} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${activeQuestion.gradingType === 'survey' ? 'bg-violet-50 text-violet-700' : 'text-slate-500'}`}>Khảo sát</button>
+          <label className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold ${activeQuestion.gradingType === 'survey' ? 'border-slate-200 text-slate-400' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+            Điểm câu
+            <input
+              aria-label="Điểm của câu hỏi"
+              type="number"
+              min="0"
+              max={PLICKER_MAX_QUESTION_POINTS}
+              step="0.25"
+              inputMode="decimal"
+              disabled={activeQuestion.gradingType === 'survey'}
+              value={activeQuestion.gradingType === 'survey' ? 0 : normalizePlickerQuestionPoints(activeQuestion.points)}
+              onChange={event => updateQuestion(activeQuestion.id, question => ({
+                ...question,
+                points: normalizePlickerQuestionPoints(event.target.value),
+              }))}
+              className="w-16 rounded-md border border-emerald-200 bg-white px-1.5 py-1 text-center text-sm text-slate-800 outline-none focus:border-emerald-500 disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
+            />
+          </label>
           <ToolbarButton title="Nhân bản câu hỏi" onClick={duplicateQuestion}><Copy className="h-4 w-4" /></ToolbarButton>
           <ToolbarButton title="Xóa câu hỏi" disabled={questionSet.questions.length <= 1} onClick={deleteQuestion}><Trash2 className="h-4 w-4 text-red-500" /></ToolbarButton>
         </div>
@@ -589,6 +615,9 @@ export default function PlickerQuestionEditor({
                   <div className="mt-1 space-y-0.5">
                     {ANSWERS.filter(answer => question.options[answer] !== undefined).map(answer => <p key={answer} className="truncate text-[8px] text-slate-400"><strong>{answer}</strong> {question.options[answer] || '...'}</p>)}
                   </div>
+                  <p className={`mt-1 text-[9px] font-semibold ${question.gradingType === 'survey' ? 'text-violet-500' : 'text-emerald-600'}`}>
+                    {question.gradingType === 'survey' ? 'Khảo sát' : `${formatPlickerScore(normalizePlickerQuestionPoints(question.points))} điểm`}
+                  </p>
                   {(question.media?.length || 0) > 0 && <p className="mt-1 text-[9px] text-indigo-500">{question.media?.length} tệp đính kèm</p>}
                 </div>
               </button>
@@ -673,7 +702,7 @@ export default function PlickerQuestionEditor({
             : { ...question, type: 'true_false', options: { A: 'Đúng', B: 'Sai' }, optionRichText: {}, correctAnswer: null })}
           className="rounded-lg border border-slate-200 px-3 py-2 text-slate-700"
         >{activeQuestion.type === 'true_false' ? 'Chuyển sang trắc nghiệm A/B/C/D' : 'Chọn Đúng/Sai'}</button>
-        <span>Câu {questionSet.questions.findIndex(question => question.id === activeQuestion.id) + 1}/{questionSet.questions.length} · {activeQuestion.media?.length || 0}/{PLICKER_MAX_MEDIA_PER_QUESTION} tệp đa phương tiện</span>
+        <span>Câu {questionSet.questions.findIndex(question => question.id === activeQuestion.id) + 1}/{questionSet.questions.length} · Tổng điểm bộ câu hỏi: {formatPlickerScore(sumPlickerScores(questionSet.questions.map(question => question.gradingType === 'survey' ? 0 : normalizePlickerQuestionPoints(question.points))))} · {activeQuestion.media?.length || 0}/{PLICKER_MAX_MEDIA_PER_QUESTION} tệp đa phương tiện</span>
       </footer>
 
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" className="hidden" onChange={event => { const file = event.target.files?.[0]; if (file) void attachFile(file, 'image'); event.currentTarget.value = ''; }} />

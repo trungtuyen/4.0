@@ -162,7 +162,7 @@ for (const feature of [
   checks += 1;
 }
 assert.doesNotMatch(classroom, /title="Học sinh" value=\{allStudents\.length\}/u);
-assert.match(worker, /CACHE_PREFIX\}v10/u);
+assert.match(worker, /CACHE_PREFIX\}v11/u);
 checks += 2;
 
 console.info(`Plicker student counts, orphan cleanup and Firebase class synchronization: ${checks} checks passed.`);

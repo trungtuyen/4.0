@@ -886,6 +886,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
           <PlickerScanner 
             onBack={() => setActiveLibraryView('main')}
             onLogout={onLogout}
+            schoolName={currentUser === 'admin' ? '' : currentUser?.school || ''}
+            teacherName={currentUser === 'admin' ? '' : currentUser?.name || ''}
             categories={plickerCategories}
             categoriesReady={categoriesReady}
             allStudents={plickerStudents}
