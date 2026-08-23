@@ -8,9 +8,9 @@
   "start_url": "/4.0/?app=plicker&role=scanner&source=installed",
   "scope": "/4.0/",
   "display": "standalone",
-  "orientation": "any",
-  "theme_color": "#020617",
-  "background_color": "#020617",
+  "orientation": "portrait-primary",
+  "theme_color": "#31936f",
+  "background_color": "#fcfcfc",
   "categories": ["education", "productivity"],
   "icons": [
     {

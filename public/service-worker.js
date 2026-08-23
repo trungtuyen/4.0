@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'smartclass-plicker-';
-const CACHE_NAME = `${CACHE_PREFIX}v2`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
 const APP_ROOT = new URL('./', self.registration.scope).pathname;
 const OFFLINE_PAGE = `${APP_ROOT}offline.html`;
 const APP_SHELL = [

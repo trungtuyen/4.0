@@ -14,7 +14,8 @@
     "test:platform": "node --import tsx scripts/test-platform.ts",
     "test:plicker": "node --import tsx scripts/test-plicker.ts",
     "test:pwa": "node --import tsx scripts/test-pwa.ts",
-    "test:plicker-live": "node --import tsx scripts/test-plicker-live.ts"
+    "test:plicker-live": "node --import tsx scripts/test-plicker-live.ts",
+    "test:plicker-mobile": "node --import tsx scripts/test-plicker-mobile.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",

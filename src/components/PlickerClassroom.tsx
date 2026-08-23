@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import PlickerMobileScanner from './PlickerMobileScanner';
 import {
   createPlickerMarker,
   detectPlickerCards,
@@ -627,7 +628,7 @@ export default function PlickerClassroom({
       if (timestamp - lastFrame < 145) return;
       lastFrame = timestamp;
 
-      const scale = Math.min(1, 680 / video.videoWidth);
+      const scale = Math.min(1, 680 / video.videoWidth, 960 / video.videoHeight);
       const frameWidth = Math.max(1, Math.round(video.videoWidth * scale));
       const frameHeight = Math.max(1, Math.round(video.videoHeight * scale));
       if (processing.width !== frameWidth || processing.height !== frameHeight) {
@@ -663,8 +664,13 @@ export default function PlickerClassroom({
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error('Trình duyệt không hỗ trợ camera. Hãy sử dụng Chrome hoặc Edge mới nhất.');
         }
+        const portraitScanner = window.innerHeight > window.innerWidth;
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: portraitScanner ? 720 : 1280 },
+            height: { ideal: portraitScanner ? 1280 : 720 },
+          },
           audio: false,
         });
         if (cancelled) {
@@ -977,6 +983,36 @@ export default function PlickerClassroom({
       setShowInstallHelp(true);
     }
   };
+
+  if (deviceRole === 'scanner' && view === 'session' && currentQuestion && selectedClass && !showProjector) {
+    return (
+      <PlickerMobileScanner
+        className={selectedClass.title}
+        question={currentQuestion}
+        questionIndex={questionIndex}
+        questionCount={selectedSet?.questions.length || 1}
+        students={classStudents}
+        responses={currentAnswers}
+        distribution={answerDistribution}
+        scanning={scanning}
+        scanError={scanError}
+        connected={syncReady && isOnline && !syncError}
+        displayConnected={displayConnected}
+        showCorrect={showCorrect}
+        showGraph={showGraph}
+        videoRef={videoRef}
+        overlayRef={overlayRef}
+        onStartScan={startScanningCards}
+        onStopScan={stopScanningCards}
+        onPrevious={() => changeQuestion(questionIndex - 1)}
+        onNext={() => changeQuestion(questionIndex + 1)}
+        onClearResponses={resetCurrentAnswers}
+        onToggleCorrect={toggleCorrectAnswer}
+        onToggleGraph={toggleAnswerGraph}
+        onExit={() => switchView('overview')}
+      />
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50 text-slate-900">
