@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowLeft, ArrowRight, BarChart3, Camera, Check, CheckCircle2, ChevronLeft,
+  Activity, ArrowLeft, ArrowRight, BarChart3, Camera, CheckCircle2, ChevronLeft,
   ChevronRight, CircleAlert, Download, Eye, EyeOff, FileText, GraduationCap, Layers,
   LayoutDashboard, Link2, Maximize2, MonitorPlay, Pause, Pencil, Play, Plus, Printer, QrCode,
   RefreshCw, Save, ScanLine, Settings2, ShieldCheck, Smartphone, Square, Trash2, UserPlus,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import PlickerDisplayScreen from './PlickerDisplayScreen';
 import PlickerMobileScanner from './PlickerMobileScanner';
 import {
   createPlickerMarker,
@@ -27,6 +28,7 @@ import {
 } from '../lib/plickerPwa';
 import {
   createPlickerDevicePath,
+  getPlickerDisplayActivationKey,
   createPlickerLiveRoomId,
   createPlickerLiveSession,
   createPlickerQuestionKey,
@@ -305,6 +307,9 @@ export default function PlickerClassroom({
   const deviceIdRef = useRef(createIdentifier('device'));
   const currentRoomRef = useRef<PlickerLiveRoom | null>(null);
   const followedSessionIdRef = useRef('');
+  const displayedActivationKeysRef = useRef(new Set<string>());
+  const deviceRoleRef = useRef(deviceRole);
+  deviceRoleRef.current = deviceRole;
   const onSyncStudentsRef = useRef(onSyncStudents);
   onSyncStudentsRef.current = onSyncStudents;
 
@@ -437,6 +442,18 @@ export default function PlickerClassroom({
         followedSessionIdRef.current = session.sessionId;
         setView('session');
       }
+
+      const displayActivationKey = getPlickerDisplayActivationKey(
+        deviceRoleRef.current,
+        session,
+        deviceIdRef.current,
+      );
+      if (displayActivationKey && !displayedActivationKeysRef.current.has(displayActivationKey)) {
+        displayedActivationKeysRef.current.add(displayActivationKey);
+        setView('session');
+        setShowProjector(true);
+      }
+
       if (session.phase === 'results' || session.phase === 'finished') {
         setScanning(false);
       }
@@ -1482,73 +1499,25 @@ export default function PlickerClassroom({
       {(classModal || addStudentsModal) && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"><div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">{classModal ? 'Tạo lớp học mới' : `Thêm học sinh vào ${selectedClass?.title || ''}`}</h2><button onClick={() => { setClassModal(false); setAddStudentsModal(false); setStudentText(''); }} aria-label="Đóng"><X className="h-5 w-5 text-slate-500" /></button></div>{classModal && <label className="mt-4 block text-sm font-medium">Tên lớp<input value={classTitle} onChange={event => setClassTitle(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 p-2.5 outline-none focus:border-indigo-500" placeholder="Ví dụ: Lớp 8A - Trường Kim Lư" /></label>}<label className="mt-4 block text-sm font-medium">Danh sách học sinh<textarea value={studentText} onChange={event => setStudentText(event.target.value)} className="mt-1 min-h-44 w-full rounded-lg border border-slate-200 p-2.5 text-sm outline-none focus:border-indigo-500" placeholder={'Nguyễn Văn An\nTrần Thị Bình\nPhạm Minh Châu'} /></label><p className="mt-2 text-xs text-slate-500">Mỗi dòng một học sinh. Có thể sao chép trực tiếp từ Excel. Tối đa 63 học sinh/lớp.</p><div className="mt-5 flex justify-end gap-2"><button onClick={() => { setClassModal(false); setAddStudentsModal(false); }} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Hủy</button><button onClick={classModal ? submitClass : submitStudents} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">{classModal ? 'Tạo lớp và cấp thẻ' : 'Thêm học sinh'}</button></div></div></div>}
 
       {showProjector && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950 text-white">
-          <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col p-5 md:p-8 xl:p-12">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="rounded-xl bg-indigo-500 p-2"><MonitorPlay className="h-6 w-6" /></div>
-                <div><p className="text-sm font-semibold text-indigo-200">MÀN HÌNH LỚP HỌC</p><p className="text-xs text-slate-400">Điều khiển từ điện thoại · Đồng bộ thời gian thực</p></div>
-                {liveSession && liveSession.phase !== 'finished' && <span className="rounded-full bg-indigo-500/20 px-3 py-1.5 text-sm font-medium text-indigo-200">{liveSession.className} · Câu {questionIndex + 1}/{selectedSet?.questions.length || 0}</span>}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${scannerConnected ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-200'}`}><Smartphone className="h-4 w-4" />{scannerConnected ? 'Điện thoại đã kết nối' : 'Chờ điện thoại'}</span>
-                <button onClick={() => setShowProjector(false)} aria-label="Đóng trình chiếu" className="rounded-lg border border-white/20 p-2"><X className="h-6 w-6" /></button>
-              </div>
-            </div>
-
-            {!liveSession || liveSession.phase === 'finished' || !currentQuestion ? (
-              <div className="flex flex-1 flex-col items-center justify-center py-24 text-center">
-                <div className="rounded-3xl bg-indigo-500/15 p-7 text-indigo-300"><Smartphone className="h-16 w-16" /></div>
-                <h2 className="mt-8 text-3xl font-bold md:text-5xl">Sẵn sàng nhận câu hỏi</h2>
-                <p className="mt-4 max-w-xl text-base leading-7 text-slate-300">Mở ứng dụng Thẻ tương tác lớp học trên điện thoại, đăng nhập cùng tài khoản, chọn lớp và nhấn “Bắt đầu buổi học”.</p>
-                <p className="mt-6 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-indigo-200">{scannerUrl}</p>
-              </div>
-            ) : (
-              <div className="grid flex-1 gap-8 pt-8 xl:grid-cols-[minmax(0,1fr)_340px] xl:pt-12">
-                <section>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${liveSession.phase === 'scanning' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-indigo-500/20 text-indigo-200'}`}>{liveSession.phase === 'scanning' ? 'ĐANG NHẬN CÂU TRẢ LỜI' : liveSession.phase === 'results' ? 'KẾT QUẢ TỨC THÌ' : 'CÂU HỎI ĐANG CHIẾU'}</span>
-                    {showCorrect && currentQuestion.correctAnswer && <span className="rounded-full bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300">ĐÁP ÁN ĐÚNG: {currentQuestion.correctAnswer}</span>}
-                  </div>
-                  <h2 className="mt-7 text-3xl font-bold leading-tight md:text-5xl xl:text-6xl">{currentQuestion.text}</h2>
-
-                  <div className="mt-9 grid gap-4 md:grid-cols-2">
-                    {ANSWERS.map(answer => {
-                      const count = answerDistribution[answer];
-                      const percentage = currentAnswers.length ? Math.round(count * 100 / currentAnswers.length) : 0;
-                      return (
-                        <article key={answer} className={`overflow-hidden rounded-2xl border p-5 md:p-6 ${showCorrect && currentQuestion.correctAnswer === answer ? 'border-emerald-400 bg-emerald-600/35' : 'border-white/15 bg-white/5'}`}>
-                          <div className="flex items-start justify-between gap-4">
-                            <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-bold ${ANSWER_COLORS[answer]}`}>{answer}</span>
-                            {showGraph && <span className="text-right text-lg font-bold text-white">{count}<span className="ml-2 text-sm font-normal text-slate-300">{percentage}%</span></span>}
-                          </div>
-                          <p className="mt-4 text-xl font-medium md:text-2xl">{currentQuestion.options[answer] || '—'}</p>
-                          {showGraph && <div className="mt-5 h-2 rounded-full bg-white/10"><div className={`h-2 rounded-full transition-all ${ANSWER_COLORS[answer]}`} style={{ width: `${percentage}%` }} /></div>}
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <aside className="self-start rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Học sinh đã trả lời</h3><span className="rounded-full bg-indigo-500/25 px-3 py-1 text-sm font-semibold text-indigo-100">{currentAnswers.length}/{classStudents.length}</span></div>
-                  <div className="mt-4 h-2 rounded-full bg-white/10"><div className="h-2 rounded-full bg-indigo-400 transition-all" style={{ width: `${classStudents.length ? currentAnswers.length * 100 / classStudents.length : 0}%` }} /></div>
-                  <div className="mt-5 grid max-h-[58vh] grid-cols-2 gap-2 overflow-y-auto xl:grid-cols-1">
-                    {classStudents.map((student, index) => {
-                      const response = currentAnswers.find(item => item.studentId === student.id);
-                      return (
-                        <div key={student.id} className={`flex min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2.5 transition-colors ${response ? 'border-blue-400/60 bg-blue-500/25 text-white' : 'border-white/10 bg-white/5 text-slate-400'}`}>
-                          <span className="truncate text-sm"><span className="mr-2 text-xs opacity-70">#{student.cardId || index + 1}</span>{student.name}</span>
-                          {response && (showCorrect || showGraph) ? <span className={`rounded-md px-2 py-1 text-xs font-bold ${ANSWER_COLORS[response.answer]}`}>{response.answer}</span> : response ? <Check className="h-4 w-4 shrink-0 text-blue-200" /> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </aside>
-              </div>
-            )}
-          </div>
-        </div>
+        <PlickerDisplayScreen
+          className={liveSession?.className || selectedClass?.title || ''}
+          setTitle={selectedSet?.title || liveSession?.questionSet.title || ''}
+          question={liveSession && liveSession.phase !== 'finished' ? currentQuestion : null}
+          questionIndex={questionIndex}
+          questionCount={selectedSet?.questions.length || 0}
+          students={classStudents}
+          responses={currentAnswers}
+          distribution={answerDistribution}
+          phase={liveSession?.phase || null}
+          showCorrect={showCorrect}
+          showGraph={showGraph}
+          scannerConnected={scannerConnected}
+          connected={syncReady && isOnline && !syncError}
+          scannerUrl={scannerUrl}
+          onToggleCorrect={toggleCorrectAnswer}
+          onToggleGraph={toggleAnswerGraph}
+          onClose={() => setShowProjector(false)}
+        />
       )}
 
       {printCards && <div className="fixed inset-0 z-[60] overflow-y-auto bg-white"><style>{`@media print { @page { size: A4; margin: 10mm; } body * { visibility: hidden; } #plicker-print-root, #plicker-print-root * { visibility: visible; } #plicker-print-root { position: absolute; inset: 0; width: 100%; } .plicker-no-print { display: none !important; } .plicker-card { break-inside: avoid; page-break-inside: avoid; } }`}</style><div id="plicker-print-root" className="mx-auto max-w-5xl p-5"><div className="plicker-no-print sticky top-0 z-10 mb-8 flex items-center justify-between border-b bg-white pb-4"><div><h2 className="font-bold">In thẻ lớp {selectedClass?.title}</h2><p className="text-xs text-slate-500">{classStudents.length} thẻ · Cạnh A/B/C/D hướng lên trên là đáp án</p></div><div className="flex gap-2"><button onClick={() => setPrintCards(false)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Đóng</button><button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"><Printer className="h-4 w-4" />In thẻ</button></div></div><div className="grid grid-cols-1 gap-8 sm:grid-cols-2 print:grid-cols-2 print:gap-5">{classStudents.map((student, index) => <article key={student.id} className="plicker-card flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-slate-200 p-8"><h3 className="text-center text-lg font-bold">#{student.cardId || index + 1} · {student.name}</h3><div className="relative my-9 w-44"><span className="absolute -top-8 left-1/2 -translate-x-1/2 text-xl font-bold">A</span><span className="absolute -right-7 top-1/2 -translate-y-1/2 text-xl font-bold">B</span><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xl font-bold">C</span><span className="absolute -left-7 top-1/2 -translate-y-1/2 text-xl font-bold">D</span><MarkerSvg cardId={student.cardId || index + 1} className="h-44 w-44" /></div><p className="text-xs text-slate-500">Xoay đáp án mong muốn lên phía trên</p></article>)}</div></div></div>}

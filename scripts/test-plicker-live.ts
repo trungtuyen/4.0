@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   createPlickerDevicePath,
+  getPlickerDisplayActivationKey,
   createPlickerLiveRoomId,
   createPlickerLiveSession,
   createPlickerQuestionKey,
@@ -89,9 +90,19 @@ assert.equal(computer.students.length, 3);
 assert.equal(computer.questionSet.questions[0].text, '2 + 2 = ?');
 checks += 6;
 
+assert.equal(getPlickerDisplayActivationKey('display', computer, 'computer-device'), 'session-8a:0:play');
+assert.equal(getPlickerDisplayActivationKey('scanner', computer, 'phone-device'), null);
+assert.equal(getPlickerDisplayActivationKey('display', computer, 'phone-device'), null);
+assert.equal(getPlickerDisplayActivationKey('display', null, 'computer-device'), null);
+assert.equal(getPlickerDisplayActivationKey('display', { ...computer, phase: 'finished' }, 'computer-device'), null);
+assert.equal(getPlickerDisplayActivationKey('display', { ...computer, controllerDeviceId: '' }, 'computer-device'), null);
+checks += 6;
+
 phone = { ...phone, phase: 'scanning', updatedAt: 1_010 };
 computer = structuredClone(phone);
 assert.equal(computer.phase, 'scanning', 'Computer immediately enters the accepting-answers state.');
+assert.equal(getPlickerDisplayActivationKey('display', computer, 'computer-device'), 'session-8a:0:scan');
+checks += 1;
 
 const an: PlickerLiveResponse = { studentId: 'student-an', studentName: 'An', cardId: 1, answer: 'B', confidence: 0.98, timestamp: 1_020, source: 'camera' };
 const binh: PlickerLiveResponse = { studentId: 'student-binh', studentName: 'Bình', cardId: 2, answer: 'A', confidence: 0.95, timestamp: 1_030, source: 'camera' };
@@ -124,6 +135,7 @@ assert.equal(computer.phase, 'results');
 assert.equal(computer.showCorrect, true);
 assert.equal(computer.showGraph, true);
 assert.equal(computer.questionSet.questions[computer.questionIndex].correctAnswer, 'B');
+assert.equal(getPlickerDisplayActivationKey('display', computer, 'computer-device'), 'session-8a:0:play');
 checks += 4;
 
 phone = movePlickerLiveQuestion(phone, 1, 1_200);
@@ -137,7 +149,8 @@ assert.deepEqual(getPlickerLiveResponses(computer), []);
 assert.equal(Object.values(computer.answersByQuestion['set-math-8:1']).length, 3, 'Earlier question results remain available for reports.');
 assert.equal(movePlickerLiveQuestion(computer, 20).questionIndex, 1);
 assert.equal(movePlickerLiveQuestion(computer, -10).questionIndex, 0);
-checks += 9;
+assert.equal(getPlickerDisplayActivationKey('display', computer, 'computer-device'), 'session-8a:1:play');
+checks += 10;
 
 const newerSet = { ...questionSet, title: 'Toán 8 đã chỉnh sửa', updatedAt: '2026-08-23T02:00:00.000Z' };
 assert.equal(mergePlickerQuestionSets([questionSet], [newerSet])[0].title, newerSet.title);
@@ -168,6 +181,7 @@ assert.equal(normalizePlickerLiveRoom({ ...room, rosters: { 'class-8a': [...rost
 checks += 5;
 
 const classroomSource = readFileSync(new URL('../src/components/PlickerClassroom.tsx', import.meta.url), 'utf8');
+const displaySource = readFileSync(new URL('../src/components/PlickerDisplayScreen.tsx', import.meta.url), 'utf8');
 const dashboardSource = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('../public/plicker.webmanifest', import.meta.url), 'utf8')) as { start_url: string };
 assert.match(classroomSource, /onSnapshot\(liveRoomReference/);
@@ -176,12 +190,15 @@ assert.match(classroomSource, /activeSession\.answersByQuestion/);
 assert.match(classroomSource, /'activeSession\.phase': 'scanning'/);
 assert.match(classroomSource, /'activeSession\.showCorrect'/);
 assert.match(classroomSource, /'activeSession\.showGraph'/);
-assert.match(classroomSource, /MÀN HÌNH LỚP HỌC/);
-assert.match(classroomSource, /Học sinh đã trả lời/);
+assert.match(displaySource, /MÀN HÌNH LỚP HỌC/);
+assert.match(displaySource, /Học sinh đã trả lời/);
 assert.match(classroomSource, /Đáp án giáo viên/);
+assert.match(classroomSource, /getPlickerDisplayActivationKey/);
+assert.match(classroomSource, /setShowProjector\(true\)/);
+assert.match(classroomSource, /<PlickerDisplayScreen/);
 assert.match(dashboardSource, /isPlickerSystemCategory/);
 assert.match(dashboardSource, /mergePlickerCloudRosters/);
 assert.match(manifest.start_url, /role=scanner/);
-checks += 12;
+checks += 15;
 
 console.info(`Plicker phone/display realtime sync: ${checks} checks passed.`);

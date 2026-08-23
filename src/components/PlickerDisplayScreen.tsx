@@ -1,0 +1,347 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  BarChart3, Check, Eye, EyeOff, Maximize2, Minimize2, MonitorPlay,
+  Smartphone, Users, Wifi, WifiOff, X,
+} from 'lucide-react';
+import type { PlickerAnswer } from '../lib/plickerVision';
+import type { PlickerLivePhase } from '../lib/plickerLive';
+
+const ANSWERS: PlickerAnswer[] = ['A', 'B', 'C', 'D'];
+const ANSWER_GRAPH_COLORS: Record<PlickerAnswer, string> = {
+  A: 'bg-[#75a8f5]',
+  B: 'bg-[#f0bd67]',
+  C: 'bg-[#6dc499]',
+  D: 'bg-[#bb85e8]',
+};
+
+export interface PlickerDisplayStudent {
+  id: string;
+  name: string;
+  cardId?: number;
+}
+
+export interface PlickerDisplayResponse {
+  studentId: string;
+  answer: PlickerAnswer;
+}
+
+export interface PlickerDisplayQuestion {
+  text: string;
+  options: Partial<Record<PlickerAnswer, string>>;
+  correctAnswer: PlickerAnswer | null;
+}
+
+interface PlickerDisplayScreenProps {
+  className: string;
+  setTitle: string;
+  question: PlickerDisplayQuestion | null;
+  questionIndex: number;
+  questionCount: number;
+  students: PlickerDisplayStudent[];
+  responses: PlickerDisplayResponse[];
+  distribution: Record<PlickerAnswer, number>;
+  phase: PlickerLivePhase | null;
+  showCorrect: boolean;
+  showGraph: boolean;
+  scannerConnected: boolean;
+  connected: boolean;
+  scannerUrl: string;
+  onToggleCorrect: () => void;
+  onToggleGraph: () => void;
+  onClose: () => void;
+}
+
+export function formatPlickerDisplayQuestion(text: string, questionIndex: number): string {
+  const normalized = text.trim();
+  if (!normalized || /^(?:câu|question)\s*\d+/iu.test(normalized)) return normalized;
+  return `Câu ${questionIndex + 1}. ${normalized}`;
+}
+
+export function calculatePlickerDisplayProgress(answered: number, total: number): number {
+  if (!Number.isFinite(answered) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round(answered * 100 / total)));
+}
+
+export function PlickerDisplayMath({ text }: { text: string }) {
+  const nodes: React.ReactNode[] = [];
+  const tokens = /\\frac\{([^{}]+)\}\{([^{}]+)\}|(?<![\p{L}\p{N}])(-?\d+)\/([\p{L}]+|\d+)|\^\{([^{}]+)\}|\^(-?\d+)/gu;
+  let previous = 0;
+
+  for (const match of text.matchAll(tokens)) {
+    const position = match.index ?? 0;
+    if (position > previous) nodes.push(text.slice(previous, position));
+
+    if (match[1] !== undefined || match[3] !== undefined) {
+      const numerator = match[1] ?? match[3];
+      const denominator = match[2] ?? match[4];
+      nodes.push(
+        <span
+          key={`${position}-fraction`}
+          aria-label={`${numerator} phần ${denominator}`}
+          className="mx-[0.08em] inline-flex -translate-y-[0.04em] flex-col items-center align-middle text-[0.74em] leading-[1.05]"
+        >
+          <span className="w-full border-b-[0.07em] border-current px-[0.15em] text-center">{numerator}</span>
+          <span className="px-[0.15em] text-center">{denominator}</span>
+        </span>,
+      );
+    } else {
+      nodes.push(<sup key={`${position}-exponent`} className="relative -top-[0.05em] text-[0.62em]">{match[5] ?? match[6]}</sup>);
+    }
+    previous = position + match[0].length;
+  }
+
+  if (previous < text.length) nodes.push(text.slice(previous));
+  return <>{nodes.length > 0 ? nodes : text}</>;
+}
+
+export default function PlickerDisplayScreen({
+  className, setTitle, question, questionIndex, questionCount, students, responses,
+  distribution, phase, showCorrect, showGraph, scannerConnected, connected, scannerUrl,
+  onToggleCorrect, onToggleGraph, onClose,
+}: PlickerDisplayScreenProps) {
+  const [showStudents, setShowStudents] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const progress = calculatePlickerDisplayProgress(responses.length, students.length);
+  const availableAnswers = question
+    ? ANSWERS.filter(answer => question.options[answer] !== undefined)
+    : [];
+  const answerByStudent = new Map(responses.map(response => [response.studentId, response.answer]));
+
+  useEffect(() => {
+    const updateFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', updateFullscreen);
+    return () => document.removeEventListener('fullscreenchange', updateFullscreen);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (containerRef.current?.requestFullscreen) await containerRef.current.requestFullscreen();
+    } catch (error) {
+      console.error('Không thể mở chế độ toàn màn hình:', error);
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      role="presentation"
+      aria-label="MÀN HÌNH LỚP HỌC đang trình chiếu câu hỏi"
+      className="fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#f5f5f9] text-[#262432]"
+    >
+      <header className="flex min-h-[54px] shrink-0 items-center justify-between gap-3 border-b border-[#e6e6eb] bg-[#f6f6f9] px-4 md:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={`rounded-sm px-2 py-1 text-[11px] font-bold tracking-[0.08em] text-white ${
+            connected && phase && phase !== 'finished' ? 'bg-[#31b887]' : 'bg-[#a4a3ab]'
+          }`}>
+            {connected && phase && phase !== 'finished' ? 'LIVE' : 'CHỜ'}
+          </span>
+          <span className="truncate text-base font-bold text-[#252333] md:text-xl">
+            {className || 'Màn hình lớp học'}
+          </span>
+          {phase === 'scanning' && (
+            <span className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 sm:inline-flex">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" /> Đang quét
+            </span>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1 md:gap-2">
+          <span
+            title={scannerConnected ? 'Điện thoại đã kết nối' : 'Đang chờ điện thoại'}
+            className={`hidden items-center gap-1.5 px-2 text-xs font-medium md:inline-flex ${
+              scannerConnected ? 'text-[#39966f]' : 'text-[#9a98a2]'
+            }`}
+          >
+            {scannerConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+            {scannerConnected ? 'Điện thoại' : 'Chờ điện thoại'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowStudents(previous => !previous)}
+            aria-label={showStudents ? 'Ẩn danh sách học sinh' : 'Hiện danh sách học sinh'}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-semibold md:px-3 ${
+              showStudents ? 'bg-[#e9e9ef] text-[#34323d]' : 'text-[#72717d] hover:bg-[#ececf1]'
+            }`}
+          >
+            <Users className="h-4 w-4" /><span className="hidden lg:inline">Danh sách học sinh</span>
+          </button>
+          <button
+            type="button"
+            onClick={onToggleGraph}
+            aria-label={showGraph ? 'Ẩn biểu đồ' : 'Hiện biểu đồ'}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-semibold md:px-3 ${
+              showGraph ? 'bg-blue-50 text-blue-700' : 'text-[#72717d] hover:bg-[#ececf1]'
+            }`}
+          >
+            <BarChart3 className="h-4 w-4" /><span className="hidden xl:inline">{showGraph ? 'Ẩn biểu đồ' : 'Hiện biểu đồ'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onToggleCorrect}
+            aria-label={showCorrect ? 'Ẩn câu trả lời đúng' : 'Tiết lộ câu trả lời'}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-xs font-semibold md:px-3 ${
+              showCorrect ? 'bg-emerald-50 text-emerald-700' : 'text-[#72717d] hover:bg-[#ececf1]'
+            }`}
+          >
+            {showCorrect ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            <span className="hidden xl:inline">{showCorrect ? 'Ẩn câu trả lời' : 'Tiết lộ câu trả lời'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng màn hình trình chiếu"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-[#81808a] hover:bg-[#ececf1]"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </header>
+
+      {!question || !phase || phase === 'finished' ? (
+        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 text-center">
+          <div className="rounded-[28px] bg-[#edf7f2] p-7 text-[#42a87f]"><Smartphone className="h-14 w-14" /></div>
+          <h1 className="mt-7 text-3xl font-bold tracking-tight text-[#292733] md:text-5xl">Sẵn sàng nhận bài từ điện thoại</h1>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-[#72717d]">
+            Đăng nhập cùng tài khoản trên điện thoại. Khi thầy bấm bắt đầu bài hoặc quét thẻ,
+            câu hỏi sẽ tự động xuất hiện toàn màn hình tại đây.
+          </p>
+          <p className="mt-6 rounded-lg border border-[#e6e6eb] bg-white px-4 py-3 text-sm text-[#595766]">{scannerUrl}</p>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 justify-center overflow-hidden">
+          <article
+            aria-label="Bài đang chơi trên màn hình lớp học"
+            className="relative flex min-h-0 w-full max-w-[1480px] flex-col overflow-hidden border-x border-[#ececf0] bg-[#fdfdfd]"
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-9 md:px-12 md:pt-12 xl:px-[72px] xl:pt-16">
+              <div className="flex min-h-full flex-col">
+                <h1 className="max-w-[1250px] text-[clamp(2.1rem,5.1vw,5rem)] font-bold leading-[1.1] tracking-[-0.065em] text-[#262432]">
+                  <PlickerDisplayMath text={formatPlickerDisplayQuestion(question.text, questionIndex)} />
+                </h1>
+
+                <section aria-label="Bốn đáp án của câu hỏi" className="mt-auto space-y-1.5 pt-10 md:space-y-2 xl:pt-14">
+                  {availableAnswers.map(answer => {
+                    const count = distribution[answer] || 0;
+                    const percentage = calculatePlickerDisplayProgress(count, responses.length);
+                    const correct = showCorrect && question.correctAnswer === answer;
+
+                    return (
+                      <div key={answer} className="py-1">
+                        <div className={`flex min-h-[54px] min-w-0 items-center gap-3 rounded-md md:min-h-[64px] md:gap-4 ${
+                          correct ? 'bg-[#e9f7ef]' : ''
+                        }`}>
+                          <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border text-2xl font-bold md:h-13 md:w-13 md:text-3xl ${
+                            correct ? 'border-[#61b990] bg-[#61b990] text-white' : 'border-[#d9d9df] bg-[#fafafd] text-[#727080]'
+                          }`}>
+                            {answer}
+                          </span>
+                          <span className="min-w-0 flex-1 text-[clamp(1.35rem,3vw,2.8rem)] font-semibold leading-[1.18] tracking-[-0.04em] text-[#18171c]">
+                            <PlickerDisplayMath text={question.options[answer] || `Phương án ${answer}`} />
+                          </span>
+                          {showGraph && (
+                            <span className="shrink-0 pr-2 text-lg font-semibold text-[#666574] md:pr-4 md:text-2xl">
+                              {count}<span className="ml-2 text-sm text-[#96959e]">{percentage}%</span>
+                            </span>
+                          )}
+                        </div>
+                        {showGraph && (
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#efeff2]">
+                            <div
+                              className={`h-full rounded-full transition-[width] duration-300 ${ANSWER_GRAPH_COLORS[answer]}`}
+                              style={{ width: `${percentage}%` }}
+                              aria-label={`${answer}: ${count} học sinh, ${percentage}%`}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </section>
+              </div>
+            </div>
+
+            <div className="shrink-0 px-6 pb-5 pt-1 md:px-12 xl:px-[88px] xl:pb-7">
+              <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-[#efeff1]">
+                <div
+                  aria-label={`${responses.length} trên ${students.length} học sinh đã trả lời`}
+                  className="h-full rounded-full bg-[#92bafa] transition-[width] duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex h-12 items-center justify-between gap-3 rounded-sm bg-[#aaa9a8] px-4 text-white md:h-14">
+                <div className="flex min-w-0 items-center gap-3">
+                  <MonitorPlay className="hidden h-5 w-5 shrink-0 md:block" />
+                  <span className="truncate text-sm font-semibold md:text-base">{setTitle || 'Bộ câu hỏi'}</span>
+                  <span className="hidden text-xs text-white/80 sm:inline">Câu {questionIndex + 1}/{questionCount}</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 md:gap-4">
+                  <span className="inline-flex items-center gap-1 rounded-sm bg-white/20 px-2 py-1 text-xs font-semibold">
+                    <Users className="h-3.5 w-3.5" />{responses.length}/{students.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowStudents(previous => !previous)}
+                    aria-label="Mở danh sách học sinh đã trả lời"
+                    className="rounded-sm p-1.5 hover:bg-white/20"
+                  >
+                    <MonitorPlay className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleFullscreen()}
+                    aria-label={fullscreen ? 'Thu nhỏ màn hình trình chiếu' : 'Mở toàn màn hình trình chiếu'}
+                    className="rounded-sm p-1.5 hover:bg-white/20"
+                  >
+                    {fullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {showStudents && (
+              <aside className="absolute inset-y-0 right-0 z-10 flex w-[min(380px,92vw)] flex-col border-l border-[#e8e8ec] bg-white shadow-[-12px_0_35px_rgba(0,0,0,0.08)]">
+                <div className="flex items-center justify-between border-b border-[#ececf0] p-5">
+                  <div>
+                    <h2 className="font-semibold text-[#302e3b]">Học sinh đã trả lời</h2>
+                    <p className="mt-1 text-sm text-[#777580]">{responses.length}/{students.length} học sinh</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowStudents(false)}
+                    aria-label="Đóng danh sách học sinh"
+                    className="rounded-md p-2 text-[#777580] hover:bg-[#f2f2f5]"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    {students.map((student, index) => {
+                      const answer = answerByStudent.get(student.id);
+                      return (
+                        <div
+                          key={student.id}
+                          className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-xs ${
+                            answer ? 'border-[#9ec6f6] bg-[#edf5ff] text-[#285992]' : 'border-[#ececf0] text-[#9998a1]'
+                          }`}
+                        >
+                          <span className="shrink-0 text-[10px] opacity-70">#{student.cardId || index + 1}</span>
+                          <span className="min-w-0 flex-1 truncate font-medium">{student.name}</span>
+                          {answer && (showCorrect || showGraph)
+                            ? <span className="font-bold">{answer}</span>
+                            : answer ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </aside>
+            )}
+          </article>
+        </div>
+      )}
+    </div>
+  );
+}

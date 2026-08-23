@@ -103,6 +103,18 @@ export function createPlickerDevicePath(baseUrl: string, role: PlickerDeviceRole
   return `${normalized}?${new URLSearchParams({ app: 'plicker', role }).toString()}`;
 }
 
+export function getPlickerDisplayActivationKey(
+  role: PlickerDeviceRole,
+  session: PlickerLiveSession | null,
+  localDeviceId: string,
+): string | null {
+  if (role !== 'display' || !session || session.phase === 'finished') return null;
+  if (!session.controllerDeviceId || session.controllerDeviceId === localDeviceId) return null;
+
+  const action = session.phase === 'scanning' ? 'scan' : 'play';
+  return `${session.sessionId}:${session.questionIndex}:${action}`;
+}
+
 export function createPlickerQuestionKey(setId: string, questionId: number): string {
   if (!/^[a-zA-Z0-9_-]+$/.test(setId) || !Number.isInteger(questionId) || questionId < 0) {
     throw new RangeError('Mã bộ câu hỏi không hợp lệ để đồng bộ.');
