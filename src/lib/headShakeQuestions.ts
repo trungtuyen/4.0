@@ -382,7 +382,21 @@ export function generateOfflineHeadShakeQuestions(topic: string, requestedCount:
   const count = boundCount(requestedCount);
   if (isMathTopic(cleanTopic)) {
     const grade = extractGrade(cleanTopic);
-    return Array.from({ length: count }, (_, index) => generateMathQuestion(cleanTopic, grade, index));
+    const questions: GeneratedHeadShakeQuestion[] = [];
+    const usedQuestionTexts = new Set<string>();
+
+    for (let index = 0; index < count; index += 1) {
+      let question = generateMathQuestion(cleanTopic, grade, index);
+      let attempt = 0;
+      while (usedQuestionTexts.has(question.text) && attempt < 50) {
+        attempt += 1;
+        question = generateMathQuestion(cleanTopic, grade, index + attempt * count);
+      }
+      usedQuestionTexts.add(question.text);
+      questions.push(question);
+    }
+
+    return questions;
   }
 
   const group = detectKnowledgeGroup(cleanTopic);

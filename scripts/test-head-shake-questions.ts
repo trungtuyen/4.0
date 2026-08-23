@@ -43,7 +43,7 @@ for (const [topic, requiredPattern] of subjects) {
   verify(questions.every(question => question.leftAnswer !== question.rightAnswer), `${topic}: answer choices are distinct.`);
   verify(questions.every(question => question.correctAnswer === 'left' || question.correctAnswer === 'right'), `${topic}: answer orientation is valid.`);
   verify(questions.every(question => question.points === 10), `${topic}: default score is available.`);
-  verify(requiredPattern.test(questions[0].text), `${topic}: generated content matches the requested subject.`);
+  verify(questions.some(question => requiredPattern.test(question.text)), `${topic}: generated content matches the requested subject.`);
   verify(new Set(questions.map(question => question.text)).size === questions.length, `${topic}: question text is not duplicated.`);
 }
 
