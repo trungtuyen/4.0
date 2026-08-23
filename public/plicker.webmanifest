@@ -5,7 +5,7 @@
   "description": "Quản lý lớp học, quét thẻ trả lời bằng camera và xem kết quả tương tác trực tiếp.",
   "lang": "vi-VN",
   "dir": "ltr",
-  "start_url": "/4.0/?app=plicker&source=installed",
+  "start_url": "/4.0/?app=plicker&role=scanner&source=installed",
   "scope": "/4.0/",
   "display": "standalone",
   "orientation": "any",
@@ -37,14 +37,14 @@
       "name": "Danh sách lớp học",
       "short_name": "Lớp học",
       "description": "Mở nhanh danh sách lớp và học sinh.",
-      "url": "/4.0/?app=plicker&section=classes",
+      "url": "/4.0/?app=plicker&role=scanner&section=classes",
       "icons": [{ "src": "/4.0/icons/plicker-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Quét thẻ học sinh",
       "short_name": "Quét thẻ",
       "description": "Mở nhanh phòng học và camera quét thẻ.",
-      "url": "/4.0/?app=plicker&section=session",
+      "url": "/4.0/?app=plicker&role=scanner&section=session",
       "icons": [{ "src": "/4.0/icons/plicker-192.png", "sizes": "192x192" }]
     }
   ]

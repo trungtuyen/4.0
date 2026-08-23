@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, ArrowLeft, ArrowRight, BarChart3, Camera, Check, CheckCircle2, ChevronLeft,
   ChevronRight, CircleAlert, Download, Eye, EyeOff, FileText, GraduationCap, Layers,
-  LayoutDashboard, Maximize2, Pause, Pencil, Play, Plus, Printer, QrCode, RefreshCw, Save,
-  ScanLine, Settings2, ShieldCheck, Smartphone, Square, Trash2, UserPlus, Users, X,
+  LayoutDashboard, Link2, Maximize2, MonitorPlay, Pause, Pencil, Play, Plus, Printer, QrCode,
+  RefreshCw, Save, ScanLine, Settings2, ShieldCheck, Smartphone, Square, Trash2, UserPlus,
+  Users, Wifi, WifiOff, X,
 } from 'lucide-react';
+import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import {
   createPlickerMarker,
   detectPlickerCards,
@@ -21,6 +24,21 @@ import {
   PWA_INSTALL_STATE_EVENT,
   readRequestedPlickerSection,
 } from '../lib/plickerPwa';
+import {
+  createPlickerDevicePath,
+  createPlickerLiveRoomId,
+  createPlickerLiveSession,
+  createPlickerQuestionKey,
+  mergePlickerQuestionSets,
+  normalizePlickerLiveRoom,
+  readPlickerDeviceRole,
+  sanitizePlickerQuestionSet,
+  sanitizePlickerStudents,
+  summarizePlickerLiveAnswers,
+  type PlickerDeviceRole,
+  type PlickerLiveRoom,
+  type PlickerLiveSession,
+} from '../lib/plickerLive';
 
 interface Student {
   id: string;
@@ -44,6 +62,7 @@ interface PlickerClassroomProps {
   onAddStudents: (classId: string, names: string[]) => void;
   onUpdateStudent: (studentId: string, name: string) => void;
   onDeleteStudent: (studentId: string) => void;
+  onSyncStudents: (rosters: Record<string, Student[]>) => void;
 }
 
 interface ClassroomQuestion {
@@ -240,7 +259,7 @@ function MetricCard({
 }
 
 export default function PlickerClassroom({
-  onBack, categories, allStudents, onCreateClass, onAddStudents, onUpdateStudent, onDeleteStudent,
+  onBack, categories, allStudents, onCreateClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents,
 }: PlickerClassroomProps) {
   const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
   const [selectedClassId, setSelectedClassId] = useState(categories[0]?.id || '');
@@ -253,7 +272,8 @@ export default function PlickerClassroom({
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [showCorrect, setShowCorrect] = useState(false);
-  const [showProjector, setShowProjector] = useState(false);
+  const [showProjector, setShowProjector] = useState(() => new URLSearchParams(window.location.search).get('role') === 'display');
+  const [showGraph, setShowGraph] = useState(false);
   const [cameraStats, setCameraStats] = useState({ fps: 0, candidates: 0, confidence: 0 });
   const [classModal, setClassModal] = useState(false);
   const [addStudentsModal, setAddStudentsModal] = useState(false);
@@ -269,11 +289,28 @@ export default function PlickerClassroom({
   const [pwaInstalled, setPwaInstalled] = useState(isInstalledPwa);
   const [pwaPromptReady, setPwaPromptReady] = useState(hasPwaInstallationPrompt);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [showPairingHelp, setShowPairingHelp] = useState(false);
+  const [deviceRole, setDeviceRole] = useState<PlickerDeviceRole>(() =>
+    readPlickerDeviceRole(window.location.search, navigator.userAgent));
+  const [liveRoom, setLiveRoom] = useState<PlickerLiveRoom | null>(null);
+  const [syncReady, setSyncReady] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const consensusRef = useRef(new PlickerTemporalConsensus(2, 850));
   const sessionIdRef = useRef(createIdentifier('session'));
+  const deviceIdRef = useRef(createIdentifier('device'));
+  const currentRoomRef = useRef<PlickerLiveRoom | null>(null);
+  const followedSessionIdRef = useRef('');
+  const onSyncStudentsRef = useRef(onSyncStudents);
+  onSyncStudentsRef.current = onSyncStudents;
+
+  const ownerUid = auth.currentUser?.uid || '';
+  const liveRoomReference = useMemo(() =>
+    ownerUid ? doc(db, 'categories', createPlickerLiveRoomId(ownerUid)) : null,
+  [ownerUid]);
 
   const selectedClass = categories.find(item => item.id === selectedClassId) || null;
   const classStudents = useMemo(() =>
@@ -287,12 +324,175 @@ export default function PlickerClassroom({
   ), [classStudents]);
   const selectedSet = sets.find(item => item.id === selectedSetId) || null;
   const currentQuestion = selectedSet?.questions[questionIndex] || null;
-  const questionKey = currentQuestion && selectedSet ? `${selectedSet.id}:${currentQuestion.id}` : '';
+  const questionKey = currentQuestion && selectedSet ? createPlickerQuestionKey(selectedSet.id, currentQuestion.id) : '';
   const currentAnswers = answersByQuestion[questionKey] || [];
+  const currentAnswersRef = useRef<ClassroomResponse[]>([]);
+  currentAnswersRef.current = currentAnswers;
   const correctCount = currentQuestion?.correctAnswer
     ? currentAnswers.filter(item => item.answer === currentQuestion.correctAnswer).length
     : 0;
   const selectedReport = reports.find(report => report.id === selectedReportId) || null;
+  const liveSession = liveRoom?.activeSession || null;
+
+  const reportSynchronizationError = useCallback((error: unknown) => {
+    console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', error);
+    setSyncError('Không thể đồng bộ Firebase. Hãy kiểm tra kết nối mạng và đăng nhập cùng một tài khoản trên hai thiết bị.');
+  }, []);
+
+  const saveRoomFields = useCallback(async (fields: Record<string, unknown>) => {
+    if (!liveRoomReference || !ownerUid) return;
+    try {
+      await setDoc(liveRoomReference, {
+        kind: 'plicker_live_session',
+        ownerUid,
+        authorId: ownerUid,
+        ...fields,
+        updatedAt: Date.now(),
+      }, { merge: true });
+      setSyncError('');
+    } catch (error) {
+      reportSynchronizationError(error);
+    }
+  }, [liveRoomReference, ownerUid, reportSynchronizationError]);
+
+  const updateLiveSessionFields = useCallback(async (fields: Record<string, unknown>) => {
+    if (!liveRoomReference || !currentRoomRef.current?.activeSession) return;
+    try {
+      await updateDoc(liveRoomReference, {
+        ...fields,
+        'activeSession.updatedAt': Date.now(),
+        updatedAt: Date.now(),
+      });
+      setSyncError('');
+    } catch (error) {
+      reportSynchronizationError(error);
+    }
+  }, [liveRoomReference, reportSynchronizationError]);
+
+  useEffect(() => {
+    const markOnline = () => setIsOnline(true);
+    const markOffline = () => setIsOnline(false);
+    window.addEventListener('online', markOnline);
+    window.addEventListener('offline', markOffline);
+    return () => {
+      window.removeEventListener('online', markOnline);
+      window.removeEventListener('offline', markOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!liveRoomReference || !ownerUid) return;
+    setSyncReady(false);
+
+    return onSnapshot(liveRoomReference, snapshot => {
+      if (!snapshot.exists()) {
+        currentRoomRef.current = null;
+        setLiveRoom(null);
+        setSyncReady(true);
+        setSyncError('');
+        return;
+      }
+
+      const room = normalizePlickerLiveRoom(snapshot.data(), ownerUid);
+      if (!room) {
+        setSyncError('Phiên đồng bộ không thuộc tài khoản đang đăng nhập.');
+        setSyncReady(true);
+        return;
+      }
+
+      currentRoomRef.current = room;
+      setLiveRoom(room);
+      setSyncReady(true);
+      setSyncError('');
+
+      if (room.librarySets.length > 0) {
+        setSets(previous => mergePlickerQuestionSets(previous, room.librarySets as ClassroomQuestionSet[]));
+      }
+
+      const session = room.activeSession;
+      const synchronizedRosters = session
+        ? { [session.classId]: session.students as Student[], ...room.rosters as Record<string, Student[]> }
+        : room.rosters as Record<string, Student[]>;
+      if (Object.keys(synchronizedRosters).length > 0) {
+        onSyncStudentsRef.current(synchronizedRosters);
+      }
+
+      if (!session) return;
+      setSets(previous => mergePlickerQuestionSets(previous, [session.questionSet as ClassroomQuestionSet]));
+      setSelectedClassId(session.classId);
+      setSelectedSetId(session.questionSet.id);
+      setQuestionIndex(session.questionIndex);
+      setShowCorrect(session.showCorrect);
+      setShowGraph(session.showGraph);
+      setAnswersByQuestion(Object.fromEntries(
+        Object.entries(session.answersByQuestion || {}).map(([key, responses]) => [
+          key,
+          Object.values(responses).sort((left, right) => left.cardId - right.cardId),
+        ]),
+      ));
+      sessionIdRef.current = session.sessionId;
+
+      if (session.phase !== 'finished' && followedSessionIdRef.current !== session.sessionId) {
+        followedSessionIdRef.current = session.sessionId;
+        setView('session');
+      }
+      if (session.phase === 'results' || session.phase === 'finished') {
+        setScanning(false);
+      }
+    }, reportSynchronizationError);
+  }, [liveRoomReference, ownerUid, reportSynchronizationError]);
+
+  useEffect(() => {
+    if (!syncReady || !ownerUid) return;
+    const announceDevice = () => {
+      void saveRoomFields({
+        devices: {
+          [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },
+        },
+      });
+    };
+
+    announceDevice();
+    const heartbeat = window.setInterval(announceDevice, 45_000);
+    return () => window.clearInterval(heartbeat);
+  }, [deviceRole, ownerUid, saveRoomFields, syncReady]);
+
+  useEffect(() => {
+    if (!syncReady || !ownerUid || !sets.length) return;
+    const remoteSets = currentRoomRef.current?.librarySets || [];
+    const combined = mergePlickerQuestionSets(sets, remoteSets as ClassroomQuestionSet[]);
+    if (combined !== sets) {
+      setSets(combined);
+      return;
+    }
+    if (JSON.stringify(combined) === JSON.stringify(remoteSets)) return;
+
+    const timer = window.setTimeout(() => {
+      void saveRoomFields({ librarySets: combined.map(sanitizePlickerQuestionSet) });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [ownerUid, saveRoomFields, sets, syncReady]);
+
+  useEffect(() => {
+    if (!syncReady || !ownerUid || !categories.length) return;
+    const remoteRosters = currentRoomRef.current?.rosters || {};
+    const changed: Record<string, Student[]> = {};
+
+    for (const classroom of categories) {
+      const students = sanitizePlickerStudents(allStudents.filter(student => student.classId === classroom.id));
+      const alreadySynchronized = Object.prototype.hasOwnProperty.call(remoteRosters, classroom.id);
+      if (!students.length && !alreadySynchronized) continue;
+      if (JSON.stringify(students) !== JSON.stringify(remoteRosters[classroom.id] || [])) {
+        changed[classroom.id] = students;
+      }
+    }
+
+    if (!Object.keys(changed).length) return;
+    const timer = window.setTimeout(() => {
+      void saveRoomFields({ rosters: changed });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [allStudents, categories, ownerUid, saveRoomFields, syncReady]);
 
   useEffect(() => {
     const refreshInstallationState = () => {
@@ -345,6 +545,8 @@ export default function PlickerClassroom({
   ) => {
     if (!questionKey) return;
     if (currentQuestion?.options[answer] === undefined) return;
+    const previousAnswer = currentAnswersRef.current.find(item => item.studentId === student.id);
+    if (previousAnswer?.answer === answer && previousAnswer.source === source) return;
     const response: ClassroomResponse = {
       studentId: student.id,
       studentName: student.name,
@@ -366,7 +568,14 @@ export default function PlickerClassroom({
         ],
       };
     });
-  }, [currentQuestion, questionKey]);
+
+    const activeSession = currentRoomRef.current?.activeSession;
+    if (activeSession && activeSession.sessionId === sessionIdRef.current && /^[a-zA-Z0-9_-]+$/.test(student.id)) {
+      void updateLiveSessionFields({
+        [`activeSession.answersByQuestion.${questionKey}.${student.id}`]: response,
+      });
+    }
+  }, [currentQuestion, questionKey, updateLiveSessionFields]);
 
   useEffect(() => {
     if (!scanning || view !== 'session' || !currentQuestion || classStudents.length === 0) return;
@@ -487,8 +696,41 @@ export default function PlickerClassroom({
     };
   }, [classStudents, classStudentsByCard, currentQuestion, recordAnswer, scanning, view]);
 
+  const publishLiveSession = async (session: PlickerLiveSession) => {
+    if (!liveRoomReference || !ownerUid) return;
+    const previous = currentRoomRef.current;
+    const room: PlickerLiveRoom = {
+      kind: 'plicker_live_session',
+      ownerUid,
+      authorId: ownerUid,
+      librarySets: mergePlickerQuestionSets(
+        sets.map(sanitizePlickerQuestionSet),
+        previous?.librarySets || [],
+      ),
+      rosters: { ...previous?.rosters, [session.classId]: session.students },
+      devices: {
+        ...previous?.devices,
+        [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },
+      },
+      activeSession: session,
+      updatedAt: Date.now(),
+    };
+    currentRoomRef.current = room;
+    setLiveRoom(room);
+
+    try {
+      await setDoc(liveRoomReference, room);
+      setSyncError('');
+    } catch (error) {
+      reportSynchronizationError(error);
+    }
+  };
+
   const switchView = (next: ClassroomView) => {
-    if (next !== 'session') setScanning(false);
+    if (next !== 'session' && scanning) {
+      setScanning(false);
+      void updateLiveSessionFields({ 'activeSession.phase': 'results' });
+    }
     setView(next);
     setNotice('');
   };
@@ -508,8 +750,88 @@ export default function PlickerClassroom({
     setAnswersByQuestion({});
     sessionIdRef.current = createIdentifier('session');
     setShowCorrect(false);
+    setShowGraph(false);
     setScanError('');
     setView('session');
+
+    try {
+      const session = createPlickerLiveSession({
+        sessionId: sessionIdRef.current,
+        ownerUid,
+        classId: selectedClass.id,
+        className: selectedClass.title,
+        students: classStudents,
+        questionSet: selectedSet,
+        controllerDeviceId: deviceIdRef.current,
+      });
+      followedSessionIdRef.current = session.sessionId;
+      void publishLiveSession(session);
+      setNotice('Buổi học đã đồng bộ. Mở cùng tài khoản trên điện thoại và máy tính để quét và trình chiếu song song.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Không thể tạo buổi học đồng bộ.');
+    }
+  };
+
+  const startScanningCards = () => {
+    setDeviceRole('scanner');
+    if (!currentRoomRef.current?.activeSession || currentRoomRef.current.activeSession.phase === 'finished') {
+      startSession();
+    }
+    setScanError('');
+    setScanning(true);
+    void updateLiveSessionFields({
+      'activeSession.phase': 'scanning',
+      'activeSession.controllerDeviceId': deviceIdRef.current,
+      'activeSession.showCorrect': false,
+      'activeSession.showGraph': false,
+    });
+  };
+
+  const stopScanningCards = () => {
+    setScanning(false);
+    void updateLiveSessionFields({ 'activeSession.phase': 'results' });
+  };
+
+  const changeQuestion = (nextIndex: number) => {
+    if (!selectedSet) return;
+    const safeIndex = Math.max(0, Math.min(selectedSet.questions.length - 1, nextIndex));
+    setScanning(false);
+    setQuestionIndex(safeIndex);
+    setShowCorrect(false);
+    setShowGraph(false);
+    consensusRef.current.reset();
+    void updateLiveSessionFields({
+      'activeSession.questionIndex': safeIndex,
+      'activeSession.phase': 'launch',
+      'activeSession.showCorrect': false,
+      'activeSession.showGraph': false,
+      'activeSession.controllerDeviceId': deviceIdRef.current,
+    });
+  };
+
+  const toggleCorrectAnswer = () => {
+    const next = !showCorrect;
+    setShowCorrect(next);
+    void updateLiveSessionFields({ 'activeSession.showCorrect': next });
+  };
+
+  const toggleAnswerGraph = () => {
+    const next = !showGraph;
+    setShowGraph(next);
+    void updateLiveSessionFields({ 'activeSession.showGraph': next });
+  };
+
+  const resetCurrentAnswers = () => {
+    if (!questionKey) return;
+    setAnswersByQuestion(previous => ({ ...previous, [questionKey]: [] }));
+    consensusRef.current.reset();
+    void updateLiveSessionFields({ [`activeSession.answersByQuestion.${questionKey}`]: {} });
+  };
+
+  const openClassroomDisplay = () => {
+    setDeviceRole('display');
+    setScanning(false);
+    setShowProjector(true);
   };
 
   const finishSession = () => {
@@ -532,6 +854,10 @@ export default function PlickerClassroom({
     setSelectedReportId(report.id);
     setView('reports');
     setNotice('Đã lưu báo cáo buổi học.');
+    void updateLiveSessionFields({
+      'activeSession.phase': 'finished',
+      'activeSession.showGraph': true,
+    });
   };
 
   const openNewSet = () => {
@@ -636,6 +962,11 @@ export default function PlickerClassroom({
 
   const totalRecorded = reports.reduce((sum, report) =>
     sum + report.questions.reduce((questionSum, question) => questionSum + question.responses.length, 0), 0);
+  const scannerConnected = Boolean(liveRoom?.devices.scanner && Date.now() - liveRoom.devices.scanner.updatedAt < 120_000);
+  const displayConnected = Boolean(liveRoom?.devices.display && Date.now() - liveRoom.devices.display.updatedAt < 120_000);
+  const answerDistribution = summarizePlickerLiveAnswers(currentAnswers);
+  const scannerUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'scanner'), window.location.origin).toString();
+  const displayUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'display'), window.location.origin).toString();
 
   const installClassroomApplication = async () => {
     const result = await promptPwaInstallation();
@@ -658,10 +989,25 @@ export default function PlickerClassroom({
             <div className="rounded-xl bg-indigo-500 p-2"><ScanLine className="h-5 w-5" /></div>
             <div>
               <h1 className="text-base font-bold md:text-lg">Thẻ tương tác lớp học</h1>
-              <p className="text-xs text-indigo-200">Quét trực tiếp trên trình duyệt · Tối đa 63 thẻ</p>
+              <p className="text-xs text-indigo-200">Điện thoại quét · Máy tính trình chiếu · Tối đa 63 thẻ</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPairingHelp(true)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${
+                syncReady && isOnline && !syncError
+                  ? 'border-emerald-300/40 bg-emerald-500/10 text-emerald-200'
+                  : 'border-amber-300/40 bg-amber-500/10 text-amber-100'
+              }`}
+            >
+              {syncReady && isOnline && !syncError ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+              {scannerConnected && displayConnected ? 'Đã ghép 2 thiết bị' : 'Ghép điện thoại'}
+            </button>
+            <button type="button" onClick={openClassroomDisplay} className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-white/10">
+              <MonitorPlay className="h-4 w-4" /> Màn hình lớp học
+            </button>
             {!pwaInstalled && (
               <button
                 type="button"
@@ -691,6 +1037,12 @@ export default function PlickerClassroom({
       </header>
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-6">
+        {(!isOnline || syncError) && (
+          <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{syncError || 'Thiết bị đang ngoại tuyến. Kết nối Internet để điện thoại và máy tính cập nhật cùng lúc.'}</span>
+          </div>
+        )}
         {notice && (
           <div className="mb-5 flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
             <span>{notice}</span><button onClick={() => setNotice('')} aria-label="Đóng thông báo"><X className="h-4 w-4" /></button>
@@ -711,6 +1063,22 @@ export default function PlickerClassroom({
                     <Smartphone className="h-4 w-4" /> Cài trên điện thoại
                   </button>
                 )}
+              </div>
+            </section>
+
+            <section className="grid gap-4 rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm md:grid-cols-[1fr_auto_1fr] md:items-center">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600"><Smartphone className="h-6 w-6" /></div>
+                <div><h3 className="font-semibold">Điện thoại: điều khiển và quét thẻ</h3><p className="mt-1 text-sm leading-6 text-slate-500">Chọn câu hỏi, bật camera, chuyển câu và hiện đáp án.</p></div>
+              </div>
+              <Link2 className="mx-auto h-6 w-6 text-indigo-400" />
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-emerald-50 p-3 text-emerald-600"><MonitorPlay className="h-6 w-6" /></div>
+                <div><h3 className="font-semibold">Máy tính: trình chiếu thời gian thực</h3><p className="mt-1 text-sm leading-6 text-slate-500">Hiển thị câu hỏi, học sinh đã trả lời và biểu đồ kết quả.</p></div>
+              </div>
+              <div className="flex flex-wrap gap-2 md:col-span-3">
+                <button type="button" onClick={openClassroomDisplay} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"><MonitorPlay className="h-4 w-4" />Mở màn hình trình chiếu</button>
+                <button type="button" onClick={() => setShowPairingHelp(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"><Smartphone className="h-4 w-4" />Hướng dẫn ghép thiết bị</button>
               </div>
             </section>
 
@@ -811,15 +1179,118 @@ export default function PlickerClassroom({
         )}
 
         {view === 'session' && !editingSet && (
-          <div className="space-y-5"><section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_auto]"><label className="text-xs font-medium text-slate-500">Lớp học<select value={selectedClassId} onChange={event => { setSelectedClassId(event.target.value); setScanning(false); }} className="mt-1 block w-full rounded-lg border border-slate-200 p-2 text-sm text-slate-900"><option value="">Chọn lớp...</option>{categories.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label className="text-xs font-medium text-slate-500">Bộ câu hỏi<select value={selectedSetId} onChange={event => { setSelectedSetId(event.target.value); setQuestionIndex(0); setScanning(false); }} className="mt-1 block w-full rounded-lg border border-slate-200 p-2 text-sm text-slate-900"><option value="">Chọn bộ câu hỏi...</option>{sets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><div className="flex items-end gap-2"><button onClick={() => setShowProjector(true)} className="rounded-lg border border-slate-200 p-2 text-slate-600" aria-label="Mở màn hình trình chiếu"><Maximize2 className="h-5 w-5" /></button><button onClick={finishSession} disabled={!currentQuestion} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Lưu báo cáo</button></div></section>
+          <div className="space-y-5">
+            <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_auto]">
+              <label className="text-xs font-medium text-slate-500">
+                Lớp học
+                <select value={selectedClassId} onChange={event => { setSelectedClassId(event.target.value); setScanning(false); }} className="mt-1 block w-full rounded-lg border border-slate-200 p-2 text-sm text-slate-900">
+                  <option value="">Chọn lớp...</option>
+                  {categories.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-500">
+                Bộ câu hỏi
+                <select value={selectedSetId} onChange={event => { setSelectedSetId(event.target.value); setQuestionIndex(0); setScanning(false); }} className="mt-1 block w-full rounded-lg border border-slate-200 p-2 text-sm text-slate-900">
+                  <option value="">Chọn bộ câu hỏi...</option>
+                  {sets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+                </select>
+              </label>
+              <div className="flex items-end gap-2">
+                <button onClick={openClassroomDisplay} className="rounded-lg border border-slate-200 p-2 text-slate-600" aria-label="Mở màn hình trình chiếu"><Maximize2 className="h-5 w-5" /></button>
+                <button onClick={finishSession} disabled={!currentQuestion} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Lưu báo cáo</button>
+              </div>
+            </section>
 
-            {!selectedClass || !currentQuestion ? <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><ScanLine className="mx-auto h-12 w-12 text-indigo-400" /><h2 className="mt-4 font-bold">Sẵn sàng cho buổi học</h2><p className="mt-2 text-sm text-slate-500">Chọn lớp và bộ câu hỏi để bắt đầu quét thẻ.</p></section> : <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><section className="space-y-4"><article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">Câu {questionIndex + 1}/{selectedSet?.questions.length || 0}</span><div className="flex gap-1"><button onClick={() => { setQuestionIndex(Math.max(0, questionIndex - 1)); consensusRef.current.reset(); }} disabled={questionIndex === 0} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button><button onClick={() => { setQuestionIndex(Math.min((selectedSet?.questions.length || 1) - 1, questionIndex + 1)); consensusRef.current.reset(); }} disabled={questionIndex >= (selectedSet?.questions.length || 1) - 1} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button></div></div><h2 className="text-xl font-bold leading-8 md:text-2xl">{currentQuestion.text}</h2><div className="mt-5 grid gap-3 sm:grid-cols-2">{ANSWERS.map(answer => <div key={answer} className={`flex items-center gap-3 rounded-xl border p-3 ${showCorrect && currentQuestion.correctAnswer === answer ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${ANSWER_COLORS[answer]}`}>{answer}</span><span className="text-sm">{currentQuestion.options[answer] || '—'}</span></div>)}</div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => setShowCorrect(value => !value)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">{showCorrect ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}{showCorrect ? 'Ẩn đáp án đúng' : 'Hiện đáp án đúng'}</button><button onClick={() => setAnswersByQuestion(previous => ({ ...previous, [questionKey]: [] }))} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm"><RefreshCw className="h-4 w-4" />Quét lại câu này</button></div></article>
+            {!selectedClass || !currentQuestion ? (
+              <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+                <ScanLine className="mx-auto h-12 w-12 text-indigo-400" />
+                <h2 className="mt-4 font-bold">Sẵn sàng cho buổi học</h2>
+                <p className="mt-2 text-sm text-slate-500">Chọn lớp và bộ câu hỏi để bắt đầu quét thẻ.</p>
+              </section>
+            ) : (
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
+                <section className="space-y-4">
+                  <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">Câu {questionIndex + 1}/{selectedSet?.questions.length || 0}</span>
+                        {currentQuestion.correctAnswer && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Đáp án giáo viên: {currentQuestion.correctAnswer}</span>}
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => changeQuestion(questionIndex - 1)} disabled={questionIndex === 0} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40" aria-label="Câu hỏi trước"><ChevronLeft className="h-4 w-4" /></button>
+                        <button onClick={() => changeQuestion(questionIndex + 1)} disabled={questionIndex >= (selectedSet?.questions.length || 1) - 1} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40" aria-label="Câu hỏi tiếp theo"><ChevronRight className="h-4 w-4" /></button>
+                      </div>
+                    </div>
+                    <h2 className="text-xl font-bold leading-8 md:text-2xl">{currentQuestion.text}</h2>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      {ANSWERS.map(answer => (
+                        <div key={answer} className={`flex items-center gap-3 rounded-xl border p-3 ${showCorrect && currentQuestion.correctAnswer === answer ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'}`}>
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${ANSWER_COLORS[answer]}`}>{answer}</span>
+                          <span className="text-sm">{currentQuestion.options[answer] || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <button onClick={toggleCorrectAnswer} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                        {showCorrect ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}{showCorrect ? 'Ẩn đáp án trên máy chiếu' : 'Hiện đáp án trên máy chiếu'}
+                      </button>
+                      <button onClick={toggleAnswerGraph} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                        <BarChart3 className="h-4 w-4" />{showGraph ? 'Ẩn biểu đồ trên máy chiếu' : 'Hiện biểu đồ trên máy chiếu'}
+                      </button>
+                      <button onClick={resetCurrentAnswers} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm"><RefreshCw className="h-4 w-4" />Quét lại câu này</button>
+                    </div>
+                  </article>
 
-              <article className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-sm"><div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-white"><div className="flex items-center gap-2"><Camera className="h-4 w-4 text-indigo-300" /><span className="text-sm font-semibold">Camera quét thẻ</span></div><div className="flex items-center gap-3 text-xs text-slate-300"><span>{cameraStats.fps} khung/s</span><span>{cameraStats.candidates} thẻ</span>{cameraStats.confidence > 0 && <span>{cameraStats.confidence}% tin cậy</span>}</div></div><div className="relative aspect-video min-h-56 bg-slate-900"><video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-contain" /><canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full object-contain" />{!scanning && <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 p-5 text-center text-white"><ScanLine className="h-12 w-12 text-indigo-300" /><p className="mt-3 text-sm text-slate-300">Đưa camera về phía các thẻ, giữ cạnh đáp án hướng lên trên.</p><button onClick={() => { setScanError(''); setScanning(true); }} disabled={!classStudents.length} className="mt-4 inline-flex items-center gap-2 rounded-full bg-indigo-500 px-5 py-2.5 text-sm font-semibold disabled:opacity-50"><Play className="h-4 w-4" />Bắt đầu quét</button></div>}{scanning && <button onClick={() => setScanning(false)} className="absolute bottom-4 left-1/2 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-lg"><Square className="h-4 w-4" />Dừng quét</button>}</div>{scanError && <div className="border-t border-red-400/30 bg-red-950/70 p-3 text-sm text-red-100">{scanError}</div>}</article>
+                  <article className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-sm">
+                    <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-white">
+                      <div className="flex items-center gap-2"><Camera className="h-4 w-4 text-indigo-300" /><span className="text-sm font-semibold">Camera quét thẻ</span></div>
+                      <div className="flex items-center gap-3 text-xs text-slate-300"><span>{cameraStats.fps} khung/s</span><span>{cameraStats.candidates} thẻ</span>{cameraStats.confidence > 0 && <span>{cameraStats.confidence}% tin cậy</span>}</div>
+                    </div>
+                    <div className="relative aspect-video min-h-56 bg-slate-900">
+                      <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-contain" />
+                      <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full object-contain" />
+                      {!scanning && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 p-5 text-center text-white">
+                          <ScanLine className="h-12 w-12 text-indigo-300" />
+                          <p className="mt-3 text-sm text-slate-300">Đưa camera điện thoại về phía lớp. Máy tính sẽ thống kê đồng thời.</p>
+                          <button onClick={startScanningCards} disabled={!classStudents.length} className="mt-4 inline-flex items-center gap-2 rounded-full bg-indigo-500 px-5 py-2.5 text-sm font-semibold disabled:opacity-50"><Play className="h-4 w-4" />Bắt đầu quét</button>
+                        </div>
+                      )}
+                      {scanning && <button onClick={stopScanningCards} className="absolute bottom-4 left-1/2 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-lg"><Square className="h-4 w-4" />Dừng quét</button>}
+                    </div>
+                    {scanError && <div className="border-t border-red-400/30 bg-red-950/70 p-3 text-sm text-red-100">{scanError}</div>}
+                  </article>
 
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-semibold">Kết quả trực tiếp</h3><span className="text-sm text-slate-500">{currentAnswers.length}/{classStudents.length} học sinh</span></div><div className="mt-4 grid gap-3 sm:grid-cols-4">{ANSWERS.map(answer => { const count = currentAnswers.filter(response => response.answer === answer).length; const percentage = currentAnswers.length ? Math.round(count * 100 / currentAnswers.length) : 0; return <div key={answer} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><span className={`rounded-md px-2 py-1 text-xs font-bold text-white ${ANSWER_COLORS[answer]}`}>{answer}</span><span className="text-xs text-slate-500">{percentage}%</span></div><div className="mt-3 text-xl font-bold">{count}</div><div className="mt-2 h-1.5 rounded-full bg-slate-100"><div className={`h-1.5 rounded-full ${ANSWER_COLORS[answer]}`} style={{ width: `${percentage}%` }} /></div></div>; })}</div></article></section>
+                  <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center justify-between"><h3 className="font-semibold">Kết quả trực tiếp</h3><span className="text-sm text-slate-500">{currentAnswers.length}/{classStudents.length} học sinh</span></div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {ANSWERS.map(answer => {
+                        const count = answerDistribution[answer];
+                        const percentage = currentAnswers.length ? Math.round(count * 100 / currentAnswers.length) : 0;
+                        return <div key={answer} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><span className={`rounded-md px-2 py-1 text-xs font-bold text-white ${ANSWER_COLORS[answer]}`}>{answer}</span><span className="text-xs text-slate-500">{percentage}%</span></div><div className="mt-3 text-xl font-bold">{count}</div><div className="mt-2 h-1.5 rounded-full bg-slate-100"><div className={`h-1.5 rounded-full ${ANSWER_COLORS[answer]}`} style={{ width: `${percentage}%` }} /></div></div>;
+                      })}
+                    </div>
+                  </article>
+                </section>
 
-            <aside className="space-y-4"><section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-bold">Tiến độ lớp học</h3><span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{classStudents.length ? Math.round(currentAnswers.length * 100 / classStudents.length) : 0}%</span></div><div className="mt-3 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-indigo-500 transition-all" style={{ width: `${classStudents.length ? currentAnswers.length * 100 / classStudents.length : 0}%` }} /></div>{currentQuestion.correctAnswer && <p className="mt-3 text-xs text-slate-500">{correctCount} đúng · {Math.max(0, currentAnswers.length - correctCount)} chưa đúng</p>}<div className="mt-4 max-h-[390px] space-y-2 overflow-y-auto">{classStudents.map((student, index) => { const response = currentAnswers.find(item => item.studentId === student.id); return <div key={student.id} className={`rounded-xl border p-3 ${response ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200'}`}><div className="flex items-center justify-between"><span className="min-w-0 truncate text-sm font-medium"><span className="mr-2 text-xs text-slate-400">#{student.cardId || index + 1}</span>{student.name}</span>{response ? <span className={`rounded-md px-2 py-1 text-xs font-bold text-white ${ANSWER_COLORS[response.answer]}`}>{response.answer}</span> : <span className="text-xs text-slate-400">Chưa quét</span>}</div><div className="mt-2 flex gap-1">{ANSWERS.map(answer => <button key={answer} onClick={() => recordAnswer(student, student.cardId || index + 1, answer, 1, 'manual')} className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 hover:border-indigo-300 hover:text-indigo-600">{answer}</button>)}</div></div>; })}{classStudents.length === 0 && <p className="py-5 text-center text-sm text-slate-500">Lớp chưa có học sinh.</p>}</div><p className="mt-3 text-[11px] leading-5 text-slate-500">Có thể chọn A/B/C/D thủ công nếu camera tạm thời không khả dụng.</p></section><section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex items-center gap-2 font-semibold text-emerald-800"><ShieldCheck className="h-4 w-4" />Xử lý trực tiếp trên thiết bị</div><p className="mt-2 text-xs leading-5 text-emerald-700">Hình ảnh camera được phân tích ngay trong trình duyệt, không gửi lên API AI hay máy chủ bên ngoài.</p></section></aside></div>}
+                <aside className="space-y-4">
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between"><h3 className="font-bold">Tiến độ lớp học</h3><span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{classStudents.length ? Math.round(currentAnswers.length * 100 / classStudents.length) : 0}%</span></div>
+                    <div className="mt-3 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-indigo-500 transition-all" style={{ width: `${classStudents.length ? currentAnswers.length * 100 / classStudents.length : 0}%` }} /></div>
+                    {currentQuestion.correctAnswer && <p className="mt-3 text-xs text-slate-500">{correctCount} đúng · {Math.max(0, currentAnswers.length - correctCount)} chưa đúng</p>}
+                    <div className="mt-4 max-h-[390px] space-y-2 overflow-y-auto">
+                      {classStudents.map((student, index) => {
+                        const response = currentAnswers.find(item => item.studentId === student.id);
+                        return <div key={student.id} className={`rounded-xl border p-3 ${response ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200'}`}><div className="flex items-center justify-between"><span className="min-w-0 truncate text-sm font-medium"><span className="mr-2 text-xs text-slate-400">#{student.cardId || index + 1}</span>{student.name}</span>{response ? <span className={`rounded-md px-2 py-1 text-xs font-bold text-white ${ANSWER_COLORS[response.answer]}`}>{response.answer}</span> : <span className="text-xs text-slate-400">Chưa quét</span>}</div><div className="mt-2 flex gap-1">{ANSWERS.map(answer => <button key={answer} onClick={() => recordAnswer(student, student.cardId || index + 1, answer, 1, 'manual')} className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 hover:border-indigo-300 hover:text-indigo-600">{answer}</button>)}</div></div>;
+                      })}
+                      {classStudents.length === 0 && <p className="py-5 text-center text-sm text-slate-500">Lớp chưa có học sinh.</p>}
+                    </div>
+                    <p className="mt-3 text-[11px] leading-5 text-slate-500">Có thể chọn A/B/C/D thủ công nếu camera tạm thời không khả dụng.</p>
+                  </section>
+                  <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex items-center gap-2 font-semibold text-emerald-800"><ShieldCheck className="h-4 w-4" />Xử lý trực tiếp trên thiết bị</div><p className="mt-2 text-xs leading-5 text-emerald-700">Hình ảnh camera được phân tích ngay trên điện thoại. Chỉ mã thẻ và đáp án được đồng bộ đến màn hình máy tính.</p></section>
+                </aside>
+              </div>
+            )}
           </div>
         )}
 
@@ -831,6 +1302,38 @@ export default function PlickerClassroom({
           <div className="grid gap-5 lg:grid-cols-[330px_minmax(0,1fr)]"><section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold">Lịch sử buổi học</h2><div className="mt-4 space-y-2">{reports.map(report => <button key={report.id} onClick={() => setSelectedReportId(report.id)} className={`w-full rounded-xl border p-3 text-left ${selectedReportId === report.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}><p className="font-medium">{report.className}</p><p className="mt-1 text-xs text-slate-500">{report.setTitle}</p><p className="mt-1 text-xs text-slate-400">{formatDate(report.completedAt)}</p></button>)}{reports.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có buổi học được lưu.</p>}</div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{selectedReport ? <><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">{selectedReport.className}</h2><p className="text-sm text-slate-500">{selectedReport.setTitle} · {formatDate(selectedReport.completedAt)}</p></div><button onClick={() => downloadReport(selectedReport)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white"><Download className="h-4 w-4" />Xuất Excel/CSV</button></div><div className="mt-5 space-y-4">{selectedReport.questions.map((question, index) => { const correct = question.correctAnswer ? question.responses.filter(response => response.answer === question.correctAnswer).length : 0; return <article key={`${question.text}-${index}`} className="rounded-xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-medium">Câu {index + 1}: {question.text}</h3>{question.correctAnswer && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">Đáp án {question.correctAnswer}</span>}</div><p className="mt-2 text-xs text-slate-500">{question.responses.length}/{selectedReport.studentCount} trả lời{question.correctAnswer ? ` · ${correct} đúng` : ' · Câu khảo sát'}</p><div className="mt-3 flex flex-wrap gap-2">{ANSWERS.map(answer => <span key={answer} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium">{answer}: {question.responses.filter(response => response.answer === answer).length}</span>)}</div></article>; })}</div></> : <div className="flex min-h-64 flex-col items-center justify-center text-center"><BarChart3 className="h-12 w-12 text-indigo-300" /><h3 className="mt-3 font-semibold">Chọn buổi học để xem kết quả</h3><p className="mt-2 text-sm text-slate-500">Báo cáo có thể xuất CSV mở bằng Microsoft Excel.</p></div>}</section></div>
         )}
       </main>
+
+      {showPairingHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="plicker-pairing-title" className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600"><Link2 className="h-6 w-6" /></div>
+                <div><h2 id="plicker-pairing-title" className="text-lg font-bold">Ghép điện thoại và màn hình máy tính</h2><p className="mt-1 text-sm text-slate-500">Đăng nhập cùng một tài khoản trên cả hai thiết bị.</p></div>
+              </div>
+              <button type="button" onClick={() => setShowPairingHelp(false)} aria-label="Đóng hướng dẫn ghép thiết bị" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                <div className="flex items-center gap-2 font-semibold text-indigo-900"><Smartphone className="h-5 w-5" />1. Điện thoại quét</div>
+                <p className="mt-2 text-sm leading-6 text-indigo-800">Mở ứng dụng PWA hoặc đường dẫn dưới đây, chọn lớp rồi nhấn “Bắt đầu quét”.</p>
+                <a href={scannerUrl} className="mt-3 block break-all rounded-lg bg-white p-2 text-xs text-indigo-700">{scannerUrl}</a>
+                <p className={`mt-3 text-xs font-semibold ${scannerConnected ? 'text-emerald-700' : 'text-amber-700'}`}>{scannerConnected ? '● Điện thoại đã kết nối' : '○ Chưa thấy điện thoại'}</p>
+              </section>
+              <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-center gap-2 font-semibold text-emerald-900"><MonitorPlay className="h-5 w-5" />2. Máy tính trình chiếu</div>
+                <p className="mt-2 text-sm leading-6 text-emerald-800">Mở màn hình lớp học, kết nối máy chiếu và chờ câu hỏi từ điện thoại.</p>
+                <a href={displayUrl} className="mt-3 block break-all rounded-lg bg-white p-2 text-xs text-emerald-700">{displayUrl}</a>
+                <p className={`mt-3 text-xs font-semibold ${displayConnected ? 'text-emerald-700' : 'text-amber-700'}`}>{displayConnected ? '● Màn hình đã kết nối' : '○ Chưa thấy màn hình'}</p>
+              </section>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-slate-600">Điện thoại điều khiển câu hỏi, quét thẻ, hiện đáp án và biểu đồ; máy tính cập nhật đồng thời từng học sinh đã trả lời.</p>
+            <button type="button" onClick={() => setShowPairingHelp(false)} className="mt-5 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Đã hiểu</button>
+          </div>
+        </div>
+      )}
 
       {showInstallHelp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-4">
@@ -942,7 +1445,75 @@ export default function PlickerClassroom({
 
       {(classModal || addStudentsModal) && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"><div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">{classModal ? 'Tạo lớp học mới' : `Thêm học sinh vào ${selectedClass?.title || ''}`}</h2><button onClick={() => { setClassModal(false); setAddStudentsModal(false); setStudentText(''); }} aria-label="Đóng"><X className="h-5 w-5 text-slate-500" /></button></div>{classModal && <label className="mt-4 block text-sm font-medium">Tên lớp<input value={classTitle} onChange={event => setClassTitle(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 p-2.5 outline-none focus:border-indigo-500" placeholder="Ví dụ: Lớp 8A - Trường Kim Lư" /></label>}<label className="mt-4 block text-sm font-medium">Danh sách học sinh<textarea value={studentText} onChange={event => setStudentText(event.target.value)} className="mt-1 min-h-44 w-full rounded-lg border border-slate-200 p-2.5 text-sm outline-none focus:border-indigo-500" placeholder={'Nguyễn Văn An\nTrần Thị Bình\nPhạm Minh Châu'} /></label><p className="mt-2 text-xs text-slate-500">Mỗi dòng một học sinh. Có thể sao chép trực tiếp từ Excel. Tối đa 63 học sinh/lớp.</p><div className="mt-5 flex justify-end gap-2"><button onClick={() => { setClassModal(false); setAddStudentsModal(false); }} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Hủy</button><button onClick={classModal ? submitClass : submitStudents} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">{classModal ? 'Tạo lớp và cấp thẻ' : 'Thêm học sinh'}</button></div></div></div>}
 
-      {showProjector && currentQuestion && <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950 p-6 text-white md:p-12"><div className="mx-auto max-w-6xl"><div className="flex items-center justify-between"><span className="rounded-full bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-200">{selectedClass?.title} · Câu {questionIndex + 1}/{selectedSet?.questions.length}</span><button onClick={() => setShowProjector(false)} aria-label="Đóng trình chiếu" className="rounded-lg border border-white/20 p-2"><X className="h-6 w-6" /></button></div><h2 className="mt-14 text-3xl font-bold leading-tight md:text-6xl">{currentQuestion.text}</h2><div className="mt-10 grid gap-5 md:grid-cols-2">{ANSWERS.map(answer => <div key={answer} className={`rounded-2xl border border-white/15 p-5 md:p-7 ${showCorrect && currentQuestion.correctAnswer === answer ? 'bg-emerald-600' : 'bg-white/5'}`}><span className={`inline-flex h-11 w-11 items-center justify-center rounded-xl text-lg font-bold ${ANSWER_COLORS[answer]}`}>{answer}</span><p className="mt-4 text-xl font-medium md:text-3xl">{currentQuestion.options[answer] || '—'}</p></div>)}</div><div className="mt-10"><p className="text-sm text-slate-400">Đã nhận câu trả lời: {currentAnswers.length}/{classStudents.length}</p><div className="mt-3 flex flex-wrap gap-2">{classStudents.map((student, index) => <span key={student.id} className={`rounded-lg px-3 py-1.5 text-xs ${currentAnswers.some(answer => answer.studentId === student.id) ? 'bg-emerald-600 text-white' : 'bg-white/10 text-slate-300'}`}>{student.cardId || index + 1}</span>)}</div></div></div></div>}
+      {showProjector && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950 text-white">
+          <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col p-5 md:p-8 xl:p-12">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-xl bg-indigo-500 p-2"><MonitorPlay className="h-6 w-6" /></div>
+                <div><p className="text-sm font-semibold text-indigo-200">MÀN HÌNH LỚP HỌC</p><p className="text-xs text-slate-400">Điều khiển từ điện thoại · Đồng bộ thời gian thực</p></div>
+                {liveSession && liveSession.phase !== 'finished' && <span className="rounded-full bg-indigo-500/20 px-3 py-1.5 text-sm font-medium text-indigo-200">{liveSession.className} · Câu {questionIndex + 1}/{selectedSet?.questions.length || 0}</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${scannerConnected ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-200'}`}><Smartphone className="h-4 w-4" />{scannerConnected ? 'Điện thoại đã kết nối' : 'Chờ điện thoại'}</span>
+                <button onClick={() => setShowProjector(false)} aria-label="Đóng trình chiếu" className="rounded-lg border border-white/20 p-2"><X className="h-6 w-6" /></button>
+              </div>
+            </div>
+
+            {!liveSession || liveSession.phase === 'finished' || !currentQuestion ? (
+              <div className="flex flex-1 flex-col items-center justify-center py-24 text-center">
+                <div className="rounded-3xl bg-indigo-500/15 p-7 text-indigo-300"><Smartphone className="h-16 w-16" /></div>
+                <h2 className="mt-8 text-3xl font-bold md:text-5xl">Sẵn sàng nhận câu hỏi</h2>
+                <p className="mt-4 max-w-xl text-base leading-7 text-slate-300">Mở ứng dụng Thẻ tương tác lớp học trên điện thoại, đăng nhập cùng tài khoản, chọn lớp và nhấn “Bắt đầu buổi học”.</p>
+                <p className="mt-6 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-indigo-200">{scannerUrl}</p>
+              </div>
+            ) : (
+              <div className="grid flex-1 gap-8 pt-8 xl:grid-cols-[minmax(0,1fr)_340px] xl:pt-12">
+                <section>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${liveSession.phase === 'scanning' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-indigo-500/20 text-indigo-200'}`}>{liveSession.phase === 'scanning' ? 'ĐANG NHẬN CÂU TRẢ LỜI' : liveSession.phase === 'results' ? 'KẾT QUẢ TỨC THÌ' : 'CÂU HỎI ĐANG CHIẾU'}</span>
+                    {showCorrect && currentQuestion.correctAnswer && <span className="rounded-full bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300">ĐÁP ÁN ĐÚNG: {currentQuestion.correctAnswer}</span>}
+                  </div>
+                  <h2 className="mt-7 text-3xl font-bold leading-tight md:text-5xl xl:text-6xl">{currentQuestion.text}</h2>
+
+                  <div className="mt-9 grid gap-4 md:grid-cols-2">
+                    {ANSWERS.map(answer => {
+                      const count = answerDistribution[answer];
+                      const percentage = currentAnswers.length ? Math.round(count * 100 / currentAnswers.length) : 0;
+                      return (
+                        <article key={answer} className={`overflow-hidden rounded-2xl border p-5 md:p-6 ${showCorrect && currentQuestion.correctAnswer === answer ? 'border-emerald-400 bg-emerald-600/35' : 'border-white/15 bg-white/5'}`}>
+                          <div className="flex items-start justify-between gap-4">
+                            <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-bold ${ANSWER_COLORS[answer]}`}>{answer}</span>
+                            {showGraph && <span className="text-right text-lg font-bold text-white">{count}<span className="ml-2 text-sm font-normal text-slate-300">{percentage}%</span></span>}
+                          </div>
+                          <p className="mt-4 text-xl font-medium md:text-2xl">{currentQuestion.options[answer] || '—'}</p>
+                          {showGraph && <div className="mt-5 h-2 rounded-full bg-white/10"><div className={`h-2 rounded-full transition-all ${ANSWER_COLORS[answer]}`} style={{ width: `${percentage}%` }} /></div>}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <aside className="self-start rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Học sinh đã trả lời</h3><span className="rounded-full bg-indigo-500/25 px-3 py-1 text-sm font-semibold text-indigo-100">{currentAnswers.length}/{classStudents.length}</span></div>
+                  <div className="mt-4 h-2 rounded-full bg-white/10"><div className="h-2 rounded-full bg-indigo-400 transition-all" style={{ width: `${classStudents.length ? currentAnswers.length * 100 / classStudents.length : 0}%` }} /></div>
+                  <div className="mt-5 grid max-h-[58vh] grid-cols-2 gap-2 overflow-y-auto xl:grid-cols-1">
+                    {classStudents.map((student, index) => {
+                      const response = currentAnswers.find(item => item.studentId === student.id);
+                      return (
+                        <div key={student.id} className={`flex min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2.5 transition-colors ${response ? 'border-blue-400/60 bg-blue-500/25 text-white' : 'border-white/10 bg-white/5 text-slate-400'}`}>
+                          <span className="truncate text-sm"><span className="mr-2 text-xs opacity-70">#{student.cardId || index + 1}</span>{student.name}</span>
+                          {response && (showCorrect || showGraph) ? <span className={`rounded-md px-2 py-1 text-xs font-bold ${ANSWER_COLORS[response.answer]}`}>{response.answer}</span> : response ? <Check className="h-4 w-4 shrink-0 text-blue-200" /> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </aside>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {printCards && <div className="fixed inset-0 z-[60] overflow-y-auto bg-white"><style>{`@media print { @page { size: A4; margin: 10mm; } body * { visibility: hidden; } #plicker-print-root, #plicker-print-root * { visibility: visible; } #plicker-print-root { position: absolute; inset: 0; width: 100%; } .plicker-no-print { display: none !important; } .plicker-card { break-inside: avoid; page-break-inside: avoid; } }`}</style><div id="plicker-print-root" className="mx-auto max-w-5xl p-5"><div className="plicker-no-print sticky top-0 z-10 mb-8 flex items-center justify-between border-b bg-white pb-4"><div><h2 className="font-bold">In thẻ lớp {selectedClass?.title}</h2><p className="text-xs text-slate-500">{classStudents.length} thẻ · Cạnh A/B/C/D hướng lên trên là đáp án</p></div><div className="flex gap-2"><button onClick={() => setPrintCards(false)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Đóng</button><button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"><Printer className="h-4 w-4" />In thẻ</button></div></div><div className="grid grid-cols-1 gap-8 sm:grid-cols-2 print:grid-cols-2 print:gap-5">{classStudents.map((student, index) => <article key={student.id} className="plicker-card flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-slate-200 p-8"><h3 className="text-center text-lg font-bold">#{student.cardId || index + 1} · {student.name}</h3><div className="relative my-9 w-44"><span className="absolute -top-8 left-1/2 -translate-x-1/2 text-xl font-bold">A</span><span className="absolute -right-7 top-1/2 -translate-y-1/2 text-xl font-bold">B</span><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xl font-bold">C</span><span className="absolute -left-7 top-1/2 -translate-y-1/2 text-xl font-bold">D</span><MarkerSvg cardId={student.cardId || index + 1} className="h-44 w-44" /></div><p className="text-xs text-slate-500">Xoay đáp án mong muốn lên phía trên</p></article>)}</div></div></div>}
     </div>

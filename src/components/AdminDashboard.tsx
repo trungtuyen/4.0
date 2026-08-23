@@ -18,6 +18,7 @@ import { auth, db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
 import { assignPlickerCardIds, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
+import { isPlickerSystemCategory, mergePlickerCloudRosters } from '../lib/plickerLive';
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;
@@ -158,7 +159,9 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'categories'), (snapshot) => {
-      setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+      setCategories(snapshot.docs
+        .filter(item => !isPlickerSystemCategory(item.id, item.data()))
+        .map(item => ({ id: item.id, ...item.data() } as any)));
     });
     return unsub;
   }, []);
@@ -907,6 +910,12 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
             }}
             onDeleteStudent={studentId => {
               setStudents(previous => removePlickerStudent(previous, studentId));
+            }}
+            onSyncStudents={rosters => {
+              setStudents(previous => {
+                const synchronized = mergePlickerCloudRosters(previous, rosters);
+                return synchronized === previous ? previous : assignPlickerCardIds(synchronized);
+              });
             }}
           />
         ) : (

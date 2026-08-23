@@ -1,10 +1,10 @@
 const CACHE_PREFIX = 'smartclass-plicker-';
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const APP_ROOT = new URL('./', self.registration.scope).pathname;
 const OFFLINE_PAGE = `${APP_ROOT}offline.html`;
 const APP_SHELL = [
   APP_ROOT,
-  `${APP_ROOT}?app=plicker&source=installed`,
+  `${APP_ROOT}?app=plicker&role=scanner&source=installed`,
   `${APP_ROOT}plicker.webmanifest`,
   `${APP_ROOT}icons/plicker-192.png`,
   `${APP_ROOT}icons/plicker-512.png`,
