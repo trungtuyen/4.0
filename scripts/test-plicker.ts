@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   createPlickerMarker,
   decodePlickerMarker,
@@ -10,6 +11,7 @@ import {
   type MarkerGrid,
   type MarkerImage,
 } from '../src/lib/plickerVision';
+import { assignPlickerCardIds, removePlickerStudent, renamePlickerStudent } from '../src/lib/plickerStudents';
 
 let checks = 0;
 const expectedByClockwiseRotation = ['A', 'D', 'C', 'B'] as const;
@@ -123,5 +125,41 @@ const changed: DetectedPlickerCard = { ...detections[0], answer: 'C' };
 assert.equal(consensus.update([changed], 1_380).length, 0);
 assert.equal(consensus.update([changed], 1_510)[0]?.answer, 'C');
 checks += 5;
+
+const originalRoster = assignPlickerCardIds([
+  { id: 'student-a', classId: 'class-8a', name: 'An' },
+  { id: 'student-b', classId: 'class-8a', name: 'Bình' },
+  { id: 'student-c', classId: 'class-8a', name: 'Châu' },
+  { id: 'student-d', classId: 'class-8b', name: 'Dung' },
+]);
+assert.deepEqual(originalRoster.map(student => student.cardId), [1, 2, 3, 1]);
+
+const renamedRoster = renamePlickerStudent(originalRoster, 'student-b', '  Bình Minh  ');
+assert.equal(renamedRoster.find(student => student.id === 'student-b')?.name, 'Bình Minh');
+assert.equal(renamedRoster.find(student => student.id === 'student-b')?.cardId, 2);
+assert.throws(() => renamePlickerStudent(originalRoster, 'student-b', '   '), /không được để trống/);
+
+const remainingRoster = removePlickerStudent(renamedRoster, 'student-b');
+assert.deepEqual(remainingRoster.filter(student => student.classId === 'class-8a').map(student => student.cardId), [1, 3]);
+
+const replenishedRoster = assignPlickerCardIds([
+  ...remainingRoster,
+  { id: 'student-e', classId: 'class-8a', name: 'Em' },
+]);
+assert.equal(replenishedRoster.find(student => student.id === 'student-e')?.cardId, 2);
+assert.equal(replenishedRoster.find(student => student.id === 'student-c')?.cardId, 3);
+
+const duplicateCards = assignPlickerCardIds([
+  { id: 'duplicate-a', classId: 'class-9a', name: 'A', cardId: 4 },
+  { id: 'duplicate-b', classId: 'class-9a', name: 'B', cardId: 4 },
+]);
+assert.deepEqual(duplicateCards.map(student => student.cardId), [4, 1]);
+
+const classroomSource = readFileSync(new URL('../src/components/PlickerClassroom.tsx', import.meta.url), 'utf8');
+assert.match(classroomSource, /Sửa học sinh/);
+assert.match(classroomSource, /Xóa học sinh/);
+assert.match(classroomSource, /onUpdateStudent/);
+assert.match(classroomSource, /onDeleteStudent/);
+checks += 12;
 
 console.info(`Plicker browser vision: ${checks} checks passed.`);

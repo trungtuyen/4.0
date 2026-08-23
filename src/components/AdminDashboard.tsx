@@ -17,6 +17,7 @@ import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
+import { assignPlickerCardIds, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;
@@ -251,13 +252,18 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const [newClass, setNewClass] = useState({ name: '', academicYear: '' });
   
   // Students State
-  const [students, setStudents] = useState<{ id: string; classId: string; name: string; email?: string }[]>(() => {
+  const [students, setStudents] = useState<{ id: string; classId: string; name: string; email?: string; cardId?: number }[]>(() => {
     const saved = localStorage.getItem('students');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? assignPlickerCardIds(JSON.parse(saved)) : [];
   });
   const [excelInput, setExcelInput] = useState('');
 
   useEffect(() => {
+    const normalized = assignPlickerCardIds(students);
+    if (normalized.some((student, index) => student !== students[index])) {
+      setStudents(normalized);
+      return;
+    }
     localStorage.setItem('students', JSON.stringify(students));
   }, [students]);
 
@@ -883,7 +889,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   name,
                   createdAt: new Date().toISOString()
                 }));
-                setStudents(previous => [...previous, ...newStudents]);
+                setStudents(previous => assignPlickerCardIds([...previous, ...newStudents]));
               }
             }}
             onAddStudents={(classId, names) => {
@@ -893,7 +899,13 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 name,
                 createdAt: new Date().toISOString()
               }));
-              setStudents(previous => [...previous, ...newStudents]);
+              setStudents(previous => assignPlickerCardIds([...previous, ...newStudents]));
+            }}
+            onUpdateStudent={(studentId, name) => {
+              setStudents(previous => renamePlickerStudent(previous, studentId, name));
+            }}
+            onDeleteStudent={studentId => {
+              setStudents(previous => removePlickerStudent(previous, studentId));
             }}
           />
         ) : (
