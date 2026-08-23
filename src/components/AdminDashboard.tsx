@@ -896,6 +896,28 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 setStudents(previous => assignPlickerCardIds([...previous, ...newStudents]));
               }
             }}
+            onDeleteClass={async classId => {
+              const removedCategory = categories.find(category => category.id === classId);
+              const removedStudents = students.filter(student => student.classId === classId);
+              setCategories(previous => previous.filter(category => category.id !== classId));
+              setStudents(previous => previous.filter(student => student.classId !== classId));
+              try {
+                await deleteDoc(doc(db, 'categories', classId));
+              } catch (error) {
+                if (removedCategory) {
+                  setCategories(previous => previous.some(category => category.id === classId)
+                    ? previous
+                    : [...previous, removedCategory]);
+                }
+                if (removedStudents.length) {
+                  setStudents(previous => assignPlickerCardIds([
+                    ...previous.filter(student => student.classId !== classId),
+                    ...removedStudents,
+                  ]));
+                }
+                throw error;
+              }
+            }}
             onAddStudents={(classId, names) => {
               const newStudents = names.map(name => ({
                 id: Math.random().toString(36).substr(2, 9),

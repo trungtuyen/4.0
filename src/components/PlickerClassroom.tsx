@@ -33,6 +33,7 @@ import {
   createPlickerLiveRoomId,
   createPlickerLiveSession,
   createPlickerQuestionKey,
+  mergePlickerDeletedClasses,
   mergePlickerDeletedQuestionSets,
   mergePlickerQuestionSets,
   normalizePlickerLiveRoom,
@@ -69,6 +70,7 @@ interface PlickerClassroomProps {
   categories: Category[];
   allStudents: Student[];
   onCreateClass: (title: string, students?: string[]) => void;
+  onDeleteClass: (classId: string) => void | Promise<void>;
   onAddStudents: (classId: string, names: string[]) => void;
   onUpdateStudent: (studentId: string, name: string) => void;
   onDeleteStudent: (studentId: string) => void;
@@ -127,6 +129,7 @@ const ANSWER_COLORS: Record<PlickerAnswer, string> = {
 };
 const SETS_STORAGE_KEY = 'plickerQuestionSets';
 const DELETED_SETS_STORAGE_KEY = 'plickerDeletedQuestionSets';
+const DELETED_CLASSES_STORAGE_KEY = 'plickerDeletedClasses';
 const REPORTS_STORAGE_KEY = 'smartclass_plicker_reports_v2';
 
 function createIdentifier(prefix: string): string {
@@ -181,6 +184,16 @@ function initialDeletedQuestionSets(): Record<string, number> {
     const saved = localStorage.getItem(DELETED_SETS_STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) as Record<string, number> : {};
     return mergePlickerDeletedQuestionSets({}, parsed);
+  } catch {
+    return {};
+  }
+}
+
+function initialDeletedClasses(): Record<string, number> {
+  try {
+    const saved = localStorage.getItem(DELETED_CLASSES_STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) as Record<string, number> : {};
+    return mergePlickerDeletedClasses({}, parsed);
   } catch {
     return {};
   }
@@ -281,12 +294,13 @@ function MetricCard({
 }
 
 export default function PlickerClassroom({
-  onBack, categories, allStudents, onCreateClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents,
+  onBack, categories, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents,
 }: PlickerClassroomProps) {
   const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
   const [selectedClassId, setSelectedClassId] = useState(categories[0]?.id || '');
   const [sets, setSets] = useState<ClassroomQuestionSet[]>(initialQuestionSets);
   const [deletedQuestionSetIds, setDeletedQuestionSetIds] = useState<Record<string, number>>(initialDeletedQuestionSets);
+  const [deletedClassIds, setDeletedClassIds] = useState<Record<string, number>>(initialDeletedClasses);
   const [selectedSetId, setSelectedSetId] = useState('');
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, ClassroomResponse[]>>({});
@@ -305,6 +319,8 @@ export default function PlickerClassroom({
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [editingStudentName, setEditingStudentName] = useState('');
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
+  const [deletingClass, setDeletingClass] = useState<Category | null>(null);
+  const [deletingClassBusy, setDeletingClassBusy] = useState(false);
   const [pendingClassTitle, setPendingClassTitle] = useState('');
   const [editingSet, setEditingSet] = useState<ClassroomQuestionSet | null>(null);
   const [deletingSet, setDeletingSet] = useState<ClassroomQuestionSet | null>(null);
@@ -341,6 +357,9 @@ export default function PlickerClassroom({
   deviceRoleRef.current = deviceRole;
   const deletedQuestionSetIdsRef = useRef(deletedQuestionSetIds);
   deletedQuestionSetIdsRef.current = deletedQuestionSetIds;
+  const deletedClassIdsRef = useRef(deletedClassIds);
+  deletedClassIdsRef.current = deletedClassIds;
+  const cloudDeletedClassIdsRef = useRef<Record<string, number>>({});
   const onSyncStudentsRef = useRef(onSyncStudents);
   onSyncStudentsRef.current = onSyncStudents;
 
@@ -431,12 +450,32 @@ export default function PlickerClassroom({
         return;
       }
 
-      const room = normalizePlickerLiveRoom(snapshot.data(), ownerUid);
-      if (!room) {
+      const normalizedRoom = normalizePlickerLiveRoom(snapshot.data(), ownerUid);
+      if (!normalizedRoom) {
         setSyncError('Phiên đồng bộ không thuộc tài khoản đang đăng nhập.');
         setSyncReady(true);
         return;
       }
+
+      const mergedDeletedClasses = mergePlickerDeletedClasses(
+        deletedClassIdsRef.current,
+        normalizedRoom.deletedClassIds || {},
+      );
+      cloudDeletedClassIdsRef.current = normalizedRoom.deletedClassIds || {};
+      if (mergedDeletedClasses !== deletedClassIdsRef.current) {
+        deletedClassIdsRef.current = mergedDeletedClasses;
+        setDeletedClassIds(mergedDeletedClasses);
+      }
+      const room: PlickerLiveRoom = {
+        ...normalizedRoom,
+        deletedClassIds: mergedDeletedClasses,
+        rosters: Object.fromEntries(
+          Object.entries(normalizedRoom.rosters).filter(([classId]) => !mergedDeletedClasses[classId]),
+        ),
+        activeSession: normalizedRoom.activeSession && !mergedDeletedClasses[normalizedRoom.activeSession.classId]
+          ? normalizedRoom.activeSession
+          : null,
+      };
 
       currentRoomRef.current = room;
       setLiveRoom(room);
@@ -461,9 +500,10 @@ export default function PlickerClassroom({
       }
 
       const session = room.activeSession;
-      const synchronizedRosters = session
+      const synchronizedRosters: Record<string, Student[]> = session
         ? { [session.classId]: session.students as Student[], ...room.rosters as Record<string, Student[]> }
         : room.rosters as Record<string, Student[]>;
+      for (const classId of Object.keys(mergedDeletedClasses)) synchronizedRosters[classId] = [];
       if (Object.keys(synchronizedRosters).length > 0) {
         onSyncStudentsRef.current(synchronizedRosters);
       }
@@ -550,11 +590,20 @@ export default function PlickerClassroom({
   }, [deletedQuestionSetIds, ownerUid, saveRoomFields, sets, syncReady]);
 
   useEffect(() => {
-    if (!syncReady || !ownerUid || !categories.length) return;
+    if (!syncReady || !ownerUid) return;
     const remoteRosters = currentRoomRef.current?.rosters || {};
+    const mergedDeletedClasses = mergePlickerDeletedClasses(
+      deletedClassIds,
+      cloudDeletedClassIdsRef.current,
+    );
+    if (mergedDeletedClasses !== deletedClassIds) {
+      setDeletedClassIds(mergedDeletedClasses);
+      return;
+    }
     const changed: Record<string, Student[]> = {};
 
     for (const classroom of categories) {
+      if (mergedDeletedClasses[classroom.id]) continue;
       const students = sanitizePlickerStudents(allStudents.filter(student => student.classId === classroom.id));
       const alreadySynchronized = Object.prototype.hasOwnProperty.call(remoteRosters, classroom.id);
       if (!students.length && !alreadySynchronized) continue;
@@ -563,12 +612,20 @@ export default function PlickerClassroom({
       }
     }
 
-    if (!Object.keys(changed).length) return;
+    for (const classId of Object.keys(mergedDeletedClasses)) {
+      if ((remoteRosters[classId] || []).length > 0) changed[classId] = [];
+    }
+
+    const deletionMarkersChanged = JSON.stringify(mergedDeletedClasses) !== JSON.stringify(cloudDeletedClassIdsRef.current);
+    if (!Object.keys(changed).length && !deletionMarkersChanged) return;
     const timer = window.setTimeout(() => {
-      void saveRoomFields({ rosters: changed });
+      void saveRoomFields({
+        ...(Object.keys(changed).length ? { rosters: changed } : {}),
+        deletedClassIds: mergedDeletedClasses,
+      });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [allStudents, categories, ownerUid, saveRoomFields, syncReady]);
+  }, [allStudents, categories, deletedClassIds, ownerUid, saveRoomFields, syncReady]);
 
   useEffect(() => {
     const refreshInstallationState = () => {
@@ -598,11 +655,19 @@ export default function PlickerClassroom({
   }, [deletedQuestionSetIds]);
 
   useEffect(() => {
+    localStorage.setItem(DELETED_CLASSES_STORAGE_KEY, JSON.stringify(deletedClassIds));
+  }, [deletedClassIds]);
+
+  useEffect(() => {
     localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(reports));
   }, [reports]);
 
   useEffect(() => {
-    if (!selectedClassId && categories[0]) setSelectedClassId(categories[0].id);
+    if ((!selectedClassId || !categories.some(item => item.id === selectedClassId)) && categories[0]) {
+      setSelectedClassId(categories[0].id);
+    } else if (selectedClassId && categories.length === 0) {
+      setSelectedClassId('');
+    }
     if (pendingClassTitle) {
       const created = categories.find(item => item.title === pendingClassTitle);
       if (created) {
@@ -1111,6 +1176,69 @@ export default function PlickerClassroom({
     setDeletingSet(null);
   };
 
+  const confirmClassDeletion = async () => {
+    if (!deletingClass || deletingClassBusy) return;
+    const classroom = deletingClass;
+    const studentCount = allStudents.filter(student => student.classId === classroom.id).length;
+    setDeletingClassBusy(true);
+
+    try {
+      await onDeleteClass(classroom.id);
+      const deletedAt = Date.now();
+      const deleted = mergePlickerDeletedClasses(
+        deletedClassIdsRef.current,
+        { [classroom.id]: deletedAt },
+      );
+      const currentSession = currentRoomRef.current?.activeSession;
+      const endsActiveSession = Boolean(
+        currentSession && currentSession.phase !== 'finished' && currentSession.classId === classroom.id,
+      );
+      const finishedSession = currentSession && endsActiveSession
+        ? { ...currentSession, phase: 'finished' as const, updatedAt: deletedAt }
+        : currentSession;
+
+      deletedClassIdsRef.current = deleted;
+      setDeletedClassIds(deleted);
+      if (selectedClassId === classroom.id) {
+        setSelectedClassId(categories.find(item => item.id !== classroom.id)?.id || '');
+      }
+      setAddStudentsModal(false);
+      setEditingStudent(null);
+      setDeletingStudent(null);
+      setPrintCards(false);
+      if (endsActiveSession) {
+        setScanning(false);
+        setShowProjector(false);
+        if (view === 'session') setView('classes');
+      }
+
+      if (currentRoomRef.current) {
+        const nextRoom: PlickerLiveRoom = {
+          ...currentRoomRef.current,
+          deletedClassIds: deleted,
+          rosters: { ...currentRoomRef.current.rosters, [classroom.id]: [] },
+          activeSession: finishedSession || null,
+          updatedAt: deletedAt,
+        };
+        currentRoomRef.current = nextRoom;
+        setLiveRoom(nextRoom);
+      }
+
+      void saveRoomFields({
+        rosters: { [classroom.id]: [] },
+        deletedClassIds: deleted,
+        ...(endsActiveSession ? { activeSession: finishedSession } : {}),
+      });
+      setNotice(`Đã xóa lớp “${classroom.title}” và ${studentCount} học sinh trên các thiết bị đã kết nối.`);
+      setDeletingClass(null);
+    } catch (error) {
+      console.error('Không thể xóa lớp học tương tác thẻ:', error);
+      setNotice('Không thể xóa lớp học. Hãy kiểm tra kết nối mạng rồi thử lại.');
+    } finally {
+      setDeletingClassBusy(false);
+    }
+  };
+
   const submitClass = () => {
     const title = classTitle.trim();
     if (!title) return;
@@ -1375,7 +1503,23 @@ export default function PlickerClassroom({
               </div>
             </section>
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">{selectedClass?.title || 'Chọn lớp học'}</h2><p className="text-sm text-slate-500">{classStudents.length}/{PLICKER_CARD_LIMIT} mã thẻ đã cấp</p></div><div className="flex gap-2"><button disabled={!selectedClass} onClick={() => setAddStudentsModal(true)} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><UserPlus className="h-4 w-4" />Thêm học sinh</button><button disabled={!classStudents.length} onClick={() => setPrintCards(true)} className="rounded-lg border border-slate-200 p-2 text-slate-600 disabled:opacity-50" aria-label="In thẻ"><Printer className="h-4 w-4" /></button></div></div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><h2 className="text-lg font-bold">{selectedClass?.title || 'Chọn lớp học'}</h2><p className="text-sm text-slate-500">{classStudents.length}/{PLICKER_CARD_LIMIT} mã thẻ đã cấp</p></div>
+                <div className="flex flex-wrap gap-2">
+                  <button disabled={!selectedClass} onClick={() => setAddStudentsModal(true)} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><UserPlus className="h-4 w-4" />Thêm học sinh</button>
+                  <button disabled={!classStudents.length} onClick={() => setPrintCards(true)} className="rounded-lg border border-slate-200 p-2 text-slate-600 disabled:opacity-50" aria-label="In thẻ"><Printer className="h-4 w-4" /></button>
+                  <button
+                    type="button"
+                    disabled={!selectedClass}
+                    onClick={() => selectedClass && setDeletingClass(selectedClass)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                    aria-label={`Xóa lớp ${selectedClass?.title || ''}`}
+                    title="Xóa lớp học"
+                  >
+                    <Trash2 className="h-4 w-4" />Xóa lớp
+                  </button>
+                </div>
+              </div>
               <div className="mt-5 overflow-x-auto">
                 <table className="w-full min-w-[590px] text-sm">
                   <thead>
@@ -1965,6 +2109,35 @@ export default function PlickerClassroom({
               <button type="button" onClick={() => setDeletingSet(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Hủy</button>
               <button type="button" onClick={confirmQuestionSetDeletion} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
                 Xóa bộ câu hỏi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingClass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="plicker-delete-class-title" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-red-50 p-2.5 text-red-600"><Trash2 className="h-5 w-5" /></div>
+              <div>
+                <h2 id="plicker-delete-class-title" className="text-lg font-bold text-slate-900">Xóa lớp học?</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Xóa vĩnh viễn lớp <strong>{deletingClass.title}</strong> và {allStudents.filter(student => student.classId === deletingClass.id).length} học sinh?
+                  Lớp cũng sẽ biến mất trên điện thoại và máy tính đang đồng bộ. Các báo cáo buổi học cũ vẫn được giữ lại.
+                </p>
+                {liveSession?.phase !== 'finished' && liveSession?.classId === deletingClass.id && (
+                  <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs leading-5 text-amber-800">
+                    Lớp đang có buổi học; buổi học hiện tại sẽ kết thúc nếu tiếp tục xóa.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={deletingClassBusy} onClick={() => setDeletingClass(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50">Hủy</button>
+              <button type="button" disabled={deletingClassBusy} onClick={() => void confirmClassDeletion()} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+                {deletingClassBusy && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                Xóa lớp học
               </button>
             </div>
           </div>

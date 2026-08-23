@@ -63,6 +63,7 @@ export interface PlickerLiveRoom {
   authorId: string;
   librarySets: PlickerLiveQuestionSet[];
   deletedQuestionSetIds?: Record<string, number>;
+  deletedClassIds?: Record<string, number>;
   rosters: Record<string, PlickerLiveStudent[]>;
   devices: Partial<Record<PlickerDeviceRole, PlickerLiveDevice>>;
   activeSession: PlickerLiveSession | null;
@@ -156,7 +157,7 @@ export function sanitizePlickerQuestionSet(set: PlickerLiveQuestionSet): Plicker
   };
 }
 
-export function mergePlickerDeletedQuestionSets(
+function mergePlickerDeletionMarkers(
   local: Record<string, number> = {},
   remote: Record<string, number> = {},
 ): Record<string, number> {
@@ -166,6 +167,20 @@ export function mergePlickerDeletedQuestionSets(
     merged[id] = Math.max(merged[id] || 0, deletedAt);
   }
   return JSON.stringify(merged) === JSON.stringify(local) ? local : merged;
+}
+
+export function mergePlickerDeletedQuestionSets(
+  local: Record<string, number> = {},
+  remote: Record<string, number> = {},
+): Record<string, number> {
+  return mergePlickerDeletionMarkers(local, remote);
+}
+
+export function mergePlickerDeletedClasses(
+  local: Record<string, number> = {},
+  remote: Record<string, number> = {},
+): Record<string, number> {
+  return mergePlickerDeletionMarkers(local, remote);
 }
 
 export function mergePlickerQuestionSets<T extends PlickerLiveQuestionSet>(
@@ -290,15 +305,19 @@ export function summarizePlickerLiveAnswers(responses: PlickerLiveResponse[]): R
 
 export function normalizePlickerLiveRoom(value: unknown, ownerUid: string): PlickerLiveRoom | null {
   if (!isRecord(value) || value.kind !== 'plicker_live_session' || value.ownerUid !== ownerUid) return null;
+  const deletedClassIds = isRecord(value.deletedClassIds)
+    ? mergePlickerDeletedClasses({}, value.deletedClassIds as Record<string, number>)
+    : {};
   const rawRosters = isRecord(value.rosters) ? value.rosters : {};
   const rosters: Record<string, PlickerLiveStudent[]> = {};
   for (const [classId, roster] of Object.entries(rawRosters)) {
-    if (!Array.isArray(roster)) continue;
+    if (!Array.isArray(roster) || deletedClassIds[classId]) continue;
     rosters[classId] = sanitizePlickerStudents(roster as PlickerLiveStudent[])
       .filter(student => student.classId === classId);
   }
 
-  const session = isRecord(value.activeSession) && value.activeSession.ownerUid === ownerUid
+  const session = isRecord(value.activeSession) && value.activeSession.ownerUid === ownerUid &&
+      typeof value.activeSession.classId === 'string' && !deletedClassIds[value.activeSession.classId]
     ? value.activeSession as unknown as PlickerLiveSession
     : null;
   return {
@@ -311,6 +330,7 @@ export function normalizePlickerLiveRoom(value: unknown, ownerUid: string): Plic
     deletedQuestionSetIds: isRecord(value.deletedQuestionSetIds)
       ? mergePlickerDeletedQuestionSets({}, value.deletedQuestionSetIds as Record<string, number>)
       : {},
+    deletedClassIds,
     rosters,
     devices: isRecord(value.devices) ? value.devices as PlickerLiveRoom['devices'] : {},
     activeSession: session,
