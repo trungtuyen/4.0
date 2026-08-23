@@ -18,7 +18,7 @@ Website: <https://trungtuyen.github.io/4.0/>
 | Bốc thẻ tương tác | Bốc và lật thẻ trong hoạt động trên lớp | Trình duyệt |
 | Tương tác thẻ Plicker | Quản lý câu hỏi, lớp học và nhận diện thẻ đáp án | Firebase; quét AI cần máy chủ riêng |
 | Tường học tập | Chia sẻ bài làm, nhận xét và học liệu | Firebase Authentication và Firestore |
-| Lắc đầu chọn đáp án | Trả lời câu hỏi bằng chuyển động đầu | Trình duyệt, camera; tạo câu hỏi AI cần máy chủ |
+| Lắc đầu chọn đáp án | Trả lời câu hỏi bằng chuyển động đầu | Trình duyệt, camera; tự tạo câu hỏi ngay trên GitHub Pages |
 | Tư vấn học đường AI | Hỗ trợ phân tích và trao đổi về tình huống học đường | Máy chủ AI riêng |
 | Quản lý kỳ thi | Tạo đề, tổ chức thi và tổng hợp kết quả | Firebase; chấm phiếu OMR cần máy chủ AI |
 | Mở ô bí mật | Tổ chức trò chơi câu hỏi hoặc phần thưởng | Trình duyệt |
@@ -65,6 +65,8 @@ Máy chủ phát triển chạy tại `http://localhost:3000`. Để sử dụng
 ## GitHub Pages và máy chủ AI
 
 GitHub Pages chỉ triển khai giao diện tĩnh; các địa chỉ `/api/chat`, `/api/scan`, `/api/generate-questions` và `/api/scan-plicker` không tự hoạt động tại đây.
+
+Riêng ứng dụng **Lắc đầu chọn đáp án** tạo câu hỏi theo ba lớp dự phòng: ưu tiên máy chủ AI đã cấu hình, sau đó sử dụng AI có sẵn trong trình duyệt nếu thiết bị hỗ trợ, cuối cùng dùng bộ tạo câu hỏi theo môn học chạy trực tiếp trên thiết bị. Vì vậy nút **Tạo bằng AI** vẫn hoạt động ngay trên GitHub Pages, không yêu cầu đưa khóa API vào mã frontend. Chế độ trên thiết bị hỗ trợ Toán theo dạng bài và khối lớp, Tin học, AI, Tiếng Việt, Tiếng Anh, Khoa học, Lịch sử, Địa lý, Giáo dục thể chất, môi trường, an toàn giao thông và tài chính cá nhân.
 
 1. Triển khai `server.ts` lên dịch vụ có khả năng chạy Node.js và HTTPS.
 2. Khai báo `GEMINI_API_KEY` trong biến môi trường riêng của máy chủ.

@@ -12,6 +12,7 @@
     "test:gesture": "node --import tsx scripts/test-agsa.ts",
     "test:gestureclass": "node scripts/test-gestureclass.cjs",
     "test:platform": "node --import tsx scripts/test-platform.ts",
+    "test:head-shake": "node --import tsx scripts/test-head-shake-questions.ts",
     "test:plicker": "node --import tsx scripts/test-plicker.ts",
     "test:pwa": "node --import tsx scripts/test-pwa.ts",
     "test:plicker-live": "node --import tsx scripts/test-plicker-live.ts",

@@ -2,7 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Play, RefreshCw, Camera, AlertCircle, Clock, Star, Edit2, Plus, Trash2, Save, Search, ChevronDown, ChevronUp, Download, Upload, Sparkles, Check, Archive, X, Loader2, User, FolderPlus } from 'lucide-react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import * as XLSX from 'xlsx';
-import { postApiJson } from '../lib/api';
+import { getConfiguredApiServer, postApiJson } from '../lib/api';
+import {
+  generateOfflineHeadShakeQuestions,
+  normalizeGeneratedHeadShakeQuestions,
+  tryGenerateHeadShakeQuestionsWithBrowserAi,
+  type GeneratedHeadShakeQuestion,
+} from '../lib/headShakeQuestions';
 
 interface HeadShakeGameProps {
   onBack: () => void;
@@ -126,6 +132,7 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState(5);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationNotice, setGenerationNotice] = useState('');
   const [isCreateSetModalOpen, setIsCreateSetModalOpen] = useState(false);
   const [newSetName, setNewSetName] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -199,9 +206,39 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
   const handleGenerateAI = async () => {
     if (!aiTopic.trim()) return;
     setIsGenerating(true);
+    setGenerationNotice('');
     try {
-      const generatedData = await postApiJson<any[]>('generate-questions', { topic: aiTopic, count: aiCount });
-      const newQuestions: Question[] = generatedData.map((q: any) => ({
+      const count = Math.max(1, Math.min(20, Math.trunc(aiCount) || 1));
+      let generatedData: GeneratedHeadShakeQuestion[] = [];
+      let generationSource: 'server' | 'browser-ai' | 'offline' = 'offline';
+      const hasConfiguredServer = Boolean(getConfiguredApiServer());
+      const canUseLocalServer = !window.location.hostname.endsWith('.github.io');
+
+      if (hasConfiguredServer || canUseLocalServer) {
+        try {
+          const response = await postApiJson<unknown>('generate-questions', { topic: aiTopic.trim(), count });
+          generatedData = normalizeGeneratedHeadShakeQuestions(response, count);
+          if (generatedData.length > 0) generationSource = 'server';
+        } catch (error) {
+          console.info('Máy chủ AI chưa khả dụng, tiếp tục tạo câu hỏi trên thiết bị.', error);
+        }
+      }
+
+      if (generatedData.length === 0) {
+        generatedData = await tryGenerateHeadShakeQuestionsWithBrowserAi(aiTopic, count);
+        if (generatedData.length > 0) generationSource = 'browser-ai';
+      }
+
+      if (generatedData.length === 0) {
+        generatedData = generateOfflineHeadShakeQuestions(aiTopic, count);
+        generationSource = 'offline';
+      }
+
+      if (generatedData.length === 0) {
+        throw new Error('Chưa thể tạo câu hỏi. Vui lòng nhập chủ đề cụ thể hơn.');
+      }
+
+      const newQuestions: Question[] = generatedData.map((q) => ({
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         text: q.text,
         leftAnswer: q.leftAnswer,
@@ -214,6 +251,12 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
       }));
 
       handleQuestionUpdate([...newQuestions, ...questions]);
+      const sourceLabel = generationSource === 'server'
+        ? 'máy chủ AI'
+        : generationSource === 'browser-ai'
+          ? 'AI có sẵn trong trình duyệt'
+          : 'bộ tạo câu hỏi thông minh trên thiết bị';
+      setGenerationNotice(`Đã tạo ${newQuestions.length} câu hỏi bằng ${sourceLabel}. Thầy cô có thể kiểm tra và chỉnh sửa từng câu trước khi sử dụng.`);
       setIsAiModalOpen(false);
       setAiTopic('');
     } catch (error) {
@@ -1230,6 +1273,9 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
                           className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                         />
                       </div>
+                      <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-800">
+                        Hoạt động ngay trên GitHub Pages. Ứng dụng ưu tiên máy chủ AI đã cấu hình hoặc AI có sẵn trong trình duyệt; khi chưa có, câu hỏi được tạo tự động theo môn học ngay trên thiết bị.
+                      </p>
                     </div>
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                       <button
@@ -1287,6 +1333,23 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {generationNotice && (
+                <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  <div className="flex items-start gap-2">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{generationNotice}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setGenerationNotice('')}
+                    className="rounded p-1 text-emerald-700 hover:bg-emerald-100"
+                    aria-label="Đóng thông báo"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
               )}
 
