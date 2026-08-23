@@ -3,6 +3,13 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
+import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
+
+initializePwaInstallation();
+
+if (import.meta.env.PROD) {
+  registerClassroomServiceWorker(import.meta.env.BASE_URL);
+}
 
 // Prevent library conflict with window.fetch (e.g. Mediapipe/TFLite)
 (function() {

@@ -12,7 +12,8 @@
     "test:gesture": "node --import tsx scripts/test-agsa.ts",
     "test:gestureclass": "node scripts/test-gestureclass.cjs",
     "test:platform": "node --import tsx scripts/test-platform.ts",
-    "test:plicker": "node --import tsx scripts/test-plicker.ts"
+    "test:plicker": "node --import tsx scripts/test-plicker.ts",
+    "test:pwa": "node --import tsx scripts/test-pwa.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",

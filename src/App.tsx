@@ -6,6 +6,7 @@ import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged,
 import { db, auth } from './firebase';
 import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
 import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
+import { createPlickerLaunchPath, readRequestedApplication } from './lib/plickerPwa';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ExamManager = lazy(() => import('./components/ExamManager'));
@@ -73,7 +74,9 @@ function describeAuthError(error: unknown): string {
 }
 
 export default function App() {
+  const requestedApplication = readRequestedApplication(window.location.search);
   const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core' | 'gesture-class' | 'excel-merger' | 'pdf-merger'>(() => {
+    if (requestedApplication === 'plicker') return 'admin';
     const saved = sessionStorage.getItem('currentView');
     try {
       return saved ? JSON.parse(saved) : 'landing';
@@ -266,7 +269,16 @@ export default function App() {
   };
 
   const launchApplication = (applicationId: EcosystemApplicationId) => {
-    if (applicationId === 'plicker' || applicationId === 'exam-manager') {
+    if (applicationId === 'plicker') {
+      window.history.replaceState(window.history.state, '', createPlickerLaunchPath(import.meta.env.BASE_URL));
+      if (currentUser && auth.currentUser) {
+        setCurrentView('admin');
+      } else {
+        navigateToAuth('login');
+      }
+      return;
+    }
+    if (applicationId === 'exam-manager') {
       navigateToAuth('login');
       return;
     }
@@ -278,7 +290,7 @@ export default function App() {
       void signOut(auth);
       setCurrentUser(null);
       setCurrentView('landing');
-    }} teachers={teachers} setTeachers={setTeachers} currentUser={currentUser} />;
+    }} teachers={teachers} setTeachers={setTeachers} currentUser={currentUser} initialApplication={requestedApplication} />;
   }
 
   if (currentView === 'admin') {

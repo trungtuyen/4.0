@@ -3,7 +3,7 @@ import {
   Activity, ArrowLeft, ArrowRight, BarChart3, Camera, Check, CheckCircle2, ChevronLeft,
   ChevronRight, CircleAlert, Download, Eye, EyeOff, FileText, GraduationCap, Layers,
   LayoutDashboard, Maximize2, Pause, Pencil, Play, Plus, Printer, QrCode, RefreshCw, Save,
-  ScanLine, Settings2, ShieldCheck, Square, Trash2, UserPlus, Users, X,
+  ScanLine, Settings2, ShieldCheck, Smartphone, Square, Trash2, UserPlus, Users, X,
 } from 'lucide-react';
 import {
   createPlickerMarker,
@@ -13,6 +13,14 @@ import {
   type DetectedPlickerCard,
   type PlickerAnswer,
 } from '../lib/plickerVision';
+import {
+  getPwaInstallationInstructions,
+  hasPwaInstallationPrompt,
+  isInstalledPwa,
+  promptPwaInstallation,
+  PWA_INSTALL_STATE_EVENT,
+  readRequestedPlickerSection,
+} from '../lib/plickerPwa';
 
 interface Student {
   id: string;
@@ -234,7 +242,7 @@ function MetricCard({
 export default function PlickerClassroom({
   onBack, categories, allStudents, onCreateClass, onAddStudents, onUpdateStudent, onDeleteStudent,
 }: PlickerClassroomProps) {
-  const [view, setView] = useState<ClassroomView>('overview');
+  const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
   const [selectedClassId, setSelectedClassId] = useState(categories[0]?.id || '');
   const [sets, setSets] = useState<ClassroomQuestionSet[]>(initialQuestionSets);
   const [selectedSetId, setSelectedSetId] = useState('');
@@ -258,6 +266,9 @@ export default function PlickerClassroom({
   const [editingSet, setEditingSet] = useState<ClassroomQuestionSet | null>(null);
   const [printCards, setPrintCards] = useState(false);
   const [notice, setNotice] = useState('');
+  const [pwaInstalled, setPwaInstalled] = useState(isInstalledPwa);
+  const [pwaPromptReady, setPwaPromptReady] = useState(hasPwaInstallationPrompt);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -282,6 +293,25 @@ export default function PlickerClassroom({
     ? currentAnswers.filter(item => item.answer === currentQuestion.correctAnswer).length
     : 0;
   const selectedReport = reports.find(report => report.id === selectedReportId) || null;
+
+  useEffect(() => {
+    const refreshInstallationState = () => {
+      setPwaInstalled(isInstalledPwa());
+      setPwaPromptReady(hasPwaInstallationPrompt());
+    };
+    const markInstalled = () => setPwaInstalled(true);
+    const displayMode = window.matchMedia?.('(display-mode: standalone)');
+
+    window.addEventListener(PWA_INSTALL_STATE_EVENT, refreshInstallationState);
+    window.addEventListener('appinstalled', markInstalled);
+    displayMode?.addEventListener?.('change', refreshInstallationState);
+
+    return () => {
+      window.removeEventListener(PWA_INSTALL_STATE_EVENT, refreshInstallationState);
+      window.removeEventListener('appinstalled', markInstalled);
+      displayMode?.removeEventListener?.('change', refreshInstallationState);
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(SETS_STORAGE_KEY, JSON.stringify(sets));
@@ -607,6 +637,16 @@ export default function PlickerClassroom({
   const totalRecorded = reports.reduce((sum, report) =>
     sum + report.questions.reduce((questionSum, question) => questionSum + question.responses.length, 0), 0);
 
+  const installClassroomApplication = async () => {
+    const result = await promptPwaInstallation();
+    if (result === 'accepted') {
+      setPwaInstalled(true);
+      setNotice('Đã cài ứng dụng Thẻ tương tác lớp học lên thiết bị.');
+    } else if (result === 'unavailable') {
+      setShowInstallHelp(true);
+    }
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-30 border-b border-indigo-400/20 bg-slate-950 text-white">
@@ -621,9 +661,21 @@ export default function PlickerClassroom({
               <p className="text-xs text-indigo-200">Quét trực tiếp trên trình duyệt · Tối đa 63 thẻ</p>
             </div>
           </div>
-          <button onClick={startSession} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold hover:bg-indigo-400">
-            <Play className="h-4 w-4" /> Bắt đầu buổi học
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!pwaInstalled && (
+              <button
+                type="button"
+                onClick={() => void installClassroomApplication()}
+                title={pwaPromptReady ? 'Cài ứng dụng lên điện thoại' : 'Xem hướng dẫn cài trên điện thoại'}
+                className="inline-flex items-center gap-2 rounded-xl border border-indigo-300/45 bg-indigo-500/10 px-3 py-2 text-sm font-semibold text-indigo-100 hover:bg-indigo-500/25"
+              >
+                <Smartphone className="h-4 w-4" /> Cài ứng dụng
+              </button>
+            )}
+            <button onClick={startSession} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold hover:bg-indigo-400">
+              <Play className="h-4 w-4" /> Bắt đầu buổi học
+            </button>
+          </div>
         </div>
         <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-3 pb-3 md:px-5">
           {navigation.map(item => (
@@ -654,6 +706,11 @@ export default function PlickerClassroom({
               <div className="mt-5 flex flex-wrap gap-3">
                 <button onClick={startSession} className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700">Mở buổi học</button>
                 <button onClick={() => switchView('cards')} className="rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold">Xem bộ thẻ</button>
+                {!pwaInstalled && (
+                  <button onClick={() => void installClassroomApplication()} className="inline-flex items-center gap-2 rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold">
+                    <Smartphone className="h-4 w-4" /> Cài trên điện thoại
+                  </button>
+                )}
               </div>
             </section>
 
@@ -774,6 +831,28 @@ export default function PlickerClassroom({
           <div className="grid gap-5 lg:grid-cols-[330px_minmax(0,1fr)]"><section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold">Lịch sử buổi học</h2><div className="mt-4 space-y-2">{reports.map(report => <button key={report.id} onClick={() => setSelectedReportId(report.id)} className={`w-full rounded-xl border p-3 text-left ${selectedReportId === report.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}><p className="font-medium">{report.className}</p><p className="mt-1 text-xs text-slate-500">{report.setTitle}</p><p className="mt-1 text-xs text-slate-400">{formatDate(report.completedAt)}</p></button>)}{reports.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có buổi học được lưu.</p>}</div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{selectedReport ? <><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">{selectedReport.className}</h2><p className="text-sm text-slate-500">{selectedReport.setTitle} · {formatDate(selectedReport.completedAt)}</p></div><button onClick={() => downloadReport(selectedReport)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white"><Download className="h-4 w-4" />Xuất Excel/CSV</button></div><div className="mt-5 space-y-4">{selectedReport.questions.map((question, index) => { const correct = question.correctAnswer ? question.responses.filter(response => response.answer === question.correctAnswer).length : 0; return <article key={`${question.text}-${index}`} className="rounded-xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-medium">Câu {index + 1}: {question.text}</h3>{question.correctAnswer && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">Đáp án {question.correctAnswer}</span>}</div><p className="mt-2 text-xs text-slate-500">{question.responses.length}/{selectedReport.studentCount} trả lời{question.correctAnswer ? ` · ${correct} đúng` : ' · Câu khảo sát'}</p><div className="mt-3 flex flex-wrap gap-2">{ANSWERS.map(answer => <span key={answer} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium">{answer}: {question.responses.filter(response => response.answer === answer).length}</span>)}</div></article>; })}</div></> : <div className="flex min-h-64 flex-col items-center justify-center text-center"><BarChart3 className="h-12 w-12 text-indigo-300" /><h3 className="mt-3 font-semibold">Chọn buổi học để xem kết quả</h3><p className="mt-2 text-sm text-slate-500">Báo cáo có thể xuất CSV mở bằng Microsoft Excel.</p></div>}</section></div>
         )}
       </main>
+
+      {showInstallHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="plicker-install-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600"><Smartphone className="h-6 w-6" /></div>
+                <div>
+                  <h2 id="plicker-install-title" className="text-lg font-bold text-slate-900">Cài Thẻ tương tác lớp học</h2>
+                  <p className="text-sm text-slate-500">Ứng dụng trực tiếp trên điện thoại</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setShowInstallHelp(false)} aria-label="Đóng hướng dẫn cài ứng dụng" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mt-5 rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm leading-6 text-indigo-900">
+              {getPwaInstallationInstructions(navigator.userAgent)}
+            </div>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Sau khi cài, biểu tượng <strong>Thẻ lớp học</strong> sẽ xuất hiện trên màn hình chính. Ứng dụng mở toàn màn hình và vẫn sử dụng camera để quét thẻ.</p>
+            <button type="button" onClick={() => setShowInstallHelp(false)} className="mt-5 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Đã hiểu</button>
+          </div>
+        </div>
+      )}
 
       {editingStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">

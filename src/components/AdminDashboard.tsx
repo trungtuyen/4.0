@@ -115,11 +115,12 @@ interface AdminDashboardProps {
   teachers: Teacher[];
   setTeachers: React.Dispatch<React.SetStateAction<Teacher[]>>;
   currentUser: Teacher | 'admin' | null;
+  initialApplication?: 'plicker' | null;
 }
 
-export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(currentUser === 'admin' ? 'teachers' : 'library');
-  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>('main');
+export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser, initialApplication }: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
+  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>(initialApplication === 'plicker' ? 'plicker' : 'main');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
