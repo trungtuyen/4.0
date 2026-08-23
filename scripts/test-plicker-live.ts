@@ -8,6 +8,7 @@ import {
   createPlickerQuestionKey,
   getPlickerLiveResponses,
   isPlickerSystemCategory,
+  mergePlickerDeletedQuestionSets,
   mergePlickerCloudRosters,
   mergePlickerQuestionSets,
   movePlickerLiveQuestion,
@@ -156,18 +157,22 @@ const newerSet = { ...questionSet, title: 'Toán 8 đã chỉnh sửa', updatedA
 assert.equal(mergePlickerQuestionSets([questionSet], [newerSet])[0].title, newerSet.title);
 assert.equal(mergePlickerQuestionSets([newerSet], [questionSet])[0].title, newerSet.title);
 assert.equal(mergePlickerQuestionSets([questionSet], [{ ...questionSet, id: 'set-2' }]).length, 2);
+const deletedQuestionSetIds = mergePlickerDeletedQuestionSets({}, { [questionSet.id]: Date.parse('2026-08-24T00:00:00.000Z') });
+assert.deepEqual(mergePlickerQuestionSets([questionSet], [questionSet], deletedQuestionSetIds), []);
+assert.deepEqual(mergePlickerQuestionSets([], [questionSet], deletedQuestionSetIds), []);
 const otherClass = { id: 'student-dung', classId: 'class-8b', name: 'Dung', cardId: 1 };
 const updatedRosters = mergePlickerCloudRosters([...roster, otherClass], { 'class-8a': [roster[0], roster[2]] });
 assert.deepEqual(updatedRosters.filter(student => student.classId === 'class-8a').map(student => student.id), ['student-an', 'student-chau']);
 assert.ok(updatedRosters.some(student => student.id === 'student-dung'));
 assert.deepEqual(mergePlickerCloudRosters(roster, { 'class-8a': [] }), []);
-checks += 6;
+checks += 8;
 
 const room: PlickerLiveRoom = {
   kind: 'plicker_live_session',
   ownerUid: 'owner-uid',
   authorId: 'owner-uid',
   librarySets: [questionSet],
+  deletedQuestionSetIds: { 'set-deleted': 1_000 },
   rosters: { 'class-8a': roster },
   devices: { scanner: { deviceId: 'phone-device', updatedAt: 1_200 }, display: { deviceId: 'computer-device', updatedAt: 1_200 } },
   activeSession: computer,
@@ -178,7 +183,8 @@ assert.equal(normalizePlickerLiveRoom(room, 'another-owner'), null);
 assert.equal(normalizePlickerLiveRoom({ ...room, kind: 'different' }, 'owner-uid'), null);
 assert.equal(normalizePlickerLiveRoom({ ...room, activeSession: { ...computer, ownerUid: 'another-owner' } }, 'owner-uid')?.activeSession, null);
 assert.equal(normalizePlickerLiveRoom({ ...room, rosters: { 'class-8a': [...roster, { ...otherClass, cardId: 4 }] } }, 'owner-uid')?.rosters['class-8a'].length, 3);
-checks += 5;
+assert.deepEqual(normalizePlickerLiveRoom(room, 'owner-uid')?.deletedQuestionSetIds, { 'set-deleted': 1_000 });
+checks += 6;
 
 const classroomSource = readFileSync(new URL('../src/components/PlickerClassroom.tsx', import.meta.url), 'utf8');
 const displaySource = readFileSync(new URL('../src/components/PlickerDisplayScreen.tsx', import.meta.url), 'utf8');

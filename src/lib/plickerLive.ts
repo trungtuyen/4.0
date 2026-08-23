@@ -62,6 +62,7 @@ export interface PlickerLiveRoom {
   ownerUid: string;
   authorId: string;
   librarySets: PlickerLiveQuestionSet[];
+  deletedQuestionSetIds?: Record<string, number>;
   rosters: Record<string, PlickerLiveStudent[]>;
   devices: Partial<Record<PlickerDeviceRole, PlickerLiveDevice>>;
   activeSession: PlickerLiveSession | null;
@@ -155,10 +156,28 @@ export function sanitizePlickerQuestionSet(set: PlickerLiveQuestionSet): Plicker
   };
 }
 
-export function mergePlickerQuestionSets<T extends PlickerLiveQuestionSet>(local: T[], remote: T[]): T[] {
+export function mergePlickerDeletedQuestionSets(
+  local: Record<string, number> = {},
+  remote: Record<string, number> = {},
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const [id, deletedAt] of [...Object.entries(local), ...Object.entries(remote)]) {
+    if (!/^[a-zA-Z0-9_-]+$/u.test(id) || !Number.isFinite(deletedAt) || deletedAt <= 0) continue;
+    merged[id] = Math.max(merged[id] || 0, deletedAt);
+  }
+  return JSON.stringify(merged) === JSON.stringify(local) ? local : merged;
+}
+
+export function mergePlickerQuestionSets<T extends PlickerLiveQuestionSet>(
+  local: T[],
+  remote: T[],
+  deletedQuestionSetIds: Record<string, number> = {},
+): T[] {
   const combined = new Map<string, T>();
   for (const set of [...local, ...remote]) {
     if (!set?.id || !Array.isArray(set.questions)) continue;
+    const deletedAt = deletedQuestionSetIds[set.id];
+    if (deletedAt && deletedAt >= (Date.parse(set.updatedAt) || 0)) continue;
     const current = combined.get(set.id);
     if (!current || Date.parse(set.updatedAt) >= Date.parse(current.updatedAt)) {
       combined.set(set.id, set);
@@ -289,6 +308,9 @@ export function normalizePlickerLiveRoom(value: unknown, ownerUid: string): Plic
     librarySets: Array.isArray(value.librarySets)
       ? value.librarySets.filter(set => isRecord(set) && typeof set.id === 'string' && Array.isArray(set.questions)) as PlickerLiveQuestionSet[]
       : [],
+    deletedQuestionSetIds: isRecord(value.deletedQuestionSetIds)
+      ? mergePlickerDeletedQuestionSets({}, value.deletedQuestionSetIds as Record<string, number>)
+      : {},
     rosters,
     devices: isRecord(value.devices) ? value.devices as PlickerLiveRoom['devices'] : {},
     activeSession: session,
