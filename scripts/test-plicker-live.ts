@@ -7,6 +7,7 @@ import {
   createPlickerLiveSession,
   createPlickerQuestionKey,
   getPlickerLiveResponses,
+  isPlickerLiveSessionRunning,
   isPlickerSystemCategory,
   mergePlickerDeletedClasses,
   mergePlickerDeletedQuestionSets,
@@ -27,6 +28,14 @@ import {
 } from '../src/lib/plickerLive';
 
 let checks = 0;
+
+assert.equal(isPlickerLiveSessionRunning(null), false);
+assert.equal(isPlickerLiveSessionRunning(undefined), false);
+assert.equal(isPlickerLiveSessionRunning({ phase: 'launch' }), true);
+assert.equal(isPlickerLiveSessionRunning({ phase: 'scanning' }), true);
+assert.equal(isPlickerLiveSessionRunning({ phase: 'results' }), true);
+assert.equal(isPlickerLiveSessionRunning({ phase: 'finished' }), false);
+checks += 6;
 
 assert.equal(createPlickerLiveRoomId('teacher_ABC-123'), 'plicker-live-teacher_ABC-123');
 assert.throws(() => createPlickerLiveRoomId('../other-account'));
@@ -204,6 +213,12 @@ assert.match(classroomSource, /onSnapshot\(liveRoomReference/);
 assert.match(classroomSource, /doc\(db, 'categories', createPlickerLiveRoomId\(ownerUid\)\)/);
 assert.match(classroomSource, /activeSession\.answersByQuestion/);
 assert.match(classroomSource, /'activeSession\.phase': 'scanning'/);
+assert.match(classroomSource, /'activeSession\.phase': 'finished'/);
+assert.match(classroomSource, /isPlickerLiveSessionRunning\(liveSession\)/);
+assert.match(classroomSource, /onClick=\{sessionInProgress \? finishSession : startSession\}/);
+assert.match(classroomSource, /data-session-action=\{sessionInProgress \? 'stop' : 'start'\}/);
+assert.match(classroomSource, /Dừng buổi học/);
+assert.match(classroomSource, /Đã dừng buổi học và lưu báo cáo/);
 assert.match(classroomSource, /'activeSession\.showCorrect'/);
 assert.match(classroomSource, /'activeSession\.showGraph'/);
 assert.match(displaySource, /MÀN HÌNH LỚP HỌC/);
@@ -220,6 +235,6 @@ assert.match(classroomSource, /deletedClassIds/);
 assert.match(dashboardSource, /onDeleteClass/);
 assert.match(dashboardSource, /deleteDoc\(doc\(db, 'categories', classId\)\)/);
 assert.match(manifest.start_url, /role=scanner/);
-checks += 20;
+checks += 26;
 
 console.info(`Plicker phone/display realtime sync: ${checks} checks passed.`);

@@ -172,7 +172,7 @@ assert.match(scanner, /setSheet\('graph'\)/);
 assert.match(scanner, /setSheet\('students'\)/);
 assert.equal(manifest.orientation, 'portrait-primary');
 assert.equal(manifest.theme_color, '#31936f');
-assert.match(worker, /CACHE_PREFIX\}v12/);
+assert.match(worker, /CACHE_PREFIX\}v13/);
 checks += 10;
 
 console.info(`Plicker-style mobile camera interface: ${checks} checks passed.`);

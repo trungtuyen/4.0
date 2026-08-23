@@ -53,6 +53,7 @@ import {
   createPlickerLiveSession,
   createPlickerQuestionKey,
   getPlickerOrphanedRosterChanges,
+  isPlickerLiveSessionRunning,
   mergePlickerDeletedClasses,
   mergePlickerDeletedQuestionSets,
   mergePlickerQuestionSets,
@@ -456,6 +457,7 @@ export default function PlickerClassroom({
     ? buildPlickerStudentScoreRows(selectedReport, selectedReportStudents)
     : [], [selectedReport, selectedReportStudents]);
   const liveSession = liveRoom?.activeSession || null;
+  const sessionInProgress = isPlickerLiveSessionRunning(liveSession);
   const questionImportPreview = useMemo(() => parsePlickerQuestionText(questionImportText), [questionImportText]);
 
   const reportSynchronizationError = useCallback((error: unknown) => {
@@ -1097,7 +1099,7 @@ export default function PlickerClassroom({
     setReports(previous => [report, ...previous.filter(item => item.id !== report.id)].slice(0, 100));
     setSelectedReportId(report.id);
     setView('reports');
-    setNotice('Đã lưu báo cáo buổi học.');
+    setNotice('Đã dừng buổi học và lưu báo cáo.');
     void updateLiveSessionFields({
       'activeSession.phase': 'finished',
       'activeSession.showGraph': true,
@@ -1515,8 +1517,19 @@ export default function PlickerClassroom({
                 <Smartphone className="h-4 w-4" /> Cài ứng dụng
               </button>
             )}
-            <button onClick={startSession} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold hover:bg-indigo-400">
-              <Play className="h-4 w-4" /> Bắt đầu buổi học
+            <button
+              type="button"
+              onClick={sessionInProgress ? finishSession : startSession}
+              aria-pressed={sessionInProgress}
+              data-session-action={sessionInProgress ? 'stop' : 'start'}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                sessionInProgress
+                  ? 'bg-red-600 text-white hover:bg-red-500'
+                  : 'bg-indigo-500 text-white hover:bg-indigo-400'
+              }`}
+            >
+              {sessionInProgress ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4" />}
+              {sessionInProgress ? 'Dừng buổi học' : 'Bắt đầu buổi học'}
             </button>
           </div>
         </div>

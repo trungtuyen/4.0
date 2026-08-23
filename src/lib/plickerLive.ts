@@ -117,6 +117,16 @@ export function createPlickerDevicePath(baseUrl: string, role: PlickerDeviceRole
   return `${normalized}?${new URLSearchParams({ app: 'plicker', role }).toString()}`;
 }
 
+export function isPlickerLiveSessionRunning(
+  session: Pick<PlickerLiveSession, 'phase'> | null | undefined,
+): boolean {
+  return Boolean(session && (
+    session.phase === 'launch' ||
+    session.phase === 'scanning' ||
+    session.phase === 'results'
+  ));
+}
+
 export function getPlickerDisplayActivationKey(
   role: PlickerDeviceRole,
   session: PlickerLiveSession | null,
