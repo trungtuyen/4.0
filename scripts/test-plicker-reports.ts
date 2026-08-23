@@ -10,6 +10,7 @@ import {
 import {
   buildPlickerStudentScoreRows,
   createPlickerReportWorkbook,
+  deletePlickerReport,
   getPlickerReportMaximumScore,
   inferPlickerSchoolYear,
   plickerExcelColumnName,
@@ -120,6 +121,30 @@ assert.deepEqual(rows[3].questionScores, [null, null, null]);
 assert.equal(rows[3].totalScore, 0);
 assert.equal(getPlickerReportMaximumScore(report), 3.25);
 checks += 10;
+
+const reportA = { ...report, id: 'report-a', className: '8A' };
+const reportB = { ...report, id: 'report-b', className: '8B' };
+const reportC = { ...report, id: 'report-c', className: '8C' };
+const reportHistory = [reportA, reportB, reportC];
+const deleteSelected = deletePlickerReport(reportHistory, 'report-b', 'report-b');
+assert.deepEqual(deleteSelected.reports.map(item => item.id), ['report-a', 'report-c']);
+assert.equal(deleteSelected.selectedReportId, 'report-c');
+assert.equal(reportHistory.length, 3, 'Deleting a report must not mutate the previous state.');
+const deleteFirst = deletePlickerReport(reportHistory, 'report-a', 'report-a');
+assert.equal(deleteFirst.selectedReportId, 'report-b');
+const deleteLast = deletePlickerReport(reportHistory, 'report-c', 'report-c');
+assert.equal(deleteLast.selectedReportId, 'report-b');
+const deleteUnselected = deletePlickerReport(reportHistory, 'report-b', 'report-a');
+assert.equal(deleteUnselected.selectedReportId, 'report-a');
+assert.deepEqual(deleteUnselected.reports.map(item => item.id), ['report-a', 'report-c']);
+const deleteOnly = deletePlickerReport([reportA], 'report-a', 'report-a');
+assert.deepEqual(deleteOnly.reports, []);
+assert.equal(deleteOnly.selectedReportId, null);
+const missingReport = deletePlickerReport(reportHistory, 'not-found', 'report-b');
+assert.strictEqual(missingReport.reports, reportHistory);
+assert.equal(missingReport.selectedReportId, 'report-b');
+assert.equal(JSON.parse(JSON.stringify(deleteSelected.reports)).some((item: PlickerClassroomReport) => item.id === 'report-b'), false);
+checks += 12;
 
 const settings: PlickerReportSettings = {
   schoolName: 'THCS Kim Lư',
@@ -248,14 +273,16 @@ for (const feature of [
   'students: classStudents.map', 'points: normalizePlickerQuestionPoints(question.points)',
   'createPlickerReportWorkbook(', 'buildPlickerStudentScoreRows(', 'Xuất bảng điểm Excel',
   'CSV chi tiết', 'Tên trường', 'Môn học', 'Năm học', 'Ngày kiểm tra', 'Giáo viên bộ môn',
-  'Điểm câu hỏi', 'Tổng điểm', '.xlsx',
+  'Điểm câu hỏi', 'Tổng điểm', '.xlsx', 'Xóa báo cáo', 'confirmReportDeletion',
+  'deletePlickerReport(reports, deletingReport.id, selectedReportId)', 'plicker-delete-report-title',
+  'setDeletingReport(null)',
 ]) {
   assert.equal(classroom.includes(feature), true, `Missing score report feature: ${feature}`);
   checks += 1;
 }
 assert.match(dashboard, /schoolName=\{currentUser/u);
 assert.match(dashboard, /teacherName=\{currentUser/u);
-assert.match(worker, /CACHE_PREFIX\}v11/u);
+assert.match(worker, /CACHE_PREFIX\}v12/u);
 checks += 3;
 
 if (process.env.PLICKER_REPORT_TEST_OUTPUT) writeFileSync(process.env.PLICKER_REPORT_TEST_OUTPUT, bytes);

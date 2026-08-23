@@ -17,6 +17,7 @@ import { filterPlickerStudentsByClasses } from '../lib/plickerStudents';
 import {
   buildPlickerStudentScoreRows,
   createPlickerReportWorkbook,
+  deletePlickerReport,
   getPlickerReportMaximumScore,
   inferPlickerSchoolYear,
   resolvePlickerReportStudents,
@@ -358,6 +359,7 @@ export default function PlickerClassroom({
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, ClassroomResponse[]>>({});
   const [reports, setReports] = useState<ClassroomReport[]>(initialReports);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [deletingReport, setDeletingReport] = useState<ClassroomReport | null>(null);
   const [reportSettings, setReportSettings] = useState<PlickerReportSettings>(() => initialReportSettings(schoolName, teacherName));
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -1226,6 +1228,15 @@ export default function PlickerClassroom({
     setQuestionImportSource('');
   };
 
+  const confirmReportDeletion = () => {
+    if (!deletingReport) return;
+    const result = deletePlickerReport(reports, deletingReport.id, selectedReportId);
+    setReports(result.reports);
+    setSelectedReportId(result.selectedReportId);
+    setDeletingReport(null);
+    setNotice(`Đã xóa báo cáo lớp ${deletingReport.className}: ${deletingReport.setTitle}.`);
+  };
+
   const confirmQuestionSetDeletion = () => {
     if (!deletingSet) return;
     const deletedAt = Date.now();
@@ -1909,18 +1920,32 @@ export default function PlickerClassroom({
               <h2 className="font-bold">Lịch sử buổi học</h2>
               <div className="mt-4 space-y-2">
                 {reports.map(report => (
-                  <button
+                  <div
                     key={report.id}
-                    onClick={() => {
-                      setSelectedReportId(report.id);
-                      setReportSettings(previous => ({ ...previous, examDate: '' }));
-                    }}
-                    className={`w-full rounded-xl border p-3 text-left ${selectedReportId === report.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
+                    className={`group flex w-full items-start gap-1 rounded-xl border p-2 ${selectedReportId === report.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
                   >
-                    <p className="font-medium">{report.className}</p>
-                    <p className="mt-1 text-xs text-slate-500">{report.setTitle}</p>
-                    <p className="mt-1 text-xs text-slate-400">{formatDate(report.completedAt)}</p>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedReportId(report.id);
+                        setReportSettings(previous => ({ ...previous, examDate: '' }));
+                      }}
+                      className="min-w-0 flex-1 rounded-lg p-1 text-left"
+                    >
+                      <p className="font-medium">{report.className}</p>
+                      <p className="mt-1 text-xs text-slate-500">{report.setTitle}</p>
+                      <p className="mt-1 text-xs text-slate-400">{formatDate(report.completedAt)}</p>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Xóa báo cáo lớp ${report.className}`}
+                      title="Xóa báo cáo"
+                      onClick={() => setDeletingReport(report)}
+                      className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 ))}
                 {reports.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có buổi học được lưu.</p>}
               </div>
@@ -1946,6 +1971,11 @@ export default function PlickerClassroom({
                         onClick={() => downloadDetailedReport(selectedReport)}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600"
                       >CSV chi tiết</button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingReport(selectedReport)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+                      ><Trash2 className="h-4 w-4" />Xóa báo cáo</button>
                     </div>
                   </div>
 
@@ -2204,6 +2234,29 @@ export default function PlickerClassroom({
               >
                 <ClipboardPaste className="h-4 w-4" />
                 {questionImportTarget === 'editing' ? 'Thêm vào bộ câu hỏi' : 'Tạo bộ câu hỏi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="plicker-delete-report-title" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-red-50 p-2.5 text-red-600"><Trash2 className="h-5 w-5" /></div>
+              <div>
+                <h2 id="plicker-delete-report-title" className="text-lg font-bold text-slate-900">Xóa báo cáo buổi học?</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Xóa báo cáo lớp <strong>{deletingReport.className}</strong>, bộ câu hỏi <strong>{deletingReport.setTitle}</strong>?
+                  Bảng điểm và lịch sử trả lời của buổi học này sẽ bị xóa khỏi thiết bị.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setDeletingReport(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Hủy</button>
+              <button type="button" onClick={confirmReportDeletion} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+                Xóa báo cáo
               </button>
             </div>
           </div>

@@ -51,6 +51,28 @@ export interface PlickerStudentScoreRow {
   totalScore: number;
 }
 
+export interface PlickerReportDeletionResult {
+  reports: PlickerClassroomReport[];
+  selectedReportId: string | null;
+}
+
+export function deletePlickerReport(
+  reports: PlickerClassroomReport[],
+  reportId: string,
+  selectedReportId: string | null,
+): PlickerReportDeletionResult {
+  const deletedIndex = reports.findIndex(report => report.id === reportId);
+  if (deletedIndex < 0) return { reports, selectedReportId };
+
+  const remaining = reports.filter(report => report.id !== reportId);
+  if (selectedReportId !== reportId) return { reports: remaining, selectedReportId };
+
+  return {
+    reports: remaining,
+    selectedReportId: remaining[Math.min(deletedIndex, remaining.length - 1)]?.id || null,
+  };
+}
+
 export function inferPlickerSchoolYear(date = new Date()): string {
   const startYear = date.getMonth() >= 6 ? date.getFullYear() : date.getFullYear() - 1;
   return `${startYear} - ${startYear + 1}`;
