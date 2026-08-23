@@ -68,10 +68,19 @@ function normalizeWordMath(fragment: string): string {
     return `<w:t>${xmlFragmentText(base[1])}^${value.length > 1 ? `{${value}}` : value}</w:t>`;
   });
 
+  result = result.replace(/<m:sSub\b[^>]*>([\s\S]*?)<\/m:sSub>/giu, (_, content: string) => {
+    const base = /<m:e\b[^>]*>([\s\S]*?)<\/m:e>/iu.exec(content);
+    const subscript = /<m:sub\b[^>]*>([\s\S]*?)<\/m:sub>/iu.exec(content);
+    if (!base || !subscript) return content;
+    const value = xmlFragmentText(subscript[1]);
+    return `<w:t>${xmlFragmentText(base[1])}_${value.length > 1 ? `{${value}}` : value}</w:t>`;
+  });
+
   return result.replace(/<w:r\b[^>]*>([\s\S]*?)<\/w:r>/giu, (run: string, content: string) => {
-    if (!/<w:vertAlign\b[^>]*\b(?:w:)?val=["']superscript["']/iu.test(content)) return run;
+    const alignment = /<w:vertAlign\b[^>]*\b(?:w:)?val=["'](superscript|subscript)["']/iu.exec(content);
+    if (!alignment) return run;
     const value = xmlFragmentText(content);
-    return `<w:t>^${value.length > 1 ? `{${value}}` : value}</w:t>`;
+    return `<w:t>${alignment[1].toLowerCase() === 'subscript' ? '_' : '^'}${value.length > 1 ? `{${value}}` : value}</w:t>`;
   });
 }
 

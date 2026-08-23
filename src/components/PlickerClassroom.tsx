@@ -9,8 +9,10 @@ import {
 } from 'lucide-react';
 import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import PlickerDisplayScreen from './PlickerDisplayScreen';
+import PlickerDisplayScreen, { PlickerDisplayMath } from './PlickerDisplayScreen';
 import PlickerMobileScanner from './PlickerMobileScanner';
+import PlickerQuestionEditor from './PlickerQuestionEditor';
+import PlickerQuestionMediaGallery, { PlickerRichContent } from './PlickerQuestionContent';
 import {
   createPlickerMarker,
   detectPlickerCards,
@@ -42,6 +44,7 @@ import {
   sanitizePlickerStudents,
   summarizePlickerLiveAnswers,
   type PlickerDeviceRole,
+  type PlickerLiveQuestion,
   type PlickerLiveRoom,
   type PlickerLiveSession,
 } from '../lib/plickerLive';
@@ -77,13 +80,9 @@ interface PlickerClassroomProps {
   onSyncStudents: (rosters: Record<string, Student[]>) => void;
 }
 
-interface ClassroomQuestion {
-  id: number;
-  text: string;
+interface ClassroomQuestion extends PlickerLiveQuestion {
   type?: 'multiple_choice' | 'true_false';
   gradingType?: 'graded' | 'survey';
-  options: Partial<Record<PlickerAnswer, string>>;
-  correctAnswer: PlickerAnswer | null;
 }
 
 interface ClassroomQuestionSet {
@@ -859,6 +858,7 @@ export default function PlickerClassroom({
         deletedQuestionSetIdsRef.current,
       ),
       deletedQuestionSetIds: deletedQuestionSetIdsRef.current,
+      deletedClassIds: deletedClassIdsRef.current,
       rosters: { ...previous?.rosters, [session.classId]: session.students },
       devices: {
         ...previous?.devices,
@@ -1025,14 +1025,21 @@ export default function PlickerClassroom({
 
   const saveSet = () => {
     if (!editingSet) return;
-    const cleaned = {
+    const cleaned = sanitizePlickerQuestionSet({
       ...editingSet,
       title: editingSet.title.trim() || 'Bộ câu hỏi chưa đặt tên',
       questions: editingSet.questions.filter(question => question.text.trim()),
       updatedAt: new Date().toISOString(),
-    };
+    }) as ClassroomQuestionSet;
     if (cleaned.questions.length === 0) {
       setNotice('Bộ câu hỏi cần có ít nhất một câu hỏi.');
+      return;
+    }
+    const nextLibrary = sets.some(item => item.id === cleaned.id)
+      ? sets.map(item => item.id === cleaned.id ? cleaned : item)
+      : [cleaned, ...sets];
+    if (new TextEncoder().encode(JSON.stringify(nextLibrary)).length > 720_000) {
+      setNotice('Bộ câu hỏi có quá nhiều tệp đính kèm để đồng bộ. Hãy dùng video YouTube hoặc đường dẫn hình ảnh/âm thanh trực tuyến.');
       return;
     }
     setSets(previous => {
@@ -1669,111 +1676,16 @@ export default function PlickerClassroom({
         )}
 
         {editingSet && (
-          <section className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-bold">Soạn bộ câu hỏi</h2>
-                <p className="text-sm text-slate-500">Nhập thủ công, dán nhiều câu hoặc thêm từ tệp Word.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => openQuestionImport('editing')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 px-3 py-2 text-sm text-indigo-700"
-                >
-                  <ClipboardPaste className="h-4 w-4" />Dán câu hỏi
-                </button>
-                <button
-                  type="button"
-                  onClick={() => pickQuestionWordFile('editing')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-700"
-                >
-                  <FileUp className="h-4 w-4" />Nhập Word
-                </button>
-                <button type="button" onClick={() => setEditingSet(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Hủy</button>
-                <button type="button" onClick={saveSet} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white">
-                  <Save className="h-4 w-4" />Lưu bộ câu hỏi
-                </button>
-              </div>
-            </div>
-
-            <input
-              value={editingSet.title}
-              onChange={event => setEditingSet({ ...editingSet, title: event.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold outline-none focus:border-indigo-500"
-              placeholder="Tên bộ câu hỏi"
-            />
-
-            {editingSet.questions.map((question, index) => (
-              <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="font-semibold">Câu {index + 1}</h3>
-                  <button
-                    type="button"
-                    disabled={editingSet.questions.length === 1}
-                    onClick={() => setEditingSet({ ...editingSet, questions: editingSet.questions.filter(item => item.id !== question.id) })}
-                    className="rounded-lg p-2 text-red-500 disabled:opacity-30"
-                    aria-label="Xóa câu hỏi"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-                <textarea
-                  value={question.text}
-                  onChange={event => setEditingSet({
-                    ...editingSet,
-                    questions: editingSet.questions.map(item => item.id === question.id ? { ...item, text: event.target.value } : item),
-                  })}
-                  className="min-h-20 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-indigo-500"
-                  placeholder="Nhập câu hỏi..."
-                />
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {ANSWERS.map(answer => (
-                    <label key={answer} className={`flex items-center gap-2 rounded-xl border p-2 ${
-                      question.correctAnswer === answer ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'
-                    }`}>
-                      <button
-                        type="button"
-                        onClick={() => setEditingSet({
-                          ...editingSet,
-                          questions: editingSet.questions.map(item => item.id === question.id
-                            ? { ...item, correctAnswer: item.correctAnswer === answer ? null : answer }
-                            : item),
-                        })}
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${ANSWER_COLORS[answer]}`}
-                      >
-                        {answer}
-                      </button>
-                      <input
-                        value={question.options[answer] || ''}
-                        onChange={event => setEditingSet({
-                          ...editingSet,
-                          questions: editingSet.questions.map(item => item.id === question.id
-                            ? { ...item, options: { ...item.options, [answer]: event.target.value } }
-                            : item),
-                        })}
-                        className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-                        placeholder={`Đáp án ${answer}`}
-                      />
-                      {question.correctAnswer === answer && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
-                    </label>
-                  ))}
-                </div>
-                <p className="mt-3 text-xs text-slate-500">Nhấn chữ A/B/C/D để chọn đáp án đúng; không chọn nếu đây là câu khảo sát.</p>
-              </article>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => setEditingSet({
-                ...editingSet,
-                questions: [...editingSet.questions, defaultQuestion(Math.max(...editingSet.questions.map(question => question.id), 0) + 1)],
-              })}
-              className="inline-flex items-center gap-2 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700"
-            >
-              <Plus className="h-4 w-4" />Thêm câu hỏi
-            </button>
-          </section>
+          <PlickerQuestionEditor
+            questionSet={editingSet}
+            ownerUid={ownerUid}
+            onChange={updated => setEditingSet(updated)}
+            onSave={saveSet}
+            onCancel={() => setEditingSet(null)}
+            onImportPaste={() => openQuestionImport('editing')}
+            onImportWord={() => pickQuestionWordFile('editing')}
+            onNotice={setNotice}
+          />
         )}
 
         {view === 'session' && !editingSet && (
@@ -1819,12 +1731,13 @@ export default function PlickerClassroom({
                         <button onClick={() => changeQuestion(questionIndex + 1)} disabled={questionIndex >= (selectedSet?.questions.length || 1) - 1} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40" aria-label="Câu hỏi tiếp theo"><ChevronRight className="h-4 w-4" /></button>
                       </div>
                     </div>
-                    <h2 className="text-xl font-bold leading-8 md:text-2xl">{currentQuestion.text}</h2>
+                    <h2 className="text-xl font-bold leading-8 md:text-2xl"><PlickerRichContent text={currentQuestion.text} html={currentQuestion.richText}><PlickerDisplayMath text={currentQuestion.text} /></PlickerRichContent></h2>
+                    <PlickerQuestionMediaGallery media={currentQuestion.media} compact />
                     <div className="mt-5 grid gap-3 sm:grid-cols-2">
                       {ANSWERS.map(answer => (
                         <div key={answer} className={`flex items-center gap-3 rounded-xl border p-3 ${showCorrect && currentQuestion.correctAnswer === answer ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'}`}>
                           <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${ANSWER_COLORS[answer]}`}>{answer}</span>
-                          <span className="text-sm">{currentQuestion.options[answer] || '—'}</span>
+                          <span className="text-sm"><PlickerRichContent text={currentQuestion.options[answer] || '—'} html={currentQuestion.optionRichText?.[answer]}><PlickerDisplayMath text={currentQuestion.options[answer] || '—'} /></PlickerRichContent></span>
                         </div>
                       ))}
                     </div>

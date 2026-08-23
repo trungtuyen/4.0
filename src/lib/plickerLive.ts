@@ -1,4 +1,9 @@
 import type { PlickerAnswer } from './plickerVision';
+import {
+  sanitizePlickerQuestionMedia,
+  sanitizePlickerRichHtml,
+  type PlickerQuestionMedia,
+} from './plickerQuestionMedia';
 
 export type PlickerDeviceRole = 'scanner' | 'display';
 export type PlickerLivePhase = 'launch' | 'scanning' | 'results' | 'finished';
@@ -13,6 +18,11 @@ export interface PlickerLiveStudent {
 export interface PlickerLiveQuestion {
   id: number;
   text: string;
+  richText?: string;
+  optionRichText?: Partial<Record<PlickerAnswer, string>>;
+  media?: PlickerQuestionMedia[];
+  type?: 'multiple_choice' | 'true_false';
+  gradingType?: 'graded' | 'survey';
   options: Partial<Record<PlickerAnswer, string>>;
   correctAnswer: PlickerAnswer | null;
 }
@@ -146,14 +156,29 @@ export function sanitizePlickerQuestionSet(set: PlickerLiveQuestionSet): Plicker
     title: set.title,
     createdAt: set.createdAt,
     updatedAt: set.updatedAt,
-    questions: set.questions.map(question => ({
-      id: question.id,
-      text: question.text,
-      options: Object.fromEntries(
-        Object.entries(question.options).filter(([answer, text]) => isAnswer(answer) && typeof text === 'string'),
-      ) as Partial<Record<PlickerAnswer, string>>,
-      correctAnswer: isAnswer(question.correctAnswer) ? question.correctAnswer : null,
-    })),
+    questions: set.questions.map(question => {
+      const richText = sanitizePlickerRichHtml(question.richText);
+      const optionRichText = Object.fromEntries(
+        Object.entries(question.optionRichText || {})
+          .filter(([answer, value]) => isAnswer(answer) && typeof value === 'string')
+          .map(([answer, value]) => [answer, sanitizePlickerRichHtml(value)])
+          .filter(([, value]) => Boolean(value)),
+      ) as Partial<Record<PlickerAnswer, string>>;
+      const media = sanitizePlickerQuestionMedia(question.media);
+      return {
+        id: question.id,
+        text: question.text,
+        ...(richText ? { richText } : {}),
+        ...(Object.keys(optionRichText).length ? { optionRichText } : {}),
+        ...(media.length ? { media } : {}),
+        ...(question.type === 'multiple_choice' || question.type === 'true_false' ? { type: question.type } : {}),
+        ...(question.gradingType === 'graded' || question.gradingType === 'survey' ? { gradingType: question.gradingType } : {}),
+        options: Object.fromEntries(
+          Object.entries(question.options).filter(([answer, text]) => isAnswer(answer) && typeof text === 'string'),
+        ) as Partial<Record<PlickerAnswer, string>>,
+        correctAnswer: isAnswer(question.correctAnswer) ? question.correctAnswer : null,
+      };
+    }),
   };
 }
 

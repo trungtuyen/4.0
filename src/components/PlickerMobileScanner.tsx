@@ -4,6 +4,9 @@ import {
   Square, Wifi, WifiOff, X,
 } from 'lucide-react';
 import type { PlickerAnswer } from '../lib/plickerVision';
+import type { PlickerQuestionMedia } from '../lib/plickerQuestionMedia';
+import PlickerQuestionMediaGallery, { PlickerRichContent } from './PlickerQuestionContent';
+import { PlickerDisplayMath } from './PlickerDisplayScreen';
 
 const ANSWERS: PlickerAnswer[] = ['A', 'B', 'C', 'D'];
 
@@ -15,6 +18,9 @@ export interface PlickerMobileStudent {
 
 export interface PlickerMobileQuestion {
   text: string;
+  richText?: string;
+  optionRichText?: Partial<Record<PlickerAnswer, string>>;
+  media?: PlickerQuestionMedia[];
   options: Partial<Record<PlickerAnswer, string>>;
   correctAnswer: PlickerAnswer | null;
 }
@@ -161,7 +167,9 @@ export function PlickerMobileResultsSheet({
                 <div className="flex min-w-0 items-center gap-3">
                   <AnswerBadge answer={answer} correct={question.correctAnswer === answer} compact />
                   <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-[#242229]">
-                    {question.options[answer] || `Phương án ${answer}`}
+                    <PlickerRichContent text={question.options[answer] || `Phương án ${answer}`} html={question.optionRichText?.[answer]}>
+                      <PlickerDisplayMath text={question.options[answer] || `Phương án ${answer}`} />
+                    </PlickerRichContent>
                   </span>
                   <span className="min-w-6 text-right text-lg font-semibold text-[#242229]">{count}</span>
                 </div>
@@ -375,8 +383,9 @@ export default function PlickerMobileScanner({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-7">
         <h1 className="text-[clamp(1.65rem,7vw,2.35rem)] font-bold leading-[1.17] tracking-[-0.045em] text-[#302e36]">
-          {question.text}
+          <PlickerRichContent text={question.text} html={question.richText}><PlickerDisplayMath text={question.text} /></PlickerRichContent>
         </h1>
+        <PlickerQuestionMediaGallery media={question.media} compact />
         {scanError && (
           <p role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {scanError}
@@ -399,7 +408,9 @@ export default function PlickerMobileScanner({
           <div key={answer} className="flex min-h-[49px] min-w-0 items-center gap-3 py-1">
             <AnswerBadge answer={answer} correct={question.correctAnswer === answer} />
             <span className="min-w-0 flex-1 truncate text-[17px] font-semibold tracking-tight text-[#393740]">
-              {question.options[answer] || `Phương án ${answer}`}
+              <PlickerRichContent text={question.options[answer] || `Phương án ${answer}`} html={question.optionRichText?.[answer]}>
+                <PlickerDisplayMath text={question.options[answer] || `Phương án ${answer}`} />
+              </PlickerRichContent>
             </span>
           </div>
         ))}

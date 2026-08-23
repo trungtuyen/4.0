@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import type { PlickerAnswer } from '../lib/plickerVision';
 import type { PlickerLivePhase } from '../lib/plickerLive';
+import type { PlickerQuestionMedia } from '../lib/plickerQuestionMedia';
+import PlickerQuestionMediaGallery, { PlickerRichContent } from './PlickerQuestionContent';
 
 const ANSWERS: PlickerAnswer[] = ['A', 'B', 'C', 'D'];
 const ANSWER_GRAPH_COLORS: Record<PlickerAnswer, string> = {
@@ -27,6 +29,9 @@ export interface PlickerDisplayResponse {
 
 export interface PlickerDisplayQuestion {
   text: string;
+  richText?: string;
+  optionRichText?: Partial<Record<PlickerAnswer, string>>;
+  media?: PlickerQuestionMedia[];
   options: Partial<Record<PlickerAnswer, string>>;
   correctAnswer: PlickerAnswer | null;
 }
@@ -64,7 +69,7 @@ export function calculatePlickerDisplayProgress(answered: number, total: number)
 
 export function PlickerDisplayMath({ text }: { text: string }) {
   const nodes: React.ReactNode[] = [];
-  const tokens = /\\frac\{([^{}]+)\}\{([^{}]+)\}|(?<![\p{L}\p{N}])(-?\d+)\/([\p{L}]+|\d+)|\^\{([^{}]+)\}|\^(-?\d+)/gu;
+  const tokens = /\\frac\{([^{}]+)\}\{([^{}]+)\}|(?<![\p{L}\p{N}])(-?\d+)\/([\p{L}]+|\d+)|\^\{([^{}]+)\}|\^(-?\d+)|_\{([^{}]+)\}|_(\d+)/gu;
   let previous = 0;
 
   for (const match of text.matchAll(tokens)) {
@@ -84,6 +89,8 @@ export function PlickerDisplayMath({ text }: { text: string }) {
           <span className="px-[0.15em] text-center">{denominator}</span>
         </span>,
       );
+    } else if (match[7] !== undefined || match[8] !== undefined) {
+      nodes.push(<sub key={`${position}-subscript`} className="relative top-[0.04em] text-[0.62em]">{match[7] ?? match[8]}</sub>);
     } else {
       nodes.push(<sup key={`${position}-exponent`} className="relative -top-[0.05em] text-[0.62em]">{match[5] ?? match[6]}</sup>);
     }
@@ -218,8 +225,14 @@ export default function PlickerDisplayScreen({
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-9 md:px-12 md:pt-12 xl:px-[72px] xl:pt-16">
               <div className="flex min-h-full flex-col">
                 <h1 className="max-w-[1250px] text-[clamp(2.1rem,5.1vw,5rem)] font-bold leading-[1.1] tracking-[-0.065em] text-[#262432]">
-                  <PlickerDisplayMath text={formatPlickerDisplayQuestion(question.text, questionIndex)} />
+                  {question.richText ? (
+                    <>
+                      {!/^(?:câu|question)\s*\d+/iu.test(question.text.trim()) && `Câu ${questionIndex + 1}. `}
+                      <PlickerRichContent text={question.text} html={question.richText} />
+                    </>
+                  ) : <PlickerDisplayMath text={formatPlickerDisplayQuestion(question.text, questionIndex)} />}
                 </h1>
+                <PlickerQuestionMediaGallery media={question.media} />
 
                 <section aria-label="Bốn đáp án của câu hỏi" className="mt-auto space-y-1.5 pt-10 md:space-y-2 xl:pt-14">
                   {availableAnswers.map(answer => {
@@ -238,7 +251,9 @@ export default function PlickerDisplayScreen({
                             {answer}
                           </span>
                           <span className="min-w-0 flex-1 text-[clamp(1.35rem,3vw,2.8rem)] font-semibold leading-[1.18] tracking-[-0.04em] text-[#18171c]">
-                            <PlickerDisplayMath text={question.options[answer] || `Phương án ${answer}`} />
+                            <PlickerRichContent text={question.options[answer] || `Phương án ${answer}`} html={question.optionRichText?.[answer]}>
+                              <PlickerDisplayMath text={question.options[answer] || `Phương án ${answer}`} />
+                            </PlickerRichContent>
                           </span>
                           {showGraph && (
                             <span className="shrink-0 pr-2 text-lg font-semibold text-[#666574] md:pr-4 md:text-2xl">
