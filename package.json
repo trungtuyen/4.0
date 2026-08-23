@@ -10,6 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:gesture": "node --import tsx scripts/test-agsa.ts",
+    "test:gestureclass": "node scripts/test-gestureclass.cjs",
     "test:platform": "node --import tsx scripts/test-platform.ts",
     "test:plicker": "node --import tsx scripts/test-plicker.ts"
   },

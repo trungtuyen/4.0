@@ -16,6 +16,7 @@ const DragDropGame = lazy(() => import('./components/DragDropGame'));
 const SecretBoxGame = lazy(() => import('./components/SecretBoxGame'));
 const LearningWall = lazy(() => import('./components/LearningWall'));
 const GestureCoreEdu = lazy(() => import('./components/GestureCoreEdu'));
+const GestureClass = lazy(() => import('./components/GestureClass'));
 const ExcelMerger = lazy(() => import('./components/ExcelMerger'));
 const PdfMerger = lazy(() => import('./components/PdfMerger'));
 
@@ -23,6 +24,7 @@ const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase(
 
 const PRODUCT_ICONS: Record<EcosystemApplicationId, LucideIcon> = {
   'gesture-core': Hand,
+  'gesture-class': MonitorPlay,
   'lucky-draw': Target,
   'lucky-draw-cards': Layers,
   plicker: QrCode,
@@ -71,7 +73,7 @@ function describeAuthError(error: unknown): string {
 }
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core' | 'excel-merger' | 'pdf-merger'>(() => {
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core' | 'gesture-class' | 'excel-merger' | 'pdf-merger'>(() => {
     const saved = sessionStorage.getItem('currentView');
     try {
       return saved ? JSON.parse(saved) : 'landing';
@@ -341,6 +343,10 @@ export default function App() {
 
   if (currentView === 'gesture-core') {
     return <GestureCoreEdu onBack={() => setCurrentView('landing')} />;
+  }
+
+  if (currentView === 'gesture-class') {
+    return <GestureClass onBack={() => setCurrentView('landing')} />;
   }
 
   if (currentView === 'excel-merger') {

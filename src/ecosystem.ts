@@ -2,6 +2,7 @@ export type EcosystemDependency = 'browser' | 'firebase' | 'ai-server';
 
 export type EcosystemApplicationId =
   | 'gesture-core'
+  | 'gesture-class'
   | 'lucky-draw'
   | 'lucky-draw-cards'
   | 'plicker'
@@ -27,6 +28,13 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
     id: 'gesture-core',
     name: 'GestureCore Edu',
     description: 'Trắc nghiệm, lật thẻ và chọn học sinh bằng cử chỉ bàn tay được ổn định bằng AGSA.',
+    dependency: 'browser',
+    category: 'Cử chỉ',
+  },
+  {
+    id: 'gesture-class',
+    name: 'GestureClass',
+    description: 'Quản lý lớp, ngân hàng câu hỏi và tổ chức trắc nghiệm, lật thẻ, gọi tên bằng cử chỉ bàn tay.',
     dependency: 'browser',
     category: 'Cử chỉ',
   },

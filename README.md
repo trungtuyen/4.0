@@ -8,11 +8,12 @@ Nền tảng trò chơi và công cụ giáo dục tương tác dành cho giáo 
 
 Website: <https://trungtuyen.github.io/4.0/>
 
-## Danh mục 12 ứng dụng
+## Danh mục 13 ứng dụng
 
 | Ứng dụng | Mục đích | Điều kiện hoạt động |
 | --- | --- | --- |
 | GestureCore Edu | Trắc nghiệm, lật thẻ và chọn học sinh bằng cử chỉ tay | Trình duyệt, camera |
+| GestureClass | Quản lý lớp, ngân hàng câu hỏi, trắc nghiệm cử chỉ, lật thẻ và gọi tên | Trình duyệt, camera |
 | Vòng quay may mắn | Chọn học sinh hoặc phần thưởng ngẫu nhiên | Trình duyệt |
 | Bốc thẻ tương tác | Bốc và lật thẻ trong hoạt động trên lớp | Trình duyệt |
 | Tương tác thẻ Plicker | Quản lý câu hỏi, lớp học và nhận diện thẻ đáp án | Firebase; quét AI cần máy chủ riêng |
@@ -39,6 +40,16 @@ Mô-đun mới cung cấp:
 - nhập/xuất dữ liệu Excel và lưu cục bộ trên thiết bị.
 
 Video camera được xử lý trong trình duyệt. Ứng dụng không chủ động tải video lên máy chủ.
+
+## GestureClass — lớp học tương tác
+
+GestureClass là ứng dụng độc lập trong danh mục chung và thư viện quản trị. Mô-đun sử dụng cùng phiên truy cập của hệ sinh thái, xử lý camera trực tiếp trên thiết bị và không yêu cầu máy chủ riêng.
+
+- Quản lý ngân hàng câu hỏi và danh sách lớp học.
+- Nhập câu hỏi Excel/CSV và xuất CSV.
+- Trắc nghiệm bằng 1–4 ngón tay, chuột hoặc bàn phím.
+- Lật thẻ ôn tập và gọi học sinh ngẫu nhiên.
+- Đường dẫn trực tiếp: <https://trungtuyen.github.io/4.0/gestureclass/>.
 
 ## Chạy tại máy tính
 
@@ -84,6 +95,7 @@ GitHub Pages chỉ triển khai giao diện tĩnh; các địa chỉ `/api/chat`
 ```bash
 npm run lint
 npm run test:gesture
+npm run test:gestureclass
 npm run test:platform
 npm run build
 ```

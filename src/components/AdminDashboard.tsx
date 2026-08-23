@@ -11,6 +11,7 @@ import DragDropGame from './DragDropGame';
 import ExcelMerger from './ExcelMerger';
 import PdfMerger from './PdfMerger';
 import GestureCoreEdu from './GestureCoreEdu';
+import GestureClass from './GestureClass';
 import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
@@ -117,7 +118,7 @@ interface AdminDashboardProps {
 
 export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(currentUser === 'admin' ? 'teachers' : 'library');
-  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>('main');
+  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>('main');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -680,6 +681,18 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   <p className="line-clamp-2 text-[10px] text-slate-300 md:text-sm">Trắc nghiệm, lật thẻ và chọn học sinh bằng cử chỉ bàn tay ổn định AGSA.</p>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() => setActiveLibraryView('gesture-class')}
+                  className="group rounded-2xl border border-indigo-200 bg-white p-3 text-left shadow-sm transition-shadow hover:shadow-md md:p-6"
+                >
+                  <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 transition-transform group-hover:scale-110 md:mb-4 md:h-12 md:w-12">
+                    <MonitorPlay className="h-5 w-5 md:h-6 md:w-6" />
+                  </div>
+                  <h3 className="mb-1 text-sm font-bold text-slate-800 md:mb-2 md:text-lg">GestureClass</h3>
+                  <p className="line-clamp-2 text-[10px] text-slate-500 md:text-sm">Quản lý lớp, ngân hàng câu hỏi, trắc nghiệm cử chỉ, lật thẻ và gọi tên học sinh.</p>
+                </button>
+
                 <div 
                   onClick={() => setActiveLibraryView('lucky-draw')}
                   className="bg-white p-3 md:p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
@@ -805,6 +818,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
           </>
         ) : activeLibraryView === 'gesture-core' ? (
           <GestureCoreEdu onBack={() => setActiveLibraryView('main')} />
+        ) : activeLibraryView === 'gesture-class' ? (
+          <GestureClass onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'create-exam' ? (
           <ExamManager initialMode="teacher" onBack={() => setActiveLibraryView('main')} currentUser={currentUser} />
         ) : activeLibraryView === 'chatbot' ? (
