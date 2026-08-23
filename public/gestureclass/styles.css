@@ -149,6 +149,9 @@ svg { display: block; }
 .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 18px; }
 .class-card { padding: 19px; }
 .class-card-top { display: flex; justify-content: space-between; }
+.class-card-controls { display: flex; align-items: center; gap: 2px; }
+.button.class-delete { color: var(--rose); }
+.button.class-delete:hover { background: var(--rose-pale); color: #bd526c; }
 .class-code { display: grid; width: 45px; height: 45px; place-items: center; border-radius: 14px; background: var(--brand-pale); color: var(--brand); font-size: 13px; font-weight: 800; }
 .class-card h3 { margin: 16px 0 5px; font-size: 15px; }
 .class-card > p { margin: 0; color: var(--muted); font-size: 10px; }
@@ -156,6 +159,9 @@ svg { display: block; }
 .class-metric strong { display: block; font-size: 14px; }
 .class-metric span { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; }
 .class-actions { display: flex; gap: 8px; margin-top: 15px; }
+.class-empty-state { margin-top: 18px; }
+.class-empty-state > svg { margin: 0 auto; color: var(--brand); }
+.class-empty-state .button { margin-top: 9px; }
 .play-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .76fr); gap: 16px; align-items: start; }
 .play-stage { overflow: hidden; min-height: 530px; padding: 0; }
 .play-stage-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 17px; border-bottom: 1px solid var(--line); }

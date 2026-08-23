@@ -50,6 +50,19 @@ async function handleNavigation(request) {
 
 async function handleStaticAsset(request) {
   const cache = await caches.open(CACHE_NAME);
+
+  if (new URL(request.url).pathname.startsWith(`${APP_ROOT}gestureclass/`)) {
+    try {
+      const fresh = await fetch(request);
+      if (fresh.ok && fresh.type === 'basic') {
+        await cache.put(request, fresh.clone());
+      }
+      return fresh;
+    } catch {
+      return (await cache.match(request)) || Response.error();
+    }
+  }
+
   const saved = await cache.match(request);
   if (saved) return saved;
 

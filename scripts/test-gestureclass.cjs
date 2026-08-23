@@ -13,10 +13,16 @@ async function main() {
   assert.match(index, /href="\.\/styles\.css"/);
   assert.match(index, /src="\.\/app\.js"/);
 
+  const serviceWorker = readFileSync(resolve(__dirname, "../public/service-worker.js"), "utf8");
+  assert.match(serviceWorker, /pathname\.startsWith\(`\$\{APP_ROOT\}gestureclass\/`\)/);
+  assert.match(serviceWorker, /const fresh = await fetch\(request\)/);
+
   let markup = "";
   let elements = new Map();
   const handlers = {};
   const storage = new Map();
+  let confirmationAccepted = true;
+  let confirmationMessage = "";
   const app = {};
   Object.defineProperty(app, "innerHTML", {
     get: () => markup,
@@ -84,7 +90,7 @@ async function main() {
     console,
     setTimeout: () => 1,
     cancelAnimationFrame() {},
-    confirm: () => true,
+    confirm: (message) => { confirmationMessage = message; return confirmationAccepted; },
     performance: { now: () => 2000 },
     URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} },
     Blob
@@ -138,9 +144,28 @@ async function main() {
   assert.match(markup, /Hiển thị 13\/13 câu hỏi/);
 
   await click("navigate", { view: "classes" });
+  assert.equal((markup.match(/data-action="delete-class"/g) || []).length, 3);
   await click("new-class");
   submit("#class-form", { name: "Lớp 8C", subject: "Toán 8", students: "Học sinh A\nHọc sinh B" });
   assert.match(markup, /Lớp 8C/);
+
+  const createdClass = JSON.parse(storage.get("gestureclass.v1.private")).classes.find((item) => item.name === "Lớp 8C");
+  assert.ok(createdClass);
+  assert.equal((markup.match(/data-action="delete-class"/g) || []).length, 4);
+
+  confirmationAccepted = false;
+  await click("delete-class", { id: createdClass.id });
+  assert.match(confirmationMessage, /Xóa Lớp 8C/);
+  assert.match(confirmationMessage, /2 học sinh/);
+  assert.match(markup, /Lớp 8C/);
+  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).classes.length, 4);
+
+  confirmationAccepted = true;
+  await click("delete-class", { id: createdClass.id });
+  assert.doesNotMatch(markup, /<h3>Lớp 8C<\/h3>/);
+  assert.equal((markup.match(/data-action="delete-class"/g) || []).length, 3);
+  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).classes.length, 3);
+  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).activities[0].title, "Xóa lớp học");
 
   await click("navigate", { view: "play" });
   assert.match(markup, /Phòng chơi cử chỉ/);
@@ -163,12 +188,24 @@ async function main() {
   assert.match(markup, /Đã chọn ngẫu nhiên từ danh sách lớp/);
   await click("close-modal");
 
+  await click("navigate", { view: "classes" });
+  for (const item of JSON.parse(storage.get("gestureclass.v1.private")).classes) {
+    await click("delete-class", { id: item.id });
+  }
+  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).classes.length, 0);
+  assert.match(markup, /Chưa có lớp học nào/);
+  assert.match(markup, /data-action="new-class"/);
+
+  await click("navigate", { view: "dashboard" });
+  assert.match(markup, /Lớp đang quản lý[\s\S]*?<div class="stat-value">0<\/div>/);
+  assert.match(markup, /Học sinh mẫu[\s\S]*?<div class="stat-value">0<\/div>/);
+
   await click("toggle-menu");
   assert.match(markup, /sidebar open/);
 
   process.stdout.write(JSON.stringify({
     status: "passed",
-    checked: ["static assets", "dashboard", "question create/duplicate/delete", "question search", "class management", "gesture simulation", "keyboard answers", "flashcards", "random student picker", "responsive navigation", "local persistence"]
+    checked: ["static assets", "dashboard", "question create/duplicate/delete", "question search", "class create/delete confirmation and persistence", "empty class list and synchronized counts", "gesture simulation", "keyboard answers", "flashcards", "random student picker", "responsive navigation", "local persistence"]
   }) + "\n");
 }
 

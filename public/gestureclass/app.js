@@ -211,7 +211,7 @@
   function classesView() {
     return `${heading("Quản trị dữ liệu lớp", "Lớp học của tôi", "Quản lý danh sách học sinh và tổ chức phiên chơi cho từng lớp.", `<button class="button" data-action="new-class">${icon("plus", 14)} Tạo lớp học</button>`)}
       <div class="status-pill" style="background:var(--orange-pale);color:#9b6b27">${icon("info", 13)} Tất cả tên học sinh bên dưới chỉ là dữ liệu minh hoạ.</div>
-      <section class="class-grid">${state.data.classes.map((item, index) => `<article class="panel class-card"><div class="class-card-top"><div class="class-code" style="${index === 1 ? "background:var(--mint-pale);color:var(--mint)" : index === 2 ? "background:var(--orange-pale);color:var(--orange)" : ""}">${esc(item.name.replace("Lớp ", ""))}</div><button class="button ghost small" data-action="edit-class" data-id="${esc(item.id)}">${icon("edit", 14)}</button></div><h3>${esc(item.name)}</h3><p>${esc(item.subject)} · TH & THCS Kim Lư</p><div class="class-metrics"><div class="class-metric"><strong>${item.students.length}</strong><span>Học sinh mẫu</span></div><div class="class-metric"><strong>${item.sessions}</strong><span>Phiên minh hoạ</span></div></div><div class="class-actions"><button class="button secondary small" data-action="roster" data-id="${esc(item.id)}">${icon("people", 13)} Danh sách</button><button class="button small" data-action="start-class" data-id="${esc(item.id)}">${icon("play", 12)} Bắt đầu</button></div></article>`).join("")}</section>`;
+      ${state.data.classes.length ? `<section class="class-grid">${state.data.classes.map((item, index) => `<article class="panel class-card"><div class="class-card-top"><div class="class-code" style="${index === 1 ? "background:var(--mint-pale);color:var(--mint)" : index === 2 ? "background:var(--orange-pale);color:var(--orange)" : ""}">${esc(item.name.replace("Lớp ", ""))}</div><div class="class-card-controls"><button class="button ghost small" data-action="edit-class" data-id="${esc(item.id)}" title="Chỉnh sửa lớp học" aria-label="Chỉnh sửa ${esc(item.name)}">${icon("edit", 14)}</button><button class="button ghost small class-delete" data-action="delete-class" data-id="${esc(item.id)}" title="Xóa lớp học" aria-label="Xóa ${esc(item.name)}">${icon("trash", 14)}</button></div></div><h3>${esc(item.name)}</h3><p>${esc(item.subject)} · TH & THCS Kim Lư</p><div class="class-metrics"><div class="class-metric"><strong>${item.students.length}</strong><span>Học sinh mẫu</span></div><div class="class-metric"><strong>${item.sessions}</strong><span>Phiên minh hoạ</span></div></div><div class="class-actions"><button class="button secondary small" data-action="roster" data-id="${esc(item.id)}">${icon("people", 13)} Danh sách</button><button class="button small" data-action="start-class" data-id="${esc(item.id)}">${icon("play", 12)} Bắt đầu</button></div></article>`).join("")}</section>` : `<section class="panel empty-state class-empty-state">${icon("people", 34)}<strong>Chưa có lớp học nào</strong><p>Thầy hãy tạo một lớp mới để quản lý danh sách học sinh.</p><button class="button" data-action="new-class">${icon("plus", 13)} Tạo lớp học</button></section>`}`;
   }
 
   function playView() {
@@ -374,6 +374,28 @@
     state.view = "classes";
     render();
     toast(`Đã lưu ${item.name} với ${students.length} học sinh.`);
+  }
+
+  function deleteClass(classId) {
+    const item = state.data.classes.find((candidate) => candidate.id === classId);
+    if (!item) return;
+
+    const warning = `Xóa ${item.name}?\n\nDanh sách ${item.students.length} học sinh và lịch sử các phiên học của lớp sẽ bị xóa. Thao tác này không thể hoàn tác.`;
+    if (!confirm(warning)) return;
+
+    state.data.classes = state.data.classes.filter((candidate) => candidate.id !== item.id);
+    state.data.sessions = state.data.sessions.filter((session) => session.classId !== item.id);
+
+    if (state.game.classId === item.id) {
+      const nextClass = state.data.classes[0];
+      prepareGame(nextClass?.subject || "Toán 8", nextClass?.id || null);
+    }
+
+    if (state.modal?.classId === item.id || state.modal?.classItem?.id === item.id) state.modal = null;
+    addActivity("Xóa lớp học", `${item.name} · ${item.students.length} học sinh`, "trash");
+    state.view = "classes";
+    render();
+    toast(`Đã xóa ${item.name} và ${item.students.length} học sinh.`);
   }
 
   function downloadText(filename, content, type = "text/csv;charset=utf-8") {
@@ -557,6 +579,7 @@
     if (action === "delete-question") { const item = state.data.questions.find((question) => question.id === target.dataset.id); if (item && confirm(`Xoá câu hỏi: ${item.text}?`)) { state.data.questions = state.data.questions.filter((question) => question.id !== item.id); addActivity("Xoá một câu hỏi", item.subject, "trash"); render(); toast("Đã xoá câu hỏi."); } return; }
     if (action === "new-class") { state.modal = { type: "class", classItem: null }; return render(); }
     if (action === "edit-class") { state.modal = { type: "class", classItem: state.data.classes.find((item) => item.id === target.dataset.id) }; return render(); }
+    if (action === "delete-class") return deleteClass(target.dataset.id);
     if (action === "roster") { state.modal = { type: "roster", classId: target.dataset.id }; return render(); }
     if (action === "start-subject") { state.modal = null; const classItem = state.data.classes.find((item) => item.subject === target.dataset.subject); prepareGame(target.dataset.subject, classItem?.id || state.data.classes[0]?.id); return navigate("play"); }
     if (action === "start-class") { const classItem = state.data.classes.find((item) => item.id === target.dataset.id); if (classItem) { state.modal = null; prepareGame(classItem.subject, classItem.id); navigate("play"); } return; }
