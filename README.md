@@ -26,6 +26,10 @@ Website: <https://trungtuyen.github.io/4.0/>
 | Gộp tệp Excel | Ghép dữ liệu từ nhiều bảng tính | Trình duyệt |
 | Gộp tệp PDF | Ghép nhiều tài liệu PDF | Trình duyệt |
 
+## Cổng thi học sinh
+
+Trang đăng nhập học sinh sử dụng bố cục quyển sách hai trang, tối ưu cho cả máy tính và điện thoại. Trang trái là biểu mẫu đăng nhập; trang phải tự động truy xuất các kỳ thi có trạng thái **Đang mở** từ Firestore, hiển thị lịch bắt đầu, thời lượng, số câu hỏi và trạng thái **Đang mở/Sắp diễn ra**. Kỳ thi bản nháp hoặc đã đóng không xuất hiện trong thông báo; mã đăng nhập vẫn được giáo viên cung cấp riêng cho học sinh.
+
 ## GestureCore Edu — AGSA
 
 Mô-đun mới cung cấp:

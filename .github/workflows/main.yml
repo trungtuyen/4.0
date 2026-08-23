@@ -42,6 +42,9 @@ jobs:
       - name: Verify head-tilt question generation
         run: npm run test:head-shake
 
+      - name: Verify student exam portal
+        run: npm run test:student-portal
+
       - name: Build project
         run: npm run build
 

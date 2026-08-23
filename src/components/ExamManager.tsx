@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileText, LogOut, ChevronRight, ChevronLeft, Save, PlayCircle, StopCircle, Calendar, Upload, X, Download, Shuffle, Activity, ArrowRight, Camera } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileText, LogOut, ChevronRight, ChevronLeft, Save, PlayCircle, StopCircle, Calendar, Upload, X, Download, Shuffle, Activity, ArrowRight, Camera, GraduationCap, BookOpen, Bell, ShieldCheck, UserRound, KeyRound, CalendarClock, Loader2 } from 'lucide-react';
 import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
 import * as XLSX from 'xlsx';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
 
 interface Question {
   id: string;
@@ -174,6 +175,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [examStatus, setExamStatus] = useState<'login' | 'waiting' | 'taking' | 'finished'>('login');
   const [studentScore, setStudentScore] = useState<{score: number, total: number} | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [publishedStudentExams, setPublishedStudentExams] = useState<Exam[]>([]);
+  const [studentScheduleLoading, setStudentScheduleLoading] = useState(false);
+  const [studentScheduleError, setStudentScheduleError] = useState('');
+  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [examToDelete, setExamToDelete] = useState<string | null>(null);
   const [resultToDelete, setResultToDelete] = useState<string | null>(null);
@@ -192,6 +197,39 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [cheatEvents, setCheatEvents] = useState({ rightClicks: 0, tabChanges: 0, windowResizes: 0 });
   const [cheatWarning, setCheatWarning] = useState<string | null>(null);
   const [autoSubmitted, setAutoSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (appMode !== 'student' || examStatus !== 'login') return;
+
+    setStudentScheduleLoading(true);
+    setStudentScheduleError('');
+    const publishedExamsQuery = query(collection(db, 'exams'), where('status', '==', 'published'));
+
+    const unsubscribe = onSnapshot(
+      publishedExamsQuery,
+      (snapshot: any) => {
+        setPublishedStudentExams(snapshot.docs.map((examDoc: any) => ({ id: examDoc.id, ...examDoc.data() } as Exam)));
+        setStudentScheduleLoading(false);
+      },
+      (error) => {
+        console.error('Error loading student exam schedule:', error);
+        setPublishedStudentExams([]);
+        setStudentScheduleError('Chưa thể tải lịch thi. Vui lòng kiểm tra kết nối và thử lại.');
+        setStudentScheduleLoading(false);
+      },
+    );
+
+    return unsubscribe;
+  }, [appMode, examStatus]);
+
+  useEffect(() => {
+    if (appMode !== 'student' || examStatus !== 'login') return;
+    setScheduleNow(Date.now());
+    const timer = setInterval(() => setScheduleNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [appMode, examStatus]);
+
+  const studentExamSchedule = buildStudentExamSchedule(publishedStudentExams, scheduleNow);
 
   // --- Teacher Functions ---
   const handleCreateExam = () => {
@@ -832,24 +870,31 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     e.preventDefault();
     setLoginError(null);
 
+    const normalizedStudentName = studentCodeInput.trim();
+    const normalizedExamCode = examCodeInput.trim();
+    if (!normalizedStudentName || !normalizedExamCode) {
+      setLoginError('Vui lòng nhập đầy đủ họ tên và mã kỳ thi.');
+      return;
+    }
+
     try {
       // 1. Query exam by ID or version code first
       let exam: Exam | null = null;
       let versionCode = 'Gốc';
       let studentExam: Exam | null = null;
 
-      const examDoc = await getDoc(doc(db, 'exams', examCodeInput));
+      const examDoc = await getDoc(doc(db, 'exams', normalizedExamCode));
       if (examDoc.exists() && examDoc.data().status === 'published') {
         exam = { id: examDoc.id, ...examDoc.data() } as Exam;
         studentExam = { ...exam };
       } else {
         // Try to find by version code
-        const examsQuery = query(collection(db, 'exams'), where('versionCodes', 'array-contains', examCodeInput));
+        const examsQuery = query(collection(db, 'exams'), where('versionCodes', 'array-contains', normalizedExamCode));
         const examsSnapshot = await getDocs(examsQuery);
         for (const doc of examsSnapshot.docs) {
           const e = { id: doc.id, ...doc.data() } as Exam;
           if (e.status === 'published' && e.shuffledVersions) {
-            const version = e.shuffledVersions.find(v => v.code === examCodeInput);
+            const version = e.shuffledVersions.find(v => v.code === normalizedExamCode);
             if (version) {
               exam = e;
               studentExam = { ...e, questions: version.questions };
@@ -862,6 +907,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
       if (!exam || !studentExam) {
         setLoginError('Mã kỳ thi không hợp lệ hoặc kỳ thi chưa mở!');
+        return;
+      }
+
+      if (!canStudentEnterExam(exam)) {
+        setLoginError(`Kỳ thi chưa đến giờ mở. Thời gian dự kiến: ${formatExamScheduleDate(exam.startTime)}.`);
         return;
       }
 
@@ -893,14 +943,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       const studentsSnapshot = await getDocs(studentsQuery);
       const teacherStudents = studentsSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as StudentAccount));
       
-      let student = teacherStudents.find(s => s.name.trim().toLowerCase() === studentCodeInput.trim().toLowerCase());
+      let student = teacherStudents.find(s => s.name.trim().toLowerCase() === normalizedStudentName.toLowerCase());
       
       if (!student) {
         // Auto-create student if not found to ensure they can take the exam
         const newStudent: StudentAccount = {
           id: Math.random().toString(36).substr(2, 9),
           code: Math.floor(100000 + Math.random() * 900000).toString(),
-          name: studentCodeInput.trim(),
+          name: normalizedStudentName,
           teacherId: exam.teacherId || 'admin'
         };
         await setDoc(doc(db, 'students', newStudent.id), newStudent);
@@ -1115,8 +1165,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
   if (appMode === 'student') {
     return (
-      <div className="flex-1 flex flex-col h-full bg-slate-50">
-        <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 md:py-5 flex items-center justify-between shrink-0">
+      <div className={`flex-1 flex flex-col h-full ${examStatus === 'login' ? 'bg-gradient-to-br from-blue-100 via-indigo-50 to-violet-100' : 'bg-slate-50'}`}>
+        <header className={`relative z-20 px-4 md:px-8 py-4 flex items-center justify-between shrink-0 ${examStatus === 'login' ? 'bg-white/60 border-b border-blue-200/70 backdrop-blur-md' : 'bg-white border-b border-slate-200'}`}>
           <div className="flex items-center gap-4">
             {examStatus === 'login' && (
               <button 
@@ -1126,9 +1176,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </button>
             )}
-            <h1 className="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <FileText className="w-6 h-6 text-blue-600" />
-              Cổng thi Học sinh
+            <h1 className="text-lg md:text-2xl font-bold text-slate-900 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                {examStatus === 'login' ? <GraduationCap className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
+              </span>
+              <span>
+                <span className="block text-[10px] md:text-xs font-bold tracking-[0.18em] text-blue-600 uppercase">Hệ thống thi trực tuyến</span>
+                Cổng thi Học sinh
+              </span>
             </h1>
           </div>
           {currentStudent && (
@@ -1155,46 +1210,175 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           )}
         </header>
 
-        <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col items-center">
+        <div className={`relative flex-1 overflow-auto flex flex-col items-center ${examStatus === 'login' ? 'p-3 md:p-8 lg:p-10' : 'p-4 md:p-8'}`}>
           {examStatus === 'login' && (
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-md w-full mt-10">
-              <h2 className="text-2xl font-bold text-slate-800 mb-6 text-center">Đăng nhập vào kỳ thi</h2>
-              <form onSubmit={handleStudentLogin} className="space-y-4">
+            <>
+              <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+                <div className="absolute -left-16 top-20 h-64 w-64 rounded-full border border-white/60" />
+                <div className="absolute left-12 top-40 h-28 w-28 rotate-12 rounded-[32px] border border-blue-200/70" />
+                <div className="absolute -right-20 bottom-10 h-80 w-80 rounded-full border border-white/70" />
+                <div className="absolute right-24 top-20 h-24 w-24 rotate-45 rounded-3xl border border-indigo-200/70" />
+                <div className="absolute bottom-20 left-[15%] h-px w-56 rotate-12 bg-white/70" />
+                <div className="absolute right-[12%] top-[38%] h-px w-52 -rotate-45 bg-white/70" />
+              </div>
+
+              <div className="relative z-10 mb-5 flex w-full max-w-6xl items-center justify-center gap-3 text-center text-blue-900 md:mb-7">
+                <BookOpen className="hidden h-9 w-9 text-blue-600 sm:block" />
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Họ tên học sinh</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={studentCodeInput}
-                    onChange={e => setStudentCodeInput(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="Nhập họ tên của bạn"
-                  />
+                  <p className="text-xs font-bold uppercase tracking-[0.22em] text-blue-600">Nền tảng lớp học thông minh 4.0</p>
+                  <h2 className="mt-1 text-xl font-black uppercase tracking-tight md:text-3xl">Hệ thống thi và kiểm tra trực tuyến</h2>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Mã kỳ thi</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={examCodeInput}
-                    onChange={e => setExamCodeInput(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="Nhập mã kỳ thi do giáo viên cung cấp"
-                  />
-                </div>
-                <button 
-                  type="submit"
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors mt-4"
-                >
-                  Vào phòng thi
-                </button>
-                {loginError && (
-                  <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 text-center">
-                    {loginError}
+              </div>
+
+              <section className="relative z-10 w-full max-w-6xl pb-8" aria-label="Đăng nhập và thông báo lịch thi">
+                <div className="absolute inset-x-6 top-5 -bottom-1 rounded-[32px] bg-blue-300/80 shadow-[0_30px_70px_rgba(37,99,235,0.22)]" aria-hidden="true" />
+                <div className="relative grid min-h-[520px] grid-cols-1 overflow-hidden rounded-[24px] border border-white/90 bg-white shadow-[0_24px_70px_rgba(30,64,175,0.20)] lg:grid-cols-2 lg:rounded-t-[44px] lg:rounded-b-[16px]">
+                  <div className="relative px-6 py-8 md:px-12 md:py-12 lg:px-16">
+                    <div className="absolute right-0 top-14 hidden h-[76%] w-px bg-gradient-to-b from-transparent via-slate-300 to-transparent lg:block" aria-hidden="true" />
+                    <div className="mx-auto max-w-md">
+                      <div className="mb-7">
+                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 lg:hidden">
+                          <ShieldCheck className="h-6 w-6" />
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-900">ĐĂNG NHẬP</h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-500">Nhập đúng họ tên trong danh sách lớp và mã kỳ thi do giáo viên cung cấp.</p>
+                      </div>
+
+                      <form onSubmit={handleStudentLogin} className="space-y-5">
+                        <div>
+                          <label htmlFor="student-exam-name" className="mb-2 block text-sm font-bold text-slate-700">Họ tên học sinh <span className="text-red-500">(*)</span></label>
+                          <div className="relative">
+                            <UserRound className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                            <input
+                              id="student-exam-name"
+                              type="text"
+                              required
+                              autoComplete="name"
+                              value={studentCodeInput}
+                              onChange={e => setStudentCodeInput(e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-slate-800 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                              placeholder="Nhập đầy đủ họ và tên"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label htmlFor="student-exam-code" className="mb-2 block text-sm font-bold text-slate-700">Mã kỳ thi <span className="text-red-500">(*)</span></label>
+                          <div className="relative">
+                            <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                            <input
+                              id="student-exam-code"
+                              type="text"
+                              required
+                              autoComplete="off"
+                              inputMode="numeric"
+                              value={examCodeInput}
+                              onChange={e => setExamCodeInput(e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 font-mono font-bold tracking-wider text-slate-800 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                              placeholder="Nhập mã kỳ thi"
+                            />
+                          </div>
+                        </div>
+
+                        {loginError && (
+                          <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                            {loginError}
+                          </div>
+                        )}
+
+                        <button
+                          type="submit"
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-3.5 font-bold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200"
+                        >
+                          <ShieldCheck className="h-5 w-5" />
+                          Đăng nhập vào phòng thi
+                        </button>
+                      </form>
+
+                      <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
+                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        Hệ thống chỉ cho phép làm bài đối với kỳ thi đã được giáo viên công bố.
+                      </div>
+                    </div>
                   </div>
-                )}
-              </form>
-            </div>
+
+                  <div className="relative border-t border-slate-200 bg-gradient-to-br from-white to-blue-50/60 px-6 py-8 md:px-10 md:py-12 lg:border-l-0 lg:border-t-0 lg:px-12">
+                    <div className="mb-6 flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 text-blue-700">
+                          <Bell className="h-5 w-5" />
+                          <span className="text-xs font-black uppercase tracking-[0.18em]">Cập nhật trực tiếp</span>
+                        </div>
+                        <h3 className="mt-2 text-2xl font-black text-slate-900">THÔNG BÁO LỊCH THI</h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-500">Các kỳ thi đã được giáo viên công bố trên hệ thống.</p>
+                      </div>
+                      <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                        Trực tuyến
+                      </span>
+                    </div>
+
+                    <div className="max-h-[340px] space-y-3 overflow-y-auto pr-1" aria-live="polite">
+                      {studentScheduleLoading && (
+                        <div className="flex min-h-40 items-center justify-center rounded-2xl border border-dashed border-blue-200 bg-white/70 text-blue-700">
+                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          Đang tải lịch thi...
+                        </div>
+                      )}
+
+                      {!studentScheduleLoading && studentScheduleError && (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-700">
+                          {studentScheduleError}
+                        </div>
+                      )}
+
+                      {!studentScheduleLoading && !studentScheduleError && studentExamSchedule.length === 0 && (
+                        <div className="flex min-h-44 flex-col items-center justify-center rounded-2xl border border-dashed border-blue-200 bg-white/70 p-6 text-center">
+                          <CalendarClock className="mb-3 h-10 w-10 text-blue-300" />
+                          <p className="font-bold text-slate-700">Chưa có kỳ thi được công bố</p>
+                          <p className="mt-1 text-sm text-slate-500">Lịch thi sẽ tự động xuất hiện khi giáo viên mở kỳ thi.</p>
+                        </div>
+                      )}
+
+                      {!studentScheduleLoading && !studentScheduleError && studentExamSchedule.map(exam => {
+                        const scheduleState = getExamScheduleState(exam, scheduleNow);
+                        const isUpcoming = scheduleState === 'upcoming';
+                        return (
+                          <article
+                            key={exam.id}
+                            className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="line-clamp-2 font-bold text-slate-900">{exam.title}</p>
+                                <div className="mt-2 flex items-start gap-2 text-sm text-slate-600">
+                                  <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                                  <span>{formatExamScheduleDate(exam.startTime)}</span>
+                                </div>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-black ${isUpcoming ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {isUpcoming ? 'Sắp diễn ra' : 'Đang mở'}
+                              </span>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                              <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />{exam.durationMinutes} phút</span>
+                              <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />{exam.questions.length} câu</span>
+                              <span className="ml-auto font-bold text-blue-700">Mã thi do giáo viên cung cấp</span>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-5 flex items-start gap-2 border-t border-blue-100 pt-4 text-xs leading-5 text-slate-500">
+                      <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                      Danh sách được cập nhật tự động từ mục Tạo kỳ thi của giáo viên. Mã đăng nhập kỳ thi vẫn được giáo viên cung cấp riêng cho học sinh.
+                    </div>
+                  </div>
+                </div>
+                <div className="pointer-events-none absolute -bottom-3 left-1/2 hidden h-16 w-28 -translate-x-1/2 bg-white [clip-path:polygon(0_0,50%_100%,100%_0)] lg:block" aria-hidden="true" />
+              </section>
+            </>
           )}
 
           {examStatus === 'waiting' && activeExam && (
@@ -1506,11 +1690,17 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                       <div className="flex justify-between items-start mb-2">
                         <h3 className="font-bold text-lg text-slate-800 line-clamp-2">{exam.title}</h3>
                         <span className={`px-2 py-1 text-xs font-bold rounded-full ${
-                          exam.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 
-                          exam.status === 'closed' ? 'bg-slate-100 text-slate-600' : 
-                          'bg-amber-100 text-amber-700'
+                          exam.status === 'published'
+                            ? getExamScheduleState(exam) === 'upcoming'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                            : exam.status === 'closed'
+                              ? 'bg-slate-100 text-slate-600'
+                              : 'bg-amber-100 text-amber-700'
                         }`}>
-                          {exam.status === 'published' ? 'Đang mở' : exam.status === 'closed' ? 'Đã đóng' : 'Bản nháp'}
+                          {exam.status === 'published'
+                            ? getExamScheduleState(exam) === 'upcoming' ? 'Sắp diễn ra' : 'Đang mở'
+                            : exam.status === 'closed' ? 'Đã đóng' : 'Bản nháp'}
                         </span>
                       </div>
                       <div className="text-sm text-slate-500 space-y-1 mb-4">
