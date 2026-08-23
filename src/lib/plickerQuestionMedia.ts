@@ -14,11 +14,29 @@ export interface PlickerQuestionMedia {
 export const PLICKER_MAX_MEDIA_PER_QUESTION = 6;
 export const PLICKER_MAX_INLINE_MEDIA_BYTES = 240_000;
 
-const ALLOWED_RICH_TAGS = new Set(['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'sup', 'sub', 'mark']);
+const ALLOWED_RICH_TAGS = new Set(['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'sup', 'sub', 'mark', 'span']);
 const MEDIA_KINDS = new Set<PlickerQuestionMediaKind>(['image', 'video', 'audio', 'youtube']);
+
+function normalizeFractionAttribute(value: string): string {
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  return value
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/giu, (_match, name: string) => entities[name.toLowerCase()])
+    .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+    .slice(0, 180)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function readFractionAttribute(rawTag: string, name: 'data-numerator' | 'data-denominator'): string {
+  const match = rawTag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'iu'));
+  return normalizeFractionAttribute(match?.[1] ?? match?.[2] ?? '');
+}
 
 export function sanitizePlickerRichHtml(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) return '';
+  const fractionSpanStack: boolean[] = [];
   return value
     .slice(0, 32_000)
     .replace(/<(script|style|iframe|object|embed|svg|math)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, '')
@@ -29,6 +47,22 @@ export function sanitizePlickerRichHtml(value: unknown): string {
       const [, closing, originalName] = match;
       const name = originalName.toLowerCase();
       if (!ALLOWED_RICH_TAGS.has(name)) return '';
+      if (name === 'span') {
+        if (closing) return fractionSpanStack.pop() ? '</span>' : '';
+        if (/(?:^|\s)data-plicker-fraction\s*=\s*(?:"true"|'true')/iu.test(rawTag)) {
+          fractionSpanStack.push(true);
+          const numerator = readFractionAttribute(rawTag, 'data-numerator');
+          const denominator = readFractionAttribute(rawTag, 'data-denominator');
+          return `<span data-plicker-fraction="true" data-numerator="${numerator}" data-denominator="${denominator}">`;
+        }
+        const part = rawTag.match(/(?:^|\s)data-fraction-part\s*=\s*(?:"(numerator|denominator)"|'(numerator|denominator)')/iu);
+        if (part) {
+          fractionSpanStack.push(true);
+          return `<span data-fraction-part="${part[1] || part[2]}">`;
+        }
+        fractionSpanStack.push(false);
+        return '';
+      }
       return name === 'br' ? '<br>' : `<${closing ? '/' : ''}${name}>`;
     })
     .trim();
@@ -46,6 +80,7 @@ export function plainPlickerRichText(value: unknown): string {
     amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', times: '×', divide: '÷', frac12: '½',
   };
   return sanitizePlickerRichHtml(value)
+    .replace(/<span data-plicker-fraction="true" data-numerator="([^"]*)" data-denominator="([^"]*)">\s*<span data-fraction-part="numerator">[\s\S]*?<\/span>\s*<span data-fraction-part="denominator">[\s\S]*?<\/span>\s*<\/span>/giu, (_match, numerator: string, denominator: string) => `\\frac{${numerator || '□'}}{${denominator || '□'}}`)
     .replace(/<br\s*\/?>|<\/p>\s*<p>/giu, '\n')
     .replace(/<[^>]+>/gu, '')
     .replace(/&#(x[0-9a-f]+|\d+);/giu, (_match, number: string) => {

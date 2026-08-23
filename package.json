@@ -18,7 +18,8 @@
     "test:plicker-mobile": "node --import tsx scripts/test-plicker-mobile.ts",
     "test:plicker-display": "node --import tsx scripts/test-plicker-display.ts",
     "test:plicker-import": "node --import tsx scripts/test-plicker-question-import.ts",
-    "test:plicker-editor": "node --import tsx scripts/test-plicker-question-editor.ts"
+    "test:plicker-editor": "node --import tsx scripts/test-plicker-question-editor.ts",
+    "test:plicker-fraction": "node --import tsx scripts/test-plicker-fraction.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",

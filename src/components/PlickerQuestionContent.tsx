@@ -22,7 +22,7 @@ export function PlickerRichContent({
   if (!safeHtml) return <>{children ?? text ?? ''}</>;
   return (
     <span
-      className={`[&_mark]:rounded-sm [&_mark]:bg-amber-100 [&_sub]:text-[0.7em] [&_sup]:text-[0.7em] ${className}`}
+      className={`[&_mark]:rounded-sm [&_mark]:bg-amber-100 [&_sub]:text-[0.7em] [&_sup]:text-[0.7em] [&_[data-plicker-fraction]]:mx-[0.14em] [&_[data-plicker-fraction]]:inline-flex [&_[data-plicker-fraction]]:min-w-[1.7em] [&_[data-plicker-fraction]]:flex-col [&_[data-plicker-fraction]]:items-stretch [&_[data-plicker-fraction]]:align-middle [&_[data-plicker-fraction]]:text-[0.76em] [&_[data-plicker-fraction]]:leading-[1.15] [&_[data-fraction-part=numerator]]:border-b-[0.08em] [&_[data-fraction-part=numerator]]:border-current [&_[data-fraction-part=numerator]]:px-[0.22em] [&_[data-fraction-part=numerator]]:pb-[0.08em] [&_[data-fraction-part=numerator]]:text-center [&_[data-fraction-part=denominator]]:px-[0.22em] [&_[data-fraction-part=denominator]]:pt-[0.08em] [&_[data-fraction-part=denominator]]:text-center ${className}`}
       dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );

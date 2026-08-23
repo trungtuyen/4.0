@@ -28,6 +28,7 @@ import {
   type PlickerQuestionMediaKind,
 } from '../lib/plickerQuestionMedia';
 import PlickerQuestionMediaGallery from './PlickerQuestionContent';
+import { PlickerFractionExtension } from './PlickerFraction';
 
 const ANSWERS: PlickerAnswer[] = ['A', 'B', 'C', 'D'];
 const SYMBOL_GROUPS = [
@@ -40,7 +41,7 @@ const SYMBOL_GROUPS = [
 const FORMULA_PRESETS = [
   { label: 'x²', html: 'x<sup>2</sup>', title: 'Bình phương' },
   { label: 'xⁿ', html: 'x<sup>n</sup>', title: 'Lũy thừa' },
-  { label: 'a/b', html: '<sup>a</sup>⁄<sub>b</sub>', title: 'Phân số' },
+  { label: 'a/b', html: '', title: 'Phân số' },
   { label: '√x', html: '√x', title: 'Căn bậc hai' },
   { label: 'H₂O', html: 'H<sub>2</sub>O', title: 'Phân tử nước' },
   { label: 'CO₂', html: 'CO<sub>2</sub>', title: 'Khí carbon dioxide' },
@@ -96,7 +97,7 @@ function EditorField({
 }) {
   const initialContent = sanitizePlickerRichHtml(richText) || `<p>${escapePlickerHtml(text)}</p>`;
   const editor = useEditor({
-    extensions: [StarterKit, UnderlineExtension, SubscriptExtension, SuperscriptExtension],
+    extensions: [StarterKit, UnderlineExtension, SubscriptExtension, SuperscriptExtension, PlickerFractionExtension],
     content: initialContent,
     onCreate: ({ editor }) => {
       if (prominent) onActivate(editor);
@@ -292,6 +293,16 @@ export default function PlickerQuestionEditor({
   const insertMarkup = (markup: string) => {
     if (!activeEditor) return;
     activeEditor.chain().focus().insertContent(markup).run();
+    setSymbolsOpen(false);
+    setFormulasOpen(false);
+  };
+
+  const insertFraction = () => {
+    if (!activeEditor) return;
+    activeEditor.chain().focus().insertContent({
+      type: 'plickerFraction',
+      attrs: { numerator: '', denominator: '' },
+    }).run();
     setSymbolsOpen(false);
     setFormulasOpen(false);
   };
@@ -524,13 +535,19 @@ export default function PlickerQuestionEditor({
           <span className="mx-1 h-6 w-px bg-slate-200" />
           <ToolbarButton title="Chỉ số trên / số mũ" active={Boolean(activeEditor?.isActive('superscript'))} onClick={() => activeEditor?.chain().focus().toggleSuperscript().run()}><Superscript className="h-4 w-4" /></ToolbarButton>
           <ToolbarButton title="Chỉ số dưới / công thức hóa học" active={Boolean(activeEditor?.isActive('subscript'))} onClick={() => activeEditor?.chain().focus().toggleSubscript().run()}><Subscript className="h-4 w-4" /></ToolbarButton>
+          <ToolbarButton title="Chèn phân số: tử số trên, mẫu số dưới" onClick={insertFraction}>
+            <span aria-hidden="true" className="inline-flex w-5 flex-col items-center text-[10px] font-bold leading-[1.05]">
+              <span className="w-full border-b border-current pb-px text-center">a</span>
+              <span className="pt-px">b</span>
+            </span>
+          </ToolbarButton>
           <div className="relative">
             <ToolbarButton title="Công thức Toán và Hóa học" active={formulasOpen} onClick={() => { setFormulasOpen(!formulasOpen); setSymbolsOpen(false); }}><FlaskConical className="h-4 w-4" /></ToolbarButton>
             {formulasOpen && (
               <div className="absolute left-0 top-11 z-30 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
                 <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Công thức Toán – Hóa học</h3>
                 <div className="grid grid-cols-3 gap-2">
-                  {FORMULA_PRESETS.map(formula => <button key={formula.label} type="button" title={formula.title} onMouseDown={event => event.preventDefault()} onClick={() => insertMarkup(formula.html)} className="rounded-lg border border-slate-200 px-2 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50">{formula.label}</button>)}
+                  {FORMULA_PRESETS.map(formula => <button key={formula.label} type="button" title={formula.title} onMouseDown={event => event.preventDefault()} onClick={() => formula.title === 'Phân số' ? insertFraction() : insertMarkup(formula.html)} className="rounded-lg border border-slate-200 px-2 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50">{formula.label}</button>)}
                 </div>
               </div>
             )}
