@@ -17,7 +17,7 @@ import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
-import { assignPlickerCardIds, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
+import { assignPlickerCardIds, filterPlickerStudentsByClasses, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
 import { isPlickerSystemCategory, mergePlickerCloudRosters } from '../lib/plickerLive';
 
 interface CameraCaptureProps {
@@ -145,6 +145,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
 
   // Categories State
   const [categories, setCategories] = useState<{ id: string; title: string; color?: string; parentId?: string; author?: string; time?: string; bgType?: 'color' | 'image'; bgValue?: string; authorId?: string }[]>([]);
+  const [categoriesReady, setCategoriesReady] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryTitle, setEditingCategoryTitle] = useState('');
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -162,6 +163,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       setCategories(snapshot.docs
         .filter(item => !isPlickerSystemCategory(item.id, item.data()))
         .map(item => ({ id: item.id, ...item.data() } as any)));
+      setCategoriesReady(true);
     });
     return unsub;
   }, []);
@@ -271,7 +273,20 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
     localStorage.setItem('students', JSON.stringify(students));
   }, [students]);
 
-  const myCategories = currentUserId === 'admin' ? categories : categories.filter(c => c.authorId === currentUserId);
+  const myCategories = useMemo(() =>
+    currentUserId === 'admin' ? categories : categories.filter(category => category.authorId === currentUserId),
+  [categories, currentUserId]);
+  const plickerCategories = useMemo(() =>
+    myCategories.filter(category => !category.parentId),
+  [myCategories]);
+  const plickerStudents = useMemo(() =>
+    filterPlickerStudentsByClasses(students, plickerCategories),
+  [plickerCategories, students]);
+
+  useEffect(() => {
+    if (!categoriesReady) return;
+    setStudents(previous => filterPlickerStudentsByClasses(previous, categories));
+  }, [categories, categoriesReady]);
 
   const handleCreateClass = (e: React.FormEvent) => {
     e.preventDefault();
@@ -871,8 +886,9 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
           <PlickerScanner 
             onBack={() => setActiveLibraryView('main')}
             onLogout={onLogout}
-            categories={myCategories.filter(c => !c.parentId)}
-            allStudents={students}
+            categories={plickerCategories}
+            categoriesReady={categoriesReady}
+            allStudents={plickerStudents}
             onCreateClass={(title, studentNames) => {
               const classId = Math.random().toString(36).substr(2, 9);
               const newCategory = {
@@ -934,8 +950,13 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               setStudents(previous => removePlickerStudent(previous, studentId));
             }}
             onSyncStudents={rosters => {
+              if (!categoriesReady) return;
               setStudents(previous => {
-                const synchronized = mergePlickerCloudRosters(previous, rosters);
+                const synchronized = mergePlickerCloudRosters(
+                  previous,
+                  rosters,
+                  plickerCategories.map(classroom => classroom.id),
+                );
                 return synchronized === previous ? previous : assignPlickerCardIds(synchronized);
               });
             }}

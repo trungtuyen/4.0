@@ -232,14 +232,30 @@ export function mergePlickerQuestionSets<T extends PlickerLiveQuestionSet>(
 export function mergePlickerCloudRosters<T extends PlickerLiveStudent>(
   local: T[],
   remote: Record<string, T[]>,
+  allowedClassIds?: Iterable<string>,
 ): T[] {
-  const managedClasses = new Set(Object.keys(remote));
+  const allowedClasses = allowedClassIds === undefined ? null : new Set(allowedClassIds);
+  const allowedRosters = Object.entries(remote)
+    .filter(([classId]) => !allowedClasses || allowedClasses.has(classId));
+  const managedClasses = new Set(allowedRosters.map(([classId]) => classId));
   const result = [
     ...local.filter(student => !managedClasses.has(student.classId)),
-    ...Object.entries(remote).flatMap(([classId, students]) =>
+    ...allowedRosters.flatMap(([classId, students]) =>
       students.filter(student => student.classId === classId)),
   ];
   return JSON.stringify(result) === JSON.stringify(local) ? local : result;
+}
+
+export function getPlickerOrphanedRosterChanges<T extends PlickerLiveStudent>(
+  rosters: Record<string, T[]>,
+  existingClassIds: Iterable<string>,
+): Record<string, T[]> {
+  const validClasses = new Set(existingClassIds);
+  return Object.fromEntries(
+    Object.entries(rosters)
+      .filter(([classId, students]) => !validClasses.has(classId) && students.length > 0)
+      .map(([classId]) => [classId, [] as T[]]),
+  );
 }
 
 export function createPlickerLiveSession(input: {

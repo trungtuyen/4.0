@@ -7,6 +7,15 @@ export interface PlickerStudentRecord {
   cardId?: number;
 }
 
+export function filterPlickerStudentsByClasses<T extends PlickerStudentRecord>(
+  students: T[],
+  classes: ReadonlyArray<{ id: string }>,
+): T[] {
+  const classIds = new Set(classes.map(classroom => classroom.id));
+  const filtered = students.filter(student => classIds.has(student.classId));
+  return filtered.length === students.length ? students : filtered;
+}
+
 function isValidCardId(value: number | undefined): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= PLICKER_CARD_LIMIT;
 }

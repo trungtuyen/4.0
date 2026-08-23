@@ -13,6 +13,7 @@ import PlickerDisplayScreen, { PlickerDisplayMath } from './PlickerDisplayScreen
 import PlickerMobileScanner from './PlickerMobileScanner';
 import PlickerQuestionEditor from './PlickerQuestionEditor';
 import PlickerQuestionMediaGallery, { PlickerRichContent } from './PlickerQuestionContent';
+import { filterPlickerStudentsByClasses } from '../lib/plickerStudents';
 import {
   createPlickerMarker,
   detectPlickerCards,
@@ -35,6 +36,7 @@ import {
   createPlickerLiveRoomId,
   createPlickerLiveSession,
   createPlickerQuestionKey,
+  getPlickerOrphanedRosterChanges,
   mergePlickerDeletedClasses,
   mergePlickerDeletedQuestionSets,
   mergePlickerQuestionSets,
@@ -71,6 +73,7 @@ interface PlickerClassroomProps {
   onBack: () => void;
   onLogout?: () => void;
   categories: Category[];
+  categoriesReady: boolean;
   allStudents: Student[];
   onCreateClass: (title: string, students?: string[]) => void;
   onDeleteClass: (classId: string) => void | Promise<void>;
@@ -293,7 +296,7 @@ function MetricCard({
 }
 
 export default function PlickerClassroom({
-  onBack, categories, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents,
+  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents,
 }: PlickerClassroomProps) {
   const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
   const [selectedClassId, setSelectedClassId] = useState(categories[0]?.id || '');
@@ -359,6 +362,9 @@ export default function PlickerClassroom({
   const deletedClassIdsRef = useRef(deletedClassIds);
   deletedClassIdsRef.current = deletedClassIds;
   const cloudDeletedClassIdsRef = useRef<Record<string, number>>({});
+  const cloudRostersRef = useRef<Record<string, Student[]>>({});
+  const categoryIdsRef = useRef(new Set(categories.map(category => category.id)));
+  categoryIdsRef.current = new Set(categories.map(category => category.id));
   const onSyncStudentsRef = useRef(onSyncStudents);
   onSyncStudentsRef.current = onSyncStudents;
 
@@ -367,13 +373,16 @@ export default function PlickerClassroom({
     ownerUid ? doc(db, 'categories', createPlickerLiveRoomId(ownerUid)) : null,
   [ownerUid]);
 
+  const registeredStudents = useMemo(() =>
+    filterPlickerStudentsByClasses(allStudents, categories),
+  [allStudents, categories]);
   const selectedClass = categories.find(item => item.id === selectedClassId) || null;
   const classStudents = useMemo(() =>
-    allStudents
+    registeredStudents
       .filter(student => student.classId === selectedClassId)
       .slice(0, PLICKER_CARD_LIMIT)
       .sort((left, right) => (left.cardId || PLICKER_CARD_LIMIT + 1) - (right.cardId || PLICKER_CARD_LIMIT + 1)),
-  [allStudents, selectedClassId]);
+  [registeredStudents, selectedClassId]);
   const classStudentsByCard = useMemo(() => new Map(
     classStudents.map((student, index) => [student.cardId || index + 1, student]),
   ), [classStudents]);
@@ -437,12 +446,13 @@ export default function PlickerClassroom({
   }, []);
 
   useEffect(() => {
-    if (!liveRoomReference || !ownerUid) return;
+    if (!categoriesReady || !liveRoomReference || !ownerUid) return;
     setSyncReady(false);
 
     return onSnapshot(liveRoomReference, snapshot => {
       if (!snapshot.exists()) {
         currentRoomRef.current = null;
+        cloudRostersRef.current = {};
         setLiveRoom(null);
         setSyncReady(true);
         setSyncError('');
@@ -460,6 +470,7 @@ export default function PlickerClassroom({
         deletedClassIdsRef.current,
         normalizedRoom.deletedClassIds || {},
       );
+      cloudRostersRef.current = normalizedRoom.rosters as Record<string, Student[]>;
       cloudDeletedClassIdsRef.current = normalizedRoom.deletedClassIds || {};
       if (mergedDeletedClasses !== deletedClassIdsRef.current) {
         deletedClassIdsRef.current = mergedDeletedClasses;
@@ -469,9 +480,12 @@ export default function PlickerClassroom({
         ...normalizedRoom,
         deletedClassIds: mergedDeletedClasses,
         rosters: Object.fromEntries(
-          Object.entries(normalizedRoom.rosters).filter(([classId]) => !mergedDeletedClasses[classId]),
+          Object.entries(normalizedRoom.rosters).filter(([classId]) =>
+            !mergedDeletedClasses[classId] && categoryIdsRef.current.has(classId)),
         ),
-        activeSession: normalizedRoom.activeSession && !mergedDeletedClasses[normalizedRoom.activeSession.classId]
+        activeSession: normalizedRoom.activeSession &&
+            !mergedDeletedClasses[normalizedRoom.activeSession.classId] &&
+            categoryIdsRef.current.has(normalizedRoom.activeSession.classId)
           ? normalizedRoom.activeSession
           : null,
       };
@@ -546,7 +560,7 @@ export default function PlickerClassroom({
         setScanning(false);
       }
     }, reportSynchronizationError);
-  }, [liveRoomReference, ownerUid, reportSynchronizationError]);
+  }, [categoriesReady, liveRoomReference, ownerUid, reportSynchronizationError]);
 
   useEffect(() => {
     if (!syncReady || !ownerUid) return;
@@ -589,7 +603,7 @@ export default function PlickerClassroom({
   }, [deletedQuestionSetIds, ownerUid, saveRoomFields, sets, syncReady]);
 
   useEffect(() => {
-    if (!syncReady || !ownerUid) return;
+    if (!categoriesReady || !syncReady || !ownerUid) return;
     const remoteRosters = currentRoomRef.current?.rosters || {};
     const mergedDeletedClasses = mergePlickerDeletedClasses(
       deletedClassIds,
@@ -603,7 +617,7 @@ export default function PlickerClassroom({
 
     for (const classroom of categories) {
       if (mergedDeletedClasses[classroom.id]) continue;
-      const students = sanitizePlickerStudents(allStudents.filter(student => student.classId === classroom.id));
+      const students = sanitizePlickerStudents(registeredStudents.filter(student => student.classId === classroom.id));
       const alreadySynchronized = Object.prototype.hasOwnProperty.call(remoteRosters, classroom.id);
       if (!students.length && !alreadySynchronized) continue;
       if (JSON.stringify(students) !== JSON.stringify(remoteRosters[classroom.id] || [])) {
@@ -614,6 +628,10 @@ export default function PlickerClassroom({
     for (const classId of Object.keys(mergedDeletedClasses)) {
       if ((remoteRosters[classId] || []).length > 0) changed[classId] = [];
     }
+    Object.assign(changed, getPlickerOrphanedRosterChanges(
+      cloudRostersRef.current,
+      categories.map(classroom => classroom.id),
+    ));
 
     const deletionMarkersChanged = JSON.stringify(mergedDeletedClasses) !== JSON.stringify(cloudDeletedClassIdsRef.current);
     if (!Object.keys(changed).length && !deletionMarkersChanged) return;
@@ -624,7 +642,7 @@ export default function PlickerClassroom({
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [allStudents, categories, deletedClassIds, ownerUid, saveRoomFields, syncReady]);
+  }, [categories, categoriesReady, deletedClassIds, ownerUid, registeredStudents, saveRoomFields, syncReady]);
 
   useEffect(() => {
     const refreshInstallationState = () => {
@@ -1476,7 +1494,7 @@ export default function PlickerClassroom({
 
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard title="Lớp đã tạo" value={categories.length} note="Danh sách được gắn mã thẻ tự động" accent="bg-blue-50 text-blue-600" icon={<GraduationCap className="h-5 w-5" />} />
-              <MetricCard title="Học sinh" value={allStudents.length} note="Mỗi lớp tối đa 63 mã thẻ riêng" accent="bg-emerald-50 text-emerald-600" icon={<Users className="h-5 w-5" />} />
+              <MetricCard title="Học sinh" value={registeredStudents.length} note="Mỗi lớp tối đa 63 mã thẻ riêng" accent="bg-emerald-50 text-emerald-600" icon={<Users className="h-5 w-5" />} />
               <MetricCard title="Bộ câu hỏi" value={sets.length} note="Hỗ trợ câu hỏi và khảo sát A/B/C/D" accent="bg-amber-50 text-amber-600" icon={<Layers className="h-5 w-5" />} />
               <MetricCard title="Câu trả lời" value={totalRecorded} note={`${reports.length} buổi học đã lưu`} accent="bg-violet-50 text-violet-600" icon={<BarChart3 className="h-5 w-5" />} />
             </section>
@@ -1503,7 +1521,7 @@ export default function PlickerClassroom({
               <div className="mb-4 flex items-center justify-between"><h2 className="font-bold">Lớp học</h2><button onClick={() => setClassModal(true)} className="rounded-lg bg-indigo-50 p-2 text-indigo-600" aria-label="Tạo lớp"><Plus className="h-4 w-4" /></button></div>
               <div className="space-y-2">
                 {categories.map(item => {
-                  const count = allStudents.filter(student => student.classId === item.id).length;
+                  const count = registeredStudents.filter(student => student.classId === item.id).length;
                   return <button key={item.id} onClick={() => setSelectedClassId(item.id)} className={`w-full rounded-xl border p-3 text-left ${item.id === selectedClassId ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-indigo-200'}`}><div className="font-semibold">{item.title}</div><div className="mt-1 text-xs text-slate-500">{count} học sinh</div></button>;
                 })}
                 {categories.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có lớp. Chọn dấu + để tạo lớp đầu tiên.</p>}
