@@ -1833,63 +1833,113 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           )}
 
           {teacherTab === 'students' && (
-            <div className="max-w-4xl mx-auto">
+            <div className="max-w-5xl mx-auto">
               {!selectedClassId ? (
                 <>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                    <h2 className="text-2xl font-bold text-slate-800">Quản lý lớp học</h2>
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-800">Quản lý lớp học</h2>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {classes.length} lớp học · Theo dõi sĩ số và quản lý học sinh trên từng dòng.
+                      </p>
+                    </div>
                     <button 
                       onClick={() => setIsClassModalOpen(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium transition-colors"
+                      className="inline-flex shrink-0 items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium transition-colors"
                     >
                       <Plus className="w-5 h-5" />
                       Thêm lớp
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                    {classes.map(c => {
-                      const studentCount = students.filter(s => s.classId === c.id).length;
-                      return (
-                        <div 
-                          key={c.id} 
-                          onClick={() => setSelectedClassId(c.id)}
-                          className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-500 transition-all cursor-pointer group flex flex-col items-center text-center relative"
-                        >
-                          <div className="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingClass(c);
-                                setNewClassName(c.name);
-                                setIsClassModalOpen(true);
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                              title="Sửa tên lớp"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={(e) => handleDeleteClass(c.id, e)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Xóa lớp"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                          <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                            <Users className="w-8 h-8" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-800 mb-1">{c.name}</h3>
-                          <p className="text-slate-500 text-sm">{studentCount} học sinh</p>
-                        </div>
-                      );
-                    })}
-                    {classes.length === 0 && (
-                      <div className="col-span-full py-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200 border-dashed">
-                        Chưa có lớp học nào. Hãy thêm lớp mới!
-                      </div>
-                    )}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-[760px] w-full border-collapse text-left">
+                        <caption className="sr-only">Danh sách lớp học của giáo viên</caption>
+                        <thead className="border-b border-slate-200 bg-slate-50">
+                          <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            <th scope="col" className="w-20 px-5 py-4">STT</th>
+                            <th scope="col" className="min-w-[220px] px-5 py-4">Tên lớp học</th>
+                            <th scope="col" className="min-w-[130px] px-5 py-4">Sĩ số</th>
+                            <th scope="col" className="min-w-[180px] px-5 py-4">Danh sách học sinh</th>
+                            <th scope="col" className="min-w-[190px] px-5 py-4 text-right">Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {classes.map((c, index) => {
+                            const studentCount = students.filter(s => s.classId === c.id).length;
+                            return (
+                              <tr
+                                key={c.id}
+                                onClick={() => setSelectedClassId(c.id)}
+                                className="cursor-pointer transition-colors hover:bg-slate-50/70"
+                              >
+                                <td className="px-5 py-4 text-sm font-medium text-slate-400">
+                                  {String(index + 1).padStart(2, '0')}
+                                </td>
+                                <td className="px-5 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-600">
+                                      <Users className="h-5 w-5" />
+                                    </span>
+                                    <span className="font-semibold text-slate-800">{c.name}</span>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700">
+                                    {studentCount} học sinh
+                                  </span>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedClassId(c.id);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-teal-700 transition-colors hover:text-teal-800"
+                                  >
+                                    Xem danh sách <ChevronRight className="h-4 w-4" />
+                                  </button>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingClass(c);
+                                        setNewClassName(c.name);
+                                        setIsClassModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                                      title="Sửa tên lớp"
+                                    >
+                                      <Edit2 className="h-4 w-4" /> Sửa
+                                    </button>
+                                    <button
+                                      onClick={(e) => handleDeleteClass(c.id, e)}
+                                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                                      title="Xóa lớp"
+                                    >
+                                      <Trash2 className="h-4 w-4" /> Xóa
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {classes.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-6 py-16 text-center text-sm text-slate-500">
+                                Chưa có lớp học nào. Hãy thêm lớp mới!
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-xs text-slate-500">
+                      Hiển thị {classes.length} lớp học. Chọn tên lớp hoặc “Xem danh sách” để quản lý học sinh.
+                    </div>
                   </div>
                 </>
               ) : (
