@@ -1671,101 +1671,163 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         {/* Main Content */}
         <div className="flex-1 overflow-auto p-6 md:p-8">
           {teacherTab === 'exams' && (
-            <div className="max-w-5xl mx-auto">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-slate-800">Danh sách kỳ thi</h2>
+            <div className="max-w-7xl mx-auto">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">Danh sách kỳ thi</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {exams.length} kỳ thi · Theo dõi thời gian, mã đề và thao tác trên từng dòng.
+                  </p>
+                </div>
                 <button 
                   onClick={handleCreateExam}
-                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium transition-colors"
+                  className="inline-flex shrink-0 items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-medium transition-colors"
                 >
                   <Plus className="w-5 h-5" />
                   Tạo kỳ thi mới
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {exams.map(exam => (
-                  <div key={exam.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                    <div className="p-5 flex-1">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-bold text-lg text-slate-800 line-clamp-2">{exam.title}</h3>
-                        <span className={`px-2 py-1 text-xs font-bold rounded-full ${
-                          exam.status === 'published'
-                            ? getExamScheduleState(exam) === 'upcoming'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                            : exam.status === 'closed'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {exam.status === 'published'
-                            ? getExamScheduleState(exam) === 'upcoming' ? 'Sắp diễn ra' : 'Đang mở'
-                            : exam.status === 'closed' ? 'Đã đóng' : 'Bản nháp'}
-                        </span>
-                      </div>
-                      <div className="text-sm text-slate-500 space-y-1 mb-4">
-                        <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {exam.durationMinutes} phút</div>
-                        <div className="flex items-center gap-2"><FileText className="w-4 h-4" /> {exam.questions.length} câu hỏi</div>
-                        {exam.startTime && (
-                          <div className="flex items-center gap-2"><Calendar className="w-4 h-4" /> Mở thi: {new Date(exam.startTime).toLocaleString('vi-VN')}</div>
-                        )}
-                        <div className="flex items-center gap-2 text-xs mt-2">Mã thi: <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{exam.id}</span></div>
-                        {exam.isShuffled && exam.shuffledVersions && exam.shuffledVersions.length > 0 && (
-                          <div className="flex items-center gap-2 text-xs mt-2 flex-wrap">
-                            Mã đề: 
-                            {exam.shuffledVersions.map(v => (
-                              <span key={v.code} className="font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">{v.code}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <button 
-                          onClick={() => {
-                            setEditingExam(exam);
-                            setIsExamModalOpen(true);
-                          }}
-                          className="text-slate-600 hover:text-teal-600 font-medium text-sm flex items-center gap-1"
-                        >
-                          <Edit2 className="w-4 h-4" /> Sửa
-                        </button>
-                        <button 
-                          onClick={() => handleShuffleExam(exam.id)}
-                          className="text-slate-600 hover:text-indigo-600 font-medium text-sm flex items-center gap-1"
-                          title="Tạo mã đề mới với câu hỏi và đáp án được trộn ngẫu nhiên"
-                        >
-                          <Shuffle className="w-4 h-4" /> Trộn
-                        </button>
-                        <button 
-                          onClick={() => handleExportAnswers(exam.id)}
-                          className="text-slate-600 hover:text-blue-600 font-medium text-sm flex items-center gap-1"
-                          title="Xuất đáp án các mã đề"
-                        >
-                          <Download className="w-4 h-4" /> Đáp án
-                        </button>
-                        <button 
-                          onClick={() => setExamToDelete(exam.id)}
-                          className="text-slate-600 hover:text-red-600 font-medium text-sm flex items-center gap-1"
-                        >
-                          <Trash2 className="w-4 h-4" /> Xóa
-                        </button>
-                      </div>
-                      <button 
-                        onClick={() => toggleExamStatus(exam.id)}
-                        className={`font-medium text-sm flex items-center gap-1 ${exam.status === 'published' ? 'text-red-500 hover:text-red-600' : 'text-emerald-600 hover:text-emerald-700'}`}
-                      >
-                        {exam.status === 'published' ? <><StopCircle className="w-4 h-4" /> Đóng thi</> : <><PlayCircle className="w-4 h-4" /> Mở thi</>}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {exams.length === 0 && (
-                  <div className="col-span-full py-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200 border-dashed">
-                    Chưa có kỳ thi nào. Hãy tạo kỳ thi đầu tiên!
-                  </div>
-                )}
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="min-w-[1080px] w-full border-collapse text-left">
+                    <caption className="sr-only">Danh sách quản lý kỳ thi của giáo viên</caption>
+                    <thead className="border-b border-slate-200 bg-slate-50">
+                      <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th scope="col" className="w-16 px-4 py-4">STT</th>
+                        <th scope="col" className="min-w-[230px] px-4 py-4">Tên kỳ thi</th>
+                        <th scope="col" className="min-w-[165px] px-4 py-4">Thời gian mở</th>
+                        <th scope="col" className="min-w-[105px] px-4 py-4">Bài thi</th>
+                        <th scope="col" className="min-w-[160px] px-4 py-4">Mã thi / mã đề</th>
+                        <th scope="col" className="min-w-[120px] px-4 py-4">Trạng thái</th>
+                        <th scope="col" className="min-w-[200px] px-4 py-4">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {exams.map((exam, index) => (
+                        <tr key={exam.id} className="align-top transition-colors hover:bg-slate-50/70">
+                          <td className="px-4 py-5 text-sm font-medium text-slate-400">
+                            {String(index + 1).padStart(2, '0')}
+                          </td>
+                          <td className="px-4 py-5">
+                            <div className="font-semibold leading-6 text-slate-800">{exam.title}</div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {exam.isShuffled && exam.shuffledVersions?.length
+                                ? `${exam.shuffledVersions.length} mã đề đã tạo`
+                                : 'Đề thi gốc'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-5">
+                            <div className="flex items-start gap-2 text-sm text-slate-600">
+                              <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                              <span>{exam.startTime ? formatExamScheduleDate(exam.startTime) : 'Chưa đặt lịch'}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-5">
+                            <div className="space-y-2 text-sm text-slate-600">
+                              <div className="flex items-center gap-2 whitespace-nowrap">
+                                <Clock className="h-4 w-4 text-slate-400" />
+                                {exam.durationMinutes} phút
+                              </div>
+                              <div className="flex items-center gap-2 whitespace-nowrap">
+                                <FileText className="h-4 w-4 text-slate-400" />
+                                {exam.questions.length} câu
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-5">
+                            <div className="space-y-2">
+                              <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 font-mono text-sm font-semibold text-slate-700">
+                                {exam.id}
+                              </span>
+                              {exam.isShuffled && exam.shuffledVersions && exam.shuffledVersions.length > 0 && (
+                                <div className="flex max-w-[180px] flex-wrap gap-1">
+                                  {exam.shuffledVersions.map(version => (
+                                    <span key={version.code} className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-indigo-700">
+                                      {version.code}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-5">
+                            <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              exam.status === 'published'
+                                ? getExamScheduleState(exam) === 'upcoming'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-emerald-100 text-emerald-700'
+                                : exam.status === 'closed'
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {exam.status === 'published'
+                                ? getExamScheduleState(exam) === 'upcoming' ? 'Sắp diễn ra' : 'Đang mở'
+                                : exam.status === 'closed' ? 'Đã đóng' : 'Bản nháp'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditingExam(exam);
+                                  setIsExamModalOpen(true);
+                                }}
+                                className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                                title="Chỉnh sửa kỳ thi"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" /> Sửa
+                              </button>
+                              <button
+                                onClick={() => handleShuffleExam(exam.id)}
+                                className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                                title="Tạo mã đề mới với câu hỏi và đáp án được trộn ngẫu nhiên"
+                              >
+                                <Shuffle className="h-3.5 w-3.5" /> Trộn
+                              </button>
+                              <button
+                                onClick={() => handleExportAnswers(exam.id)}
+                                className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                title="Xuất đáp án các mã đề"
+                              >
+                                <Download className="h-3.5 w-3.5" /> Đáp án
+                              </button>
+                              <button
+                                onClick={() => setExamToDelete(exam.id)}
+                                className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                                title="Xóa kỳ thi"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" /> Xóa
+                              </button>
+                              <button
+                                onClick={() => toggleExamStatus(exam.id)}
+                                className={`col-span-2 inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs font-semibold transition-colors ${
+                                  exam.status === 'published'
+                                    ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                }`}
+                              >
+                                {exam.status === 'published'
+                                  ? <><StopCircle className="h-3.5 w-3.5" /> Đóng thi</>
+                                  : <><PlayCircle className="h-3.5 w-3.5" /> Mở thi</>}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {exams.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-16 text-center text-sm text-slate-500">
+                            Chưa có kỳ thi nào. Hãy tạo kỳ thi đầu tiên!
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                  Hiển thị {exams.length} kỳ thi. Kéo ngang để xem đầy đủ trên màn hình nhỏ.
+                </div>
               </div>
             </div>
           )}
