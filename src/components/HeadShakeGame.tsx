@@ -3,6 +3,8 @@ import { ArrowLeft, Play, RefreshCw, Camera, AlertCircle, Clock, Star, Edit2, Pl
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import * as XLSX from 'xlsx';
 import { getConfiguredApiServer, postApiJson } from '../lib/api';
+import { auth } from '../firebase';
+import { createTeacherStorageKey } from '../lib/teacherIsolation';
 import {
   generateOfflineHeadShakeQuestions,
   normalizeGeneratedHeadShakeQuestions,
@@ -76,8 +78,10 @@ const THEMES = {
 const QUESTION_SETS: any[] = [];
 
 export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
+  const questionSetsStorageKey = createTeacherStorageKey('headshake_custom_sets', auth.currentUser?.uid);
+  const selectedSetStorageKey = createTeacherStorageKey('headshake_selected_set', auth.currentUser?.uid);
   const [customSets, setCustomSets] = useState<QuestionSet[]>(() => {
-    const saved = localStorage.getItem('headshake_custom_sets');
+    const saved = localStorage.getItem(questionSetsStorageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -99,7 +103,7 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
   const allSets = [...QUESTION_SETS.map(s => ({ ...s, isDefault: true })), ...customSets];
 
   const [selectedSetId, setSelectedSetId] = useState<string>(() => {
-    const saved = localStorage.getItem('headshake_selected_set');
+    const saved = localStorage.getItem(selectedSetStorageKey);
     return saved || 'default_custom';
   });
 
@@ -289,12 +293,12 @@ export default function HeadShakeGame({ onBack }: HeadShakeGameProps) {
   };
 
   useEffect(() => {
-    localStorage.setItem('headshake_custom_sets', JSON.stringify(customSets));
-  }, [customSets]);
+    localStorage.setItem(questionSetsStorageKey, JSON.stringify(customSets));
+  }, [customSets, questionSetsStorageKey]);
 
   useEffect(() => {
-    localStorage.setItem('headshake_selected_set', selectedSetId);
-  }, [selectedSetId]);
+    localStorage.setItem(selectedSetStorageKey, selectedSetId);
+  }, [selectedSetId, selectedSetStorageKey]);
   
   // Use refs for state accessed in closures (requestAnimationFrame, setInterval)
   const currentIndexRef = useRef(0);

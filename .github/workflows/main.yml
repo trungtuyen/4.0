@@ -56,6 +56,12 @@ jobs:
       - name: Verify local-first scalability and static deployment
         run: npm run test:scalability
 
+      - name: Verify teacher data isolation and administrator oversight
+        run: npm run test:teacher-isolation
+
+      - name: Validate Firebase owner-scoped security rules
+        run: npm run lint:firestore
+
       - name: Verify ecosystem and Plicker offline installation
         run: npm run test:pwa
 

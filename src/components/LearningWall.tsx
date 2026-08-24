@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Camera, Plus, X, Monitor, Image as ImageIcon, Send, MessageCircle, Heart, User, CheckSquare, Settings } from 'lucide-react';
-import { collection, onSnapshot, addDoc, query, orderBy, serverTimestamp, doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, arrayUnion, where } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import type { Teacher } from '../types';
+import { resolveTeacherAccessScope } from '../lib/teacherIsolation';
 
 interface Category {
   id: string;
@@ -24,9 +26,11 @@ interface Post {
 
 interface LearningWallProps {
   onBack: () => void;
+  currentUser?: Teacher | 'admin' | null;
 }
 
-export default function LearningWall({ onBack }: LearningWallProps) {
+export default function LearningWall({ onBack, currentUser }: LearningWallProps) {
+  const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
   const [categories, setCategories] = useState<Category[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [openedClassId, setOpenedClassId] = useState<string | null>(null);
@@ -41,19 +45,49 @@ export default function LearningWall({ onBack }: LearningWallProps) {
 
   // Listen to categories (classes)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'categories'), (snapshot) => {
+    if (accessScope.role === 'guest') {
+      setCategories([]);
+      return;
+    }
+
+    const categoriesQuery = accessScope.role === 'administrator'
+      ? collection(db, 'categories')
+      : query(collection(db, 'categories'), where('authorId', '==', accessScope.ownerUid));
+    const unsub = onSnapshot(categoriesQuery, (snapshot) => {
       setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
+    }, error => {
+      console.error('Không thể tải lớp học của tài khoản hiện tại:', error);
+      setCategories([]);
     });
     return unsub;
-  }, []);
+  }, [accessScope.ownerUid, accessScope.role]);
 
   // Listen to posts
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'wall_posts'), orderBy('createdAt', 'desc')), (snapshot) => {
-      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post)));
+    if (accessScope.role === 'guest') {
+      setPosts([]);
+      return;
+    }
+
+    const postsQuery = accessScope.role === 'administrator'
+      ? collection(db, 'wall_posts')
+      : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid));
+    const unsub = onSnapshot(postsQuery, (snapshot) => {
+      const nextPosts = snapshot.docs
+        .filter(item => item.data().kind !== 'plicker_report')
+        .map(item => ({ id: item.id, ...item.data() } as Post));
+      nextPosts.sort((left, right) => {
+        const leftTime = typeof left.createdAt?.toMillis === 'function' ? left.createdAt.toMillis() : 0;
+        const rightTime = typeof right.createdAt?.toMillis === 'function' ? right.createdAt.toMillis() : 0;
+        return rightTime - leftTime;
+      });
+      setPosts(nextPosts);
+    }, error => {
+      console.error('Không thể tải bài đăng của tài khoản hiện tại:', error);
+      setPosts([]);
     });
     return unsub;
-  }, []);
+  }, [accessScope.ownerUid, accessScope.role]);
 
   const openCamera = () => {
     setIsCameraOpen(true);
@@ -94,6 +128,8 @@ export default function LearningWall({ onBack }: LearningWallProps) {
     try {
       await addDoc(collection(db, 'wall_posts'), {
         categoryId: selectedCategoryId,
+        authorId: accessScope.ownerUid,
+        teacherId: accessScope.ownerUid,
         imageSrc: pendingPostImage,
         studentName: studentName,
         createdAt: serverTimestamp(),

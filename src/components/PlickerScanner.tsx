@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Camera, Play, Square, CheckCircle, XCircle, BarChart3, Users, RefreshCw, Plus, X, Printer, CheckSquare, Edit, Clock, Folder, FileText, Grid, PlusCircle, Search, MoreHorizontal, Check, Undo, Redo, AlignLeft, AlignCenter, AlignRight, Sigma, Copy, Trash2, Image, Video, Volume2, Home, Film, Download, Bold, Italic, Underline, Type, LayoutGrid, ChevronLeft, ChevronRight, ChevronUp, Mic, Music, PieChart, Archive, Share2, Upload, Settings, UserPlus, Loader2 } from 'lucide-react';
+import { auth } from '../firebase';
+import { createTeacherStorageKey } from '../lib/teacherIsolation';
 
 const SuperscriptIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -52,6 +54,8 @@ interface ScanResult {
 }
 
 export default function PlickerScanner({ onBack, onLogout, categories, allStudents, onCreateClass, onAddStudents }: PlickerScannerProps) {
+  const questionSetsStorageKey = createTeacherStorageKey('plickerQuestionSets', auth.currentUser?.uid);
+  const queuedSetsStorageKey = createTeacherStorageKey('plickerQueuedSets', auth.currentUser?.uid);
   const [view, setView] = useState<'dashboard' | 'scanner' | 'editor' | 'recent' | 'reports' | 'report_detail' | 'question_detail' | 'scoreboard' | 'mobile_recent' | 'mobile_classes' | 'mobile_library' | 'mobile_settings' | 'class_detail' | 'student_cards'>('dashboard');
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
@@ -188,7 +192,7 @@ export default function PlickerScanner({ onBack, onLogout, categories, allStuden
       }
     ];
 
-    const saved = localStorage.getItem('plickerQuestionSets');
+    const saved = localStorage.getItem(questionSetsStorageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -216,7 +220,7 @@ export default function PlickerScanner({ onBack, onLogout, categories, allStuden
     return defaultSets;
   });
   const [queuedSets, setQueuedSets] = useState<{ [classId: string]: string[] }>(() => {
-    const saved = localStorage.getItem('plickerQueuedSets');
+    const saved = localStorage.getItem(queuedSetsStorageKey);
     return saved ? JSON.parse(saved) : {};
   });
   const [currentSetId, setCurrentSetId] = useState<string | null>(null);
@@ -454,12 +458,12 @@ export default function PlickerScanner({ onBack, onLogout, categories, allStuden
   const [activeFormat, setActiveFormat] = useState<string | null>('superscript');
 
   useEffect(() => {
-    localStorage.setItem('plickerQuestionSets', JSON.stringify(questionSets));
-  }, [questionSets]);
+    localStorage.setItem(questionSetsStorageKey, JSON.stringify(questionSets));
+  }, [questionSets, questionSetsStorageKey]);
 
   useEffect(() => {
-    localStorage.setItem('plickerQueuedSets', JSON.stringify(queuedSets));
-  }, [queuedSets]);
+    localStorage.setItem(queuedSetsStorageKey, JSON.stringify(queuedSets));
+  }, [queuedSets, queuedSetsStorageKey]);
 
   useEffect(() => {
     if (isSwitchingSet.current) {

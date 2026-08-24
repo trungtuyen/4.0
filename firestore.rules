@@ -1,16 +1,14 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function emailVerified() {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
@@ -22,12 +20,15 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         (emailVerified() && request.auth.token.email == 'tuyenthcskimhy@gmail.com') ||
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        ('role' in request.auth.token && request.auth.token.role == 'admin') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 &&
+        id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -38,7 +39,30 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // 1. Teachers
+    function ownsField(data, ownerField) {
+      return ownerField in data && isOwner(data[ownerField]);
+    }
+
+    function mayAccess(data, ownerField) {
+      return isAdmin() || ownsField(data, ownerField);
+    }
+
+    function ownerRemainsUnchanged(ownerField) {
+      return ownerField in existing() && ownerField in incoming() &&
+        existing()[ownerField] == incoming()[ownerField];
+    }
+
+    function wallPostOwnerIsConsistent() {
+      return !('teacherId' in incoming()) || incoming().teacherId == incoming().authorId;
+    }
+
+    function publishedExamBelongsToTeacher(examId, teacherId) {
+      return isValidId(examId) && isValidId(teacherId) &&
+        exists(/databases/$(database)/documents/exams/$(examId)) &&
+        get(/databases/$(database)/documents/exams/$(examId)).data.status == 'published' &&
+        get(/databases/$(database)/documents/exams/$(examId)).data.teacherId == teacherId;
+    }
+
     match /teachers/{teacherId} {
       allow get: if isAdmin() || isOwner(teacherId);
       allow list: if isAdmin();
@@ -52,50 +76,98 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // 2. Categories
     match /categories/{categoryId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow read: if mayAccess(existing(), 'authorId');
+      allow create: if isAdmin() || ownsField(incoming(), 'authorId');
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'authorId') && ownerRemainsUnchanged('authorId')
+      );
+      allow delete: if mayAccess(existing(), 'authorId');
     }
 
-    // 3. Wall Posts
     match /wall_posts/{postId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn();
+      allow read: if mayAccess(existing(), 'authorId');
+      allow create: if isAdmin() || (
+        ownsField(incoming(), 'authorId') && wallPostOwnerIsConsistent()
+      );
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'authorId') &&
+        ownerRemainsUnchanged('authorId') && wallPostOwnerIsConsistent()
+      );
+      allow delete: if mayAccess(existing(), 'authorId');
     }
 
-    // 4. Exams
     match /exams/{examId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      // Only published schedules are visible on the unauthenticated student portal.
+      allow read: if mayAccess(existing(), 'teacherId') ||
+        (!isSignedIn() && existing().status == 'published');
+      allow create: if isAdmin() || ownsField(incoming(), 'teacherId');
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      );
+      allow delete: if mayAccess(existing(), 'teacherId');
     }
 
-    // 5. Classes
     match /classes/{classId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow read: if mayAccess(existing(), 'teacherId');
+      allow create: if isAdmin() || ownsField(incoming(), 'teacherId');
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      );
+      allow delete: if mayAccess(existing(), 'teacherId');
     }
 
-    // 6. Students
     match /students/{studentId} {
-      allow read: if true;
-      // Student self-registration currently runs without Firebase Authentication.
-      allow create: if true;
-      allow update, delete: if isSignedIn();
+      // Student login uses an anonymized exam directory and never reads the class roster.
+      allow read: if mayAccess(existing(), 'teacherId');
+      allow create: if isAdmin() || ownsField(incoming(), 'teacherId') || (
+        !isSignedIn() &&
+        isValidId(studentId) &&
+        incoming().id == studentId &&
+        isValidId(incoming().teacherId) &&
+        incoming().name is string &&
+        incoming().name.size() > 0 && incoming().name.size() <= 160 &&
+        incoming().code is string &&
+        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
+      );
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      );
+      allow delete: if mayAccess(existing(), 'teacherId');
     }
 
-    // 7. Results
     match /results/{resultId} {
-      allow read: if true;
-      // Public submission remains until student accounts are migrated to Firebase Auth.
-      allow create: if true;
-      allow update, delete: if isSignedIn();
+      // Scores and reports are never readable by unauthenticated students.
+      allow read: if mayAccess(existing(), 'teacherId');
+      allow create: if isAdmin() || ownsField(incoming(), 'teacherId') || (
+        !isSignedIn() &&
+        incoming().id == resultId &&
+        resultId == incoming().studentId + '_' + incoming().examId &&
+        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
+      );
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      );
+      allow delete: if mayAccess(existing(), 'teacherId');
     }
 
-    // 8. Exam Sessions
     match /exam_sessions/{sessionId} {
-      allow read, create, update: if true;
-      allow delete: if isSignedIn();
+      allow read: if mayAccess(existing(), 'teacherId');
+      allow create: if isAdmin() || ownsField(incoming(), 'teacherId') || (
+        !isSignedIn() &&
+        incoming().id == sessionId &&
+        sessionId == incoming().studentId + '_' + incoming().examId &&
+        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
+      );
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      ) || (
+        !isSignedIn() &&
+        ownerRemainsUnchanged('teacherId') &&
+        sessionId == incoming().studentId + '_' + incoming().examId &&
+        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
+      );
+      allow delete: if mayAccess(existing(), 'teacherId');
     }
   }
 }

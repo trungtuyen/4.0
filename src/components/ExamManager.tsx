@@ -3,9 +3,16 @@ import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileTe
 import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
 import * as XLSX from 'xlsx';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
+import {
+  createPrivateStudentRosterDirectory,
+  createStudentRosterLookupKey,
+  createTeacherStorageKey,
+  resolveTeacherAccessScope,
+  type PrivateStudentRosterEntry,
+} from '../lib/teacherIsolation';
 
 interface Question {
   id: string;
@@ -33,6 +40,7 @@ interface Exam {
     questions: Question[];
   }[];
   teacherId?: string;
+  studentDirectory?: Record<string, PrivateStudentRosterEntry>;
 }
 
 interface StudentClass {
@@ -47,6 +55,7 @@ interface StudentAccount {
   name: string;
   classId?: string;
   teacherId?: string;
+  examId?: string;
 }
 
 interface ExamResult {
@@ -99,6 +108,15 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
   useEffect(() => {
     if (appMode !== 'teacher') return;
+    const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+    if (accessScope.role === 'guest') {
+      setExams([]);
+      setStudents([]);
+      setClasses([]);
+      setResults([]);
+      setActiveSessions([]);
+      return;
+    }
 
     let examsQuery: any = collection(db, 'exams');
     let studentsQuery: any = collection(db, 'students');
@@ -106,12 +124,12 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     let resultsQuery: any = collection(db, 'results');
     let sessionsQuery: any = collection(db, 'exam_sessions');
 
-    if (currentUser && currentUser !== 'admin') {
-      examsQuery = query(collection(db, 'exams'), where('teacherId', '==', currentUser.id));
-      studentsQuery = query(collection(db, 'students'), where('teacherId', '==', currentUser.id));
-      classesQuery = query(collection(db, 'classes'), where('teacherId', '==', currentUser.id));
-      resultsQuery = query(collection(db, 'results'), where('teacherId', '==', currentUser.id));
-      sessionsQuery = query(collection(db, 'exam_sessions'), where('teacherId', '==', currentUser.id));
+    if (accessScope.role === 'teacher') {
+      examsQuery = query(collection(db, 'exams'), where('teacherId', '==', accessScope.ownerUid));
+      studentsQuery = query(collection(db, 'students'), where('teacherId', '==', accessScope.ownerUid));
+      classesQuery = query(collection(db, 'classes'), where('teacherId', '==', accessScope.ownerUid));
+      resultsQuery = query(collection(db, 'results'), where('teacherId', '==', accessScope.ownerUid));
+      sessionsQuery = query(collection(db, 'exam_sessions'), where('teacherId', '==', accessScope.ownerUid));
     }
 
     const subscriptions: (() => void)[] = [];
@@ -682,7 +700,20 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     if (exam) {
       try {
         const newStatus = exam.status === 'published' ? 'closed' : 'published';
-        await setDoc(doc(db, 'exams', examId), { ...exam, status: newStatus });
+        let nextExam: Exam = { ...exam, status: newStatus };
+        if (newStatus === 'published' && exam.teacherId) {
+          const rosterQuery = query(collection(db, 'students'), where('teacherId', '==', exam.teacherId));
+          const rosterSnapshot = await getDocs(rosterQuery);
+          const teacherRoster = rosterSnapshot.docs.map(studentDoc => ({
+            ...(studentDoc.data() as Omit<StudentAccount, 'id'>),
+            id: studentDoc.id,
+          }));
+          nextExam = {
+            ...nextExam,
+            studentDirectory: await createPrivateStudentRosterDirectory(exam.teacherId, exam.id, teacherRoster),
+          };
+        }
+        await setDoc(doc(db, 'exams', examId), nextExam);
       } catch (error) {
         console.error("Error updating exam status:", error);
       }
@@ -886,21 +917,26 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     }
 
     try {
-      // 1. Query exam by ID or version code first
+      // Only the already-public published schedule is needed to resolve exam codes.
       let exam: Exam | null = null;
       let versionCode = 'Gốc';
       let studentExam: Exam | null = null;
+      let publicExams = publishedStudentExams;
+      if (!publicExams.length) {
+        const publicScheduleQuery = query(collection(db, 'exams'), where('status', '==', 'published'));
+        const publicScheduleSnapshot = await getDocs(publicScheduleQuery);
+        publicExams = publicScheduleSnapshot.docs.map(examDoc => ({
+          id: examDoc.id,
+          ...examDoc.data(),
+        } as Exam));
+      }
 
-      const examDoc = await getDoc(doc(db, 'exams', normalizedExamCode));
-      if (examDoc.exists() && examDoc.data().status === 'published') {
-        exam = { id: examDoc.id, ...examDoc.data() } as Exam;
+      const directExam = publicExams.find(item => item.id === normalizedExamCode);
+      if (directExam) {
+        exam = directExam;
         studentExam = { ...exam };
       } else {
-        // Try to find by version code
-        const examsQuery = query(collection(db, 'exams'), where('versionCodes', 'array-contains', normalizedExamCode));
-        const examsSnapshot = await getDocs(examsQuery);
-        for (const doc of examsSnapshot.docs) {
-          const e = { id: doc.id, ...doc.data() } as Exam;
+        for (const e of publicExams) {
           if (e.status === 'published' && e.shuffledVersions) {
             const version = e.shuffledVersions.find(v => v.code === normalizedExamCode);
             if (version) {
@@ -941,17 +977,19 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         });
       }
 
-      // 2. Query students by teacherId to allow case-insensitive name matching
-      let studentsQuery;
-      if (exam.teacherId) {
-        studentsQuery = query(collection(db, 'students'), where('teacherId', '==', exam.teacherId));
-      } else {
-        studentsQuery = query(collection(db, 'students'));
-      }
-      const studentsSnapshot = await getDocs(studentsQuery);
-      const teacherStudents = studentsSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as StudentAccount));
-      
-      let student = teacherStudents.find(s => s.name.trim().toLowerCase() === normalizedStudentName.toLowerCase());
+      // Resolve a roster entry without exposing names, student codes or the private roster.
+      const teacherOwnerUid = exam.teacherId || 'admin';
+      const rosterLookupKey = await createStudentRosterLookupKey(teacherOwnerUid, exam.id, normalizedStudentName);
+      const rosterEntry = exam.studentDirectory?.[rosterLookupKey];
+      let student: StudentAccount | undefined = rosterEntry
+        ? {
+          id: rosterEntry.id,
+          code: '',
+          name: normalizedStudentName,
+          ...(rosterEntry.classId ? { classId: rosterEntry.classId } : {}),
+          teacherId: teacherOwnerUid,
+        }
+        : undefined;
       
       if (!student) {
         // Auto-create student if not found to ensure they can take the exam
@@ -959,17 +997,19 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           id: Math.random().toString(36).substr(2, 9),
           code: Math.floor(100000 + Math.random() * 900000).toString(),
           name: normalizedStudentName,
-          teacherId: exam.teacherId || 'admin'
+          teacherId: teacherOwnerUid,
+          examId: exam.id,
         };
         await setDoc(doc(db, 'students', newStudent.id), newStudent);
         student = newStudent;
       }
 
-      // 3. Check if already taken
-      const resultQuery = query(collection(db, 'results'), where('studentId', '==', student.id), where('examId', '==', exam.id));
-      const resultSnapshot = await getDocs(resultQuery);
-      
-      if (!resultSnapshot.empty) {
+      // Students never need permission to read teachers' private result collections.
+      const submittedExamKey = createTeacherStorageKey(
+        `submitted_exam_${student.id}_${exam.id}`,
+        exam.teacherId,
+      );
+      if (sessionStorage.getItem(submittedExamKey) === '1') {
         setLoginError('Bạn đã hoàn thành bài thi này rồi!');
         return;
       }
@@ -1097,7 +1137,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       });
 
       const newResult: ExamResult = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: `${currentStudent.id}_${activeExam.id}`,
         examId: activeExam.id,
         studentId: currentStudent.id,
         score,
@@ -1111,6 +1151,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
       try {
         await setDoc(doc(db, 'results', newResult.id), newResult);
+        sessionStorage.setItem(createTeacherStorageKey(
+          `submitted_exam_${currentStudent.id}_${activeExam.id}`,
+          activeExam.teacherId,
+        ), '1');
         
         const sessionId = `${currentStudent.id}_${activeExam.id}`;
         await setDoc(doc(db, 'exam_sessions', sessionId), { status: 'submitted', lastActive: new Date().toISOString() }, { merge: true });
@@ -1120,6 +1164,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         setCheatEvents({ rightClicks: 0, tabChanges: 0, windowResizes: 0 }); // Reset for next exam
       } catch (error) {
         console.error("Error submitting exam:", error);
+        setLoginError('Không thể nộp bài. Bài thi có thể đã được nộp hoặc kết nối vừa bị gián đoạn.');
       }
     }
   };
@@ -2436,7 +2481,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                   exams={exams}
                   students={students}
                   classes={classes}
-                  teacherId={currentUser?.id || 'admin'}
+                  teacherId={currentUser === 'admin' ? auth.currentUser?.uid || 'admin' : currentUser?.id || ''}
+                  isAdministrator={currentUser === 'admin'}
                   onClose={() => setIsScannerOpen(false)}
                 />
               )}

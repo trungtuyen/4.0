@@ -21,6 +21,7 @@ async function main() {
   let elements = new Map();
   const handlers = {};
   const storage = new Map();
+  const teacherStorageKey = "gestureclass.v1.private::teacher-test";
   let confirmationAccepted = true;
   let confirmationMessage = "";
   const app = {};
@@ -70,7 +71,7 @@ async function main() {
 
   const context = {
     document,
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, location: { search: "?owner=teacher-test" } },
     localStorage: { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) },
     FormData: MockFormData,
     crypto: { randomUUID: () => `test-${Math.random().toString(36).slice(2)}` },
@@ -93,6 +94,7 @@ async function main() {
     confirm: (message) => { confirmationMessage = message; return confirmationAccepted; },
     performance: { now: () => 2000 },
     URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} },
+    URLSearchParams,
     Blob
   };
   context.globalThis = context;
@@ -136,10 +138,10 @@ async function main() {
   assert.match(markup, /Hiển thị 1\/13 câu hỏi/);
   createElement("#question-search").listeners.input({ target: { value: "", selectionStart: 0 } });
 
-  const questionId = JSON.parse(storage.get("gestureclass.v1.private")).questions[0].id;
+  const questionId = JSON.parse(storage.get(teacherStorageKey)).questions[0].id;
   await click("duplicate-question", { id: questionId });
   assert.match(markup, /Hiển thị 14\/14 câu hỏi/);
-  const duplicateId = JSON.parse(storage.get("gestureclass.v1.private")).questions[0].id;
+  const duplicateId = JSON.parse(storage.get(teacherStorageKey)).questions[0].id;
   await click("delete-question", { id: duplicateId });
   assert.match(markup, /Hiển thị 13\/13 câu hỏi/);
 
@@ -149,7 +151,7 @@ async function main() {
   submit("#class-form", { name: "Lớp 8C", subject: "Toán 8", students: "Học sinh A\nHọc sinh B" });
   assert.match(markup, /Lớp 8C/);
 
-  const createdClass = JSON.parse(storage.get("gestureclass.v1.private")).classes.find((item) => item.name === "Lớp 8C");
+  const createdClass = JSON.parse(storage.get(teacherStorageKey)).classes.find((item) => item.name === "Lớp 8C");
   assert.ok(createdClass);
   assert.equal((markup.match(/data-action="delete-class"/g) || []).length, 4);
 
@@ -158,14 +160,14 @@ async function main() {
   assert.match(confirmationMessage, /Xóa Lớp 8C/);
   assert.match(confirmationMessage, /2 học sinh/);
   assert.match(markup, /Lớp 8C/);
-  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).classes.length, 4);
+  assert.equal(JSON.parse(storage.get(teacherStorageKey)).classes.length, 4);
 
   confirmationAccepted = true;
   await click("delete-class", { id: createdClass.id });
   assert.doesNotMatch(markup, /<h3>Lớp 8C<\/h3>/);
   assert.equal((markup.match(/data-action="delete-class"/g) || []).length, 3);
-  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).classes.length, 3);
-  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).activities[0].title, "Xóa lớp học");
+  assert.equal(JSON.parse(storage.get(teacherStorageKey)).classes.length, 3);
+  assert.equal(JSON.parse(storage.get(teacherStorageKey)).activities[0].title, "Xóa lớp học");
 
   await click("navigate", { view: "play" });
   assert.match(markup, /Phòng chơi cử chỉ/);
@@ -189,10 +191,12 @@ async function main() {
   await click("close-modal");
 
   await click("navigate", { view: "classes" });
-  for (const item of JSON.parse(storage.get("gestureclass.v1.private")).classes) {
+  for (const item of JSON.parse(storage.get(teacherStorageKey)).classes) {
     await click("delete-class", { id: item.id });
   }
-  assert.equal(JSON.parse(storage.get("gestureclass.v1.private")).classes.length, 0);
+  assert.equal(JSON.parse(storage.get(teacherStorageKey)).classes.length, 0);
+  assert.equal(storage.has("gestureclass.v1.private::another-teacher"), false);
+  assert.equal(storage.has("gestureclass.v1.private"), false);
   assert.match(markup, /Chưa có lớp học nào/);
   assert.match(markup, /data-action="new-class"/);
 

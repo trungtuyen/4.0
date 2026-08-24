@@ -1,13 +1,15 @@
 import React, { lazy, useState, useRef, useEffect, useMemo } from 'react';
 import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText, Eye, EyeOff } from 'lucide-react';
 import { Teacher } from '../types';
-import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, arrayUnion, where } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
 import { assignPlickerCardIds, filterPlickerStudentsByClasses, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
 import { isPlickerSystemCategory, mergePlickerCloudRosters } from '../lib/plickerLive';
+import type { PlickerClassroomReport } from '../lib/plickerReports';
+import { createTeacherStorageKey, resolveTeacherAccessScope } from '../lib/teacherIsolation';
 
 const LuckyDraw = lazy(() => import('./LuckyDraw'));
 const PlickerScanner = lazy(() => import('./PlickerClassroom'));
@@ -121,6 +123,10 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser, initialApplication }: AdminDashboardProps) {
+  const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+  const currentUserId = currentUser === 'admin' ? 'admin' : accessScope.ownerUid;
+  const currentUserName = currentUser === 'admin' ? 'Admin' : currentUser?.name;
+  const studentsStorageKey = createTeacherStorageKey('students', accessScope.ownerUid);
   const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
   const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>(initialApplication === 'plicker' ? 'plicker' : 'main');
   const [searchTerm, setSearchTerm] = useState('');
@@ -153,31 +159,52 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const [newCategoryTitle, setNewCategoryTitle] = useState('');
 
   // Posts State
-  const [posts, setPosts] = useState<{ id: string; categoryId: string; imageSrc: string; studentName: string; createdAt: string; score?: number; comments?: { id: string, text: string, createdAt: string }[] }[]>([]);
+  const [posts, setPosts] = useState<{ id: string; categoryId: string; imageSrc: string; studentName: string; createdAt: string; score?: number; comments?: { id: string, text: string, createdAt: string }[]; authorId?: string; teacherId?: string; kind?: string; report?: PlickerClassroomReport }[]>([]);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null);
   const [postFormData, setPostFormData] = useState({ categoryId: '', studentId: '' });
   const [activeScorePostId, setActiveScorePostId] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'categories'), (snapshot) => {
+    if (accessScope.role === 'guest') {
+      setCategories([]);
+      setCategoriesReady(true);
+      return;
+    }
+
+    const categoriesQuery = accessScope.role === 'administrator'
+      ? collection(db, 'categories')
+      : query(collection(db, 'categories'), where('authorId', '==', accessScope.ownerUid));
+    const unsub = onSnapshot(categoriesQuery, (snapshot) => {
       setCategories(snapshot.docs
         .filter(item => !isPlickerSystemCategory(item.id, item.data()))
         .map(item => ({ id: item.id, ...item.data() } as any)));
       setCategoriesReady(true);
+    }, error => {
+      console.error('Không thể tải dữ liệu lớp học theo tài khoản:', error);
+      setCategories([]);
+      setCategoriesReady(true);
     });
     return unsub;
-  }, []);
+  }, [accessScope.ownerUid, accessScope.role]);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'wall_posts'), (snapshot) => {
+    if (accessScope.role === 'guest') {
+      setPosts([]);
+      return;
+    }
+
+    const postsQuery = accessScope.role === 'administrator'
+      ? collection(db, 'wall_posts')
+      : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid));
+    const unsub = onSnapshot(postsQuery, (snapshot) => {
       setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    }, error => {
+      console.error('Không thể tải nội dung riêng của giáo viên:', error);
+      setPosts([]);
     });
     return unsub;
-  }, []);
-
-  const currentUserId = currentUser === 'admin' ? 'admin' : currentUser?.id;
-  const currentUserName = currentUser === 'admin' ? 'Admin' : currentUser?.name;
+  }, [accessScope.ownerUid, accessScope.role]);
 
   const handleAddCategory = async () => {
     if (newCategoryTitle.trim()) {
@@ -260,8 +287,12 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   
   // Students State
   const [students, setStudents] = useState<{ id: string; classId: string; name: string; email?: string; cardId?: number }[]>(() => {
-    const saved = localStorage.getItem('students');
-    return saved ? assignPlickerCardIds(JSON.parse(saved)) : [];
+    try {
+      const saved = localStorage.getItem(studentsStorageKey);
+      return saved ? assignPlickerCardIds(JSON.parse(saved)) : [];
+    } catch {
+      return [];
+    }
   });
   const [excelInput, setExcelInput] = useState('');
 
@@ -271,8 +302,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       setStudents(normalized);
       return;
     }
-    localStorage.setItem('students', JSON.stringify(students));
-  }, [students]);
+    localStorage.setItem(studentsStorageKey, JSON.stringify(students));
+  }, [students, studentsStorageKey]);
 
   const myCategories = useMemo(() =>
     currentUserId === 'admin' ? categories : categories.filter(category => category.authorId === currentUserId),
@@ -283,11 +314,53 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const plickerStudents = useMemo(() =>
     filterPlickerStudentsByClasses(students, plickerCategories),
   [plickerCategories, students]);
+  const synchronizedPlickerReports = useMemo(() => posts
+    .filter(post => post.kind === 'plicker_report' && post.report?.id)
+    .map(post => ({
+      ...post.report!,
+      teacherId: post.teacherId || post.authorId || '',
+    }))
+    .sort((left, right) => right.completedAt.localeCompare(left.completedAt)),
+  [posts]);
+
+  useEffect(() => {
+    if (accessScope.role !== 'administrator' || !categoriesReady) return;
+
+    for (const post of posts) {
+      if (post.authorId || post.kind === 'plicker_report') continue;
+      const ownerUid = categories.find(category => category.id === post.categoryId)?.authorId;
+      if (!ownerUid || ownerUid === 'admin') continue;
+      void updateDoc(doc(db, 'wall_posts', post.id), {
+        authorId: ownerUid,
+        teacherId: ownerUid,
+      }).catch(error => console.error('Không thể khôi phục chủ sở hữu bài đăng cũ:', error));
+    }
+  }, [accessScope.role, categories, categoriesReady, posts]);
 
   useEffect(() => {
     if (!categoriesReady) return;
     setStudents(previous => filterPlickerStudentsByClasses(previous, categories));
   }, [categories, categoriesReady]);
+
+  useEffect(() => {
+    if (!categoriesReady || !accessScope.ownerUid) return;
+    const migrationKey = createTeacherStorageKey('students_legacy_migrated', accessScope.ownerUid);
+    if (localStorage.getItem(migrationKey) === '1') return;
+    localStorage.setItem(migrationKey, '1');
+
+    try {
+      const legacyValue = localStorage.getItem('students');
+      if (!legacyValue) return;
+      const legacyStudents = filterPlickerStudentsByClasses(JSON.parse(legacyValue), categories);
+      if (!legacyStudents.length) return;
+      setStudents(previous => assignPlickerCardIds([
+        ...previous,
+        ...legacyStudents.filter(student => !previous.some(item => item.id === student.id)),
+      ]));
+    } catch (error) {
+      console.error('Không thể khôi phục danh sách học sinh cũ đúng tài khoản:', error);
+    }
+  }, [accessScope.ownerUid, categories, categoriesReady]);
 
   const handleCreateClass = (e: React.FormEvent) => {
     e.preventDefault();
@@ -889,6 +962,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
             onLogout={onLogout}
             schoolName={currentUser === 'admin' ? '' : currentUser?.school || ''}
             teacherName={currentUser === 'admin' ? '' : currentUser?.name || ''}
+            isAdministrator={currentUser === 'admin'}
+            synchronizedReports={synchronizedPlickerReports}
             categories={plickerCategories}
             categoriesReady={categoriesReady}
             allStudents={plickerStudents}
@@ -897,7 +972,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               const newCategory = {
                 id: classId,
                 title,
-                authorId: currentUserId === 'admin' ? '' : currentUserId,
+                authorId: accessScope.ownerUid,
                 createdAt: new Date().toISOString()
               };
               setCategories(previous => [...previous, newCategory]);
@@ -1841,6 +1916,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 try {
                   await addDoc(collection(db, 'wall_posts'), {
                     categoryId: postFormData.categoryId,
+                    authorId: accessScope.ownerUid,
+                    teacherId: accessScope.ownerUid,
                     imageSrc: pendingPostImage,
                     studentName: student ? student.name : 'Học sinh',
                     createdAt: serverTimestamp()

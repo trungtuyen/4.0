@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Upload, Plus, Trash2, Play, Settings, Image as ImageIcon, Type, Users, CheckCircle, XCircle, SkipForward, Trophy, Eye, Gift } from 'lucide-react';
+import { auth } from '../firebase';
+import { createTeacherStorageKey } from '../lib/teacherIsolation';
 
 interface Question {
   id: string;
@@ -57,9 +59,10 @@ const DEFAULT_CONFIG: GameConfig = {
 };
 
 export default function SecretBoxGame({ onBack }: SecretBoxGameProps) {
+  const configStorageKey = createTeacherStorageKey('secretBoxConfig', auth.currentUser?.uid);
   const [status, setStatus] = useState<'setup' | 'playing' | 'finished'>('setup');
   const [config, setConfig] = useState<GameConfig>(() => {
-    const saved = localStorage.getItem('secretBoxConfig');
+    const saved = localStorage.getItem(configStorageKey);
     return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
   });
 
@@ -73,8 +76,8 @@ export default function SecretBoxGame({ onBack }: SecretBoxGameProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem('secretBoxConfig', JSON.stringify(config));
-  }, [config]);
+    localStorage.setItem(configStorageKey, JSON.stringify(config));
+  }, [config, configStorageKey]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -126,8 +126,11 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 - Repository variable `VITE_ADMIN_EMAIL` là tùy chọn. Nếu chưa cấu hình, khi nhập tên `admin` hãy điền email Firebase của quản trị viên; hoặc đăng nhập bằng Google. Sau khi quyền quản trị được Firebase/Firestore xác minh, trình duyệt ghi nhớ email cho phiên hiện tại.
 - Giáo viên mới được tạo ở trạng thái chờ duyệt; quản trị viên phải kích hoạt trước khi sử dụng thư viện.
 - Chức năng khôi phục mật khẩu gửi liên kết bảo mật qua Firebase, không hiển thị hoặc đặt trực tiếp mật khẩu.
-- `firestore.rules` trong kho chỉ có hiệu lực sau khi được quản trị viên Firebase kiểm tra và triển khai.
-- Luồng thi của học sinh hiện chưa có tài khoản Firebase riêng; cần hoàn thiện xác thực học sinh trước khi khóa toàn bộ quyền đọc và ghi công khai còn lại.
+- Lớp học, danh sách học sinh, bài đăng, kỳ thi, phiên thi, điểm số và báo cáo được giới hạn theo UID Firebase của giáo viên; quản trị viên có thể truy cập dữ liệu của toàn hệ thống.
+- Bộ câu hỏi, trò chơi, GestureClass, Plicker và báo cáo lưu trên trình duyệt sử dụng khóa riêng cho từng tài khoản, kể cả khi nhiều giáo viên dùng chung một thiết bị.
+- Báo cáo Plicker mới được đồng bộ theo tài khoản giáo viên để quản trị viên có thể theo dõi; các bộ nhớ cũ không rõ chủ sở hữu không được tự động nhập sang tài khoản khác.
+- Khi giáo viên mở kỳ thi, hệ thống tạo danh mục đối chiếu học sinh bằng SHA-256 theo giáo viên và kỳ thi. Cổng thi không đọc danh sách lớp, bảng điểm hoặc báo cáo riêng; học sinh chưa có trong danh sách chỉ được đăng ký cho một kỳ thi đang mở.
+- **GitHub Pages không tự triển khai Firestore Security Rules.** Sau khi cập nhật GitHub, quản trị viên Firebase phải mở dự án `gen-lang-client-0870957273`, chọn cơ sở dữ liệu `ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e`, dán nội dung `firestore.rules` vào mục **Firestore Database → Rules**, kiểm tra rồi chọn **Publish**. Trước khi thao tác này hoàn tất, lớp bảo vệ ở máy chủ vẫn là bộ quy tắc Firebase đã triển khai trước đó.
 
 ## Lộ trình tiếp theo
 
@@ -141,12 +144,14 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 
 ```bash
 npm run lint
+npm run lint:firestore
 npm run test:gesture
 npm run test:gestureclass
 npm run test:platform
 npm run test:ai-services
 npm run test:platform-metrics
 npm run test:scalability
+npm run test:teacher-isolation
 npm run test:pwa
 npm run build
 ```

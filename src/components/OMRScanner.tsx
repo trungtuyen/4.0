@@ -11,10 +11,11 @@ interface OMRScannerProps {
   students: any[];
   classes: any[];
   teacherId: string;
+  isAdministrator?: boolean;
   onClose: () => void;
 }
 
-export default function OMRScanner({ examId, exams, students, classes, teacherId, onClose }: OMRScannerProps) {
+export default function OMRScanner({ examId, exams, students, classes, teacherId, isAdministrator = false, onClose }: OMRScannerProps) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -31,11 +32,13 @@ export default function OMRScanner({ examId, exams, students, classes, teacherId
   // Fetch all results for this exam whenever scanner is used or results updated
   useEffect(() => {
     fetchResults();
-  }, [examId, results]);
+  }, [examId, results, teacherId, isAdministrator]);
 
   const fetchResults = async () => {
     try {
-      const q = query(collection(db, 'results'), where('examId', '==', examId));
+      const q = isAdministrator
+        ? query(collection(db, 'results'), where('examId', '==', examId))
+        : query(collection(db, 'results'), where('examId', '==', examId), where('teacherId', '==', teacherId));
       const querySnapshot = await getDocs(q);
       const fetchedResults = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllExamResults(fetchedResults);

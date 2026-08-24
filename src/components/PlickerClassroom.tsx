@@ -7,13 +7,14 @@ import {
   RefreshCw, Save, ScanLine, Settings2, ShieldCheck, Smartphone, Square, Trash2, UserPlus,
   Users, Wifi, WifiOff, X,
 } from 'lucide-react';
-import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteDoc, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import PlickerDisplayScreen, { PlickerDisplayMath } from './PlickerDisplayScreen';
 import PlickerMobileScanner from './PlickerMobileScanner';
 import PlickerQuestionEditor from './PlickerQuestionEditor';
 import PlickerQuestionMediaGallery, { PlickerRichContent } from './PlickerQuestionContent';
 import { filterPlickerStudentsByClasses } from '../lib/plickerStudents';
+import { createPlickerReportDocumentId, createTeacherStorageKey } from '../lib/teacherIsolation';
 import {
   buildPlickerStudentScoreRows,
   createPlickerReportWorkbook,
@@ -84,6 +85,7 @@ interface Category {
   id: string;
   title: string;
   parentId?: string;
+  authorId?: string;
 }
 
 interface PlickerClassroomProps {
@@ -100,6 +102,8 @@ interface PlickerClassroomProps {
   onSyncStudents: (rosters: Record<string, Student[]>) => void;
   schoolName?: string;
   teacherName?: string;
+  isAdministrator?: boolean;
+  synchronizedReports?: (PlickerClassroomReport & { teacherId?: string })[];
 }
 
 interface ClassroomQuestion extends PlickerLiveQuestion {
@@ -125,7 +129,7 @@ interface ClassroomResponse {
   source: 'camera' | 'manual';
 }
 
-type ClassroomReport = PlickerClassroomReport;
+type ClassroomReport = PlickerClassroomReport & { teacherId?: string };
 
 type ClassroomView = 'overview' | 'classes' | 'library' | 'session' | 'reports' | 'cards';
 
@@ -158,7 +162,7 @@ function defaultQuestion(id = 1): ClassroomQuestion {
   };
 }
 
-function initialQuestionSets(): ClassroomQuestionSet[] {
+function initialQuestionSets(ownerUid: string): ClassroomQuestionSet[] {
   const fallback: ClassroomQuestionSet[] = [{
     id: 'starter-general',
     title: 'Câu hỏi khởi động',
@@ -183,7 +187,7 @@ function initialQuestionSets(): ClassroomQuestionSet[] {
   }];
 
   try {
-    const saved = localStorage.getItem(SETS_STORAGE_KEY);
+    const saved = localStorage.getItem(createTeacherStorageKey(SETS_STORAGE_KEY, ownerUid));
     if (saved === null) return fallback;
     const parsed = JSON.parse(saved) as ClassroomQuestionSet[];
     return Array.isArray(parsed) ? parsed : fallback;
@@ -192,9 +196,9 @@ function initialQuestionSets(): ClassroomQuestionSet[] {
   }
 }
 
-function initialDeletedQuestionSets(): Record<string, number> {
+function initialDeletedQuestionSets(ownerUid: string): Record<string, number> {
   try {
-    const saved = localStorage.getItem(DELETED_SETS_STORAGE_KEY);
+    const saved = localStorage.getItem(createTeacherStorageKey(DELETED_SETS_STORAGE_KEY, ownerUid));
     const parsed = saved ? JSON.parse(saved) as Record<string, number> : {};
     return mergePlickerDeletedQuestionSets({}, parsed);
   } catch {
@@ -202,9 +206,9 @@ function initialDeletedQuestionSets(): Record<string, number> {
   }
 }
 
-function initialDeletedClasses(): Record<string, number> {
+function initialDeletedClasses(ownerUid: string): Record<string, number> {
   try {
-    const saved = localStorage.getItem(DELETED_CLASSES_STORAGE_KEY);
+    const saved = localStorage.getItem(createTeacherStorageKey(DELETED_CLASSES_STORAGE_KEY, ownerUid));
     const parsed = saved ? JSON.parse(saved) as Record<string, number> : {};
     return mergePlickerDeletedClasses({}, parsed);
   } catch {
@@ -212,9 +216,9 @@ function initialDeletedClasses(): Record<string, number> {
   }
 }
 
-function initialReports(): ClassroomReport[] {
+function initialReports(ownerUid: string): ClassroomReport[] {
   try {
-    const saved = localStorage.getItem(REPORTS_STORAGE_KEY);
+    const saved = localStorage.getItem(createTeacherStorageKey(REPORTS_STORAGE_KEY, ownerUid));
     const parsed = saved ? JSON.parse(saved) as ClassroomReport[] : [];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -222,7 +226,7 @@ function initialReports(): ClassroomReport[] {
   }
 }
 
-function initialReportSettings(schoolName = '', teacherName = ''): PlickerReportSettings {
+function initialReportSettings(ownerUid: string, schoolName = '', teacherName = ''): PlickerReportSettings {
   const defaults: PlickerReportSettings = {
     schoolName,
     teacherName,
@@ -231,7 +235,7 @@ function initialReportSettings(schoolName = '', teacherName = ''): PlickerReport
     examDate: '',
   };
   try {
-    const saved = localStorage.getItem(REPORT_SETTINGS_STORAGE_KEY);
+    const saved = localStorage.getItem(createTeacherStorageKey(REPORT_SETTINGS_STORAGE_KEY, ownerUid));
     const parsed = saved ? JSON.parse(saved) as Partial<PlickerReportSettings> : {};
     return {
       schoolName: typeof parsed.schoolName === 'string' && parsed.schoolName.trim() ? parsed.schoolName : defaults.schoolName,
@@ -348,20 +352,21 @@ function MetricCard({
 }
 
 export default function PlickerClassroom({
-  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents, schoolName = '', teacherName = '',
+  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents, schoolName = '', teacherName = '', isAdministrator = false, synchronizedReports = [],
 }: PlickerClassroomProps) {
+  const ownerUid = auth.currentUser?.uid || '';
   const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
   const [selectedClassId, setSelectedClassId] = useState(categories[0]?.id || '');
-  const [sets, setSets] = useState<ClassroomQuestionSet[]>(initialQuestionSets);
-  const [deletedQuestionSetIds, setDeletedQuestionSetIds] = useState<Record<string, number>>(initialDeletedQuestionSets);
-  const [deletedClassIds, setDeletedClassIds] = useState<Record<string, number>>(initialDeletedClasses);
+  const [sets, setSets] = useState<ClassroomQuestionSet[]>(() => initialQuestionSets(ownerUid));
+  const [deletedQuestionSetIds, setDeletedQuestionSetIds] = useState<Record<string, number>>(() => initialDeletedQuestionSets(ownerUid));
+  const [deletedClassIds, setDeletedClassIds] = useState<Record<string, number>>(() => initialDeletedClasses(ownerUid));
   const [selectedSetId, setSelectedSetId] = useState('');
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, ClassroomResponse[]>>({});
-  const [reports, setReports] = useState<ClassroomReport[]>(initialReports);
+  const [reports, setReports] = useState<ClassroomReport[]>(() => initialReports(ownerUid));
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [deletingReport, setDeletingReport] = useState<ClassroomReport | null>(null);
-  const [reportSettings, setReportSettings] = useState<PlickerReportSettings>(() => initialReportSettings(schoolName, teacherName));
+  const [reportSettings, setReportSettings] = useState<PlickerReportSettings>(() => initialReportSettings(ownerUid, schoolName, teacherName));
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [showCorrect, setShowCorrect] = useState(false);
@@ -422,7 +427,6 @@ export default function PlickerClassroom({
   const onSyncStudentsRef = useRef(onSyncStudents);
   onSyncStudentsRef.current = onSyncStudents;
 
-  const ownerUid = auth.currentUser?.uid || '';
   const liveRoomReference = useMemo(() =>
     ownerUid ? doc(db, 'categories', createPlickerLiveRoomId(ownerUid)) : null,
   [ownerUid]);
@@ -725,27 +729,87 @@ export default function PlickerClassroom({
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(SETS_STORAGE_KEY, JSON.stringify(sets));
-  }, [sets]);
+    localStorage.setItem(createTeacherStorageKey(SETS_STORAGE_KEY, ownerUid), JSON.stringify(sets));
+  }, [ownerUid, sets]);
 
   useEffect(() => {
-    localStorage.setItem(DELETED_SETS_STORAGE_KEY, JSON.stringify(deletedQuestionSetIds));
-  }, [deletedQuestionSetIds]);
+    localStorage.setItem(createTeacherStorageKey(DELETED_SETS_STORAGE_KEY, ownerUid), JSON.stringify(deletedQuestionSetIds));
+  }, [deletedQuestionSetIds, ownerUid]);
 
   useEffect(() => {
-    localStorage.setItem(DELETED_CLASSES_STORAGE_KEY, JSON.stringify(deletedClassIds));
-  }, [deletedClassIds]);
+    localStorage.setItem(createTeacherStorageKey(DELETED_CLASSES_STORAGE_KEY, ownerUid), JSON.stringify(deletedClassIds));
+  }, [deletedClassIds, ownerUid]);
 
   useEffect(() => {
-    localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(reports));
-  }, [reports]);
+    localStorage.setItem(createTeacherStorageKey(REPORTS_STORAGE_KEY, ownerUid), JSON.stringify(reports));
+  }, [ownerUid, reports]);
 
   useEffect(() => {
-    localStorage.setItem(REPORT_SETTINGS_STORAGE_KEY, JSON.stringify({
+    if (isAdministrator) {
+      setReports(synchronizedReports);
+      return;
+    }
+    if (!synchronizedReports.length) return;
+
+    setReports(previous => {
+      const combined = new Map<string, ClassroomReport>(previous.map(report => [report.id, report]));
+      for (const report of synchronizedReports) combined.set(report.id, report);
+      return [...combined.values()]
+        .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+        .slice(0, 100);
+    });
+  }, [isAdministrator, synchronizedReports]);
+
+  useEffect(() => {
+    if (!categoriesReady || !ownerUid) return;
+    const migrationKey = createTeacherStorageKey('plicker_legacy_reports_migrated', ownerUid);
+    if (localStorage.getItem(migrationKey) === '1') return;
+    localStorage.setItem(migrationKey, '1');
+
+    try {
+      const legacyValue = localStorage.getItem(REPORTS_STORAGE_KEY);
+      const legacyReports = legacyValue ? JSON.parse(legacyValue) as ClassroomReport[] : [];
+      const ownedClassIds = new Set(categories.map(category => category.id));
+      const recoverableReports = legacyReports.filter(report =>
+        report?.id && (isAdministrator || ownedClassIds.has(report.classId)),
+      );
+      if (!recoverableReports.length) return;
+
+      if (!isAdministrator) {
+        setReports(previous => {
+          const combined = new Map<string, ClassroomReport>(previous.map(report => [report.id, report]));
+          for (const report of recoverableReports) combined.set(report.id, { ...report, teacherId: ownerUid });
+          return [...combined.values()]
+            .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+            .slice(0, 100);
+        });
+      }
+
+      for (const report of recoverableReports) {
+        const categoryOwnerUid = categories.find(category => category.id === report.classId)?.authorId;
+        const reportOwnerUid = isAdministrator && categoryOwnerUid && categoryOwnerUid !== 'admin'
+          ? categoryOwnerUid
+          : ownerUid;
+        const portableReport = JSON.parse(JSON.stringify({ ...report, teacherId: reportOwnerUid })) as ClassroomReport;
+        void setDoc(doc(db, 'wall_posts', createPlickerReportDocumentId(reportOwnerUid, report.id)), {
+          kind: 'plicker_report',
+          authorId: reportOwnerUid,
+          teacherId: reportOwnerUid,
+          report: portableReport,
+          createdAt: report.completedAt,
+        }).catch(error => console.error('Không thể khôi phục báo cáo cũ theo tài khoản:', error));
+      }
+    } catch (error) {
+      console.error('Không thể đọc lịch sử báo cáo cũ:', error);
+    }
+  }, [categories, categoriesReady, isAdministrator, ownerUid]);
+
+  useEffect(() => {
+    localStorage.setItem(createTeacherStorageKey(REPORT_SETTINGS_STORAGE_KEY, ownerUid), JSON.stringify({
       ...reportSettings,
       examDate: '',
     }));
-  }, [reportSettings]);
+  }, [ownerUid, reportSettings]);
 
   useEffect(() => {
     if ((!selectedClassId || !categories.some(item => item.id === selectedClassId)) && categories[0]) {
@@ -1077,6 +1141,7 @@ export default function PlickerClassroom({
     if (!selectedClass || !selectedSet) return;
     const report: ClassroomReport = {
       id: sessionIdRef.current,
+      teacherId: ownerUid,
       classId: selectedClass.id,
       className: selectedClass.title,
       setTitle: selectedSet.title,
@@ -1097,6 +1162,19 @@ export default function PlickerClassroom({
       })),
     };
     setReports(previous => [report, ...previous.filter(item => item.id !== report.id)].slice(0, 100));
+    if (ownerUid) {
+      const portableReport = JSON.parse(JSON.stringify(report)) as ClassroomReport;
+      void setDoc(doc(db, 'wall_posts', createPlickerReportDocumentId(ownerUid, report.id)), {
+        kind: 'plicker_report',
+        authorId: ownerUid,
+        teacherId: ownerUid,
+        report: portableReport,
+        createdAt: report.completedAt,
+      }).catch(error => {
+        console.error('Không thể đồng bộ báo cáo lớp học riêng của giáo viên:', error);
+        setNotice('Báo cáo đã lưu trên thiết bị nhưng chưa đồng bộ lên tài khoản.');
+      });
+    }
     setSelectedReportId(report.id);
     setView('reports');
     setNotice('Đã dừng buổi học và lưu báo cáo.');
@@ -1233,6 +1311,11 @@ export default function PlickerClassroom({
   const confirmReportDeletion = () => {
     if (!deletingReport) return;
     const result = deletePlickerReport(reports, deletingReport.id, selectedReportId);
+    const reportOwnerUid = deletingReport.teacherId || ownerUid;
+    if (reportOwnerUid && deletingReport.teacherId) {
+      void deleteDoc(doc(db, 'wall_posts', createPlickerReportDocumentId(reportOwnerUid, deletingReport.id)))
+        .catch(error => console.error('Không thể xóa báo cáo đã đồng bộ:', error));
+    }
     setReports(result.reports);
     setSelectedReportId(result.selectedReportId);
     setDeletingReport(null);

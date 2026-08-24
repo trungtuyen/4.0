@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Upload, Plus, Trash2, Play, Settings, Image as ImageIcon, CheckCircle, XCircle, Clock, Target, Move, RefreshCw, Eye } from 'lucide-react';
 import { motion, useAnimation, PanInfo } from 'motion/react';
+import { auth } from '../firebase';
+import { createTeacherStorageKey } from '../lib/teacherIsolation';
 
 interface Label {
   id: string;
@@ -40,9 +42,10 @@ const DEFAULT_CONFIG: GameConfig = {
 };
 
 export default function DragDropGame({ onBack }: DragDropGameProps) {
+  const configStorageKey = createTeacherStorageKey('dragDropConfig', auth.currentUser?.uid);
   const [status, setStatus] = useState<'setup' | 'playing' | 'finished'>('setup');
   const [config, setConfig] = useState<GameConfig>(() => {
-    const saved = localStorage.getItem('dragDropConfig');
+    const saved = localStorage.getItem(configStorageKey);
     return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
   });
 
@@ -59,8 +62,8 @@ export default function DragDropGame({ onBack }: DragDropGameProps) {
   const [showAnswers, setShowAnswers] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('dragDropConfig', JSON.stringify(config));
-  }, [config]);
+    localStorage.setItem(configStorageKey, JSON.stringify(config));
+  }, [config, configStorageKey]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;

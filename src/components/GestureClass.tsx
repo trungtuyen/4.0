@@ -1,11 +1,13 @@
 import { ArrowLeft, ExternalLink, Hand, ShieldCheck } from 'lucide-react';
+import { auth } from '../firebase';
 
 interface GestureClassProps {
   onBack: () => void;
 }
 
 export default function GestureClass({ onBack }: GestureClassProps) {
-  const applicationUrl = `${import.meta.env.BASE_URL}gestureclass/index.html`;
+  const ownerUid = auth.currentUser?.uid || 'guest';
+  const applicationUrl = `${import.meta.env.BASE_URL}gestureclass/index.html?owner=${encodeURIComponent(ownerUid)}`;
 
   return (
     <section className="flex h-dvh min-h-screen w-full flex-col overflow-hidden bg-slate-50">

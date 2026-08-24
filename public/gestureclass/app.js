@@ -1,7 +1,11 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "gestureclass.v1.private";
+  const requestedOwner = typeof window.location?.search === "string" && typeof URLSearchParams === "function"
+    ? new URLSearchParams(window.location.search).get("owner")
+    : "guest";
+  const ownerUid = /^[a-zA-Z0-9_-]{1,128}$/.test(requestedOwner || "") ? requestedOwner : "guest";
+  const STORAGE_KEY = `gestureclass.v1.private::${ownerUid}`;
   const SUBJECTS = ["Toán 8", "Tin học 6", "Tin học 7", "Tin học 8", "Tin học 9", "Toán 5", "Chủ đề AI"];
   const iconPaths = {
     hand: '<path d="M12 11V5a2 2 0 0 1 4 0v6"/><path d="M8 11V7a2 2 0 0 1 4 0v4"/><path d="M16 11V8a2 2 0 0 1 4 0v8a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7v-2a2 2 0 0 1 4 0v2"/>',

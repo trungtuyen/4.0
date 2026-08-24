@@ -25,6 +25,8 @@ import * as XLSX from 'xlsx';
 import { AGSAStabilizer, FingerClassifier } from '../gesture-core/agsa';
 import { estimateLandmarkQuality } from '../gesture-core/geometry';
 import { LandmarkSmoother } from '../gesture-core/oneEuro';
+import { auth } from '../firebase';
+import { createTeacherStorageKey } from '../lib/teacherIsolation';
 import type {
   EngineState,
   FingerStates,
@@ -182,9 +184,10 @@ const HAND_CONNECTIONS = [
 const createId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 function usePersistentState<T>(key: string, initialValue: T) {
+  const scopedKey = createTeacherStorageKey(key, auth.currentUser?.uid);
   const [value, setValue] = useState<T>(() => {
     try {
-      const saved = localStorage.getItem(key);
+      const saved = localStorage.getItem(scopedKey);
       return saved ? JSON.parse(saved) : initialValue;
     } catch {
       return initialValue;
@@ -192,8 +195,8 @@ function usePersistentState<T>(key: string, initialValue: T) {
   });
 
   useEffect(() => {
-    localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value]);
+    localStorage.setItem(scopedKey, JSON.stringify(value));
+  }, [scopedKey, value]);
 
   return [value, setValue] as const;
 }
@@ -977,4 +980,3 @@ export default function GestureCoreEdu({ onBack }: GestureCoreEduProps) {
     </div>
   );
 }
-

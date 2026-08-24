@@ -358,7 +358,7 @@ export default function App() {
   }
 
   if (currentView === 'learning-wall') {
-    return <LearningWall onBack={() => setCurrentView('landing')} />;
+    return <LearningWall currentUser={currentUser} onBack={() => setCurrentView('landing')} />;
   }
 
   if (currentView === 'gesture-core') {
