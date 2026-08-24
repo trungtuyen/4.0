@@ -10,8 +10,8 @@ async function main() {
   }
 
   const index = readFileSync(resolve(__dirname, "../public/gestureclass/index.html"), "utf8");
-  assert.match(index, /href="\.\/styles\.css"/);
-  assert.match(index, /src="\.\/app\.js"/);
+  assert.match(index, /href="\.\/styles\.css\?v=projector-readable-v1"/);
+  assert.match(index, /src="\.\/app\.js\?v=projector-readable-v1"/);
 
   const styles = readFileSync(resolve(__dirname, "../public/gestureclass/styles.css"), "utf8");
   assert.match(styles, /\.app-shell\.play-mode \.question-block h2 \{ font-size: clamp\(30px, 1\.9vw, 40px\)/);
