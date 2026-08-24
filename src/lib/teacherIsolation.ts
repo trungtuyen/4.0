@@ -22,6 +22,16 @@ export interface PrivateStudentRosterSource {
   classId?: string;
 }
 
+export interface TeacherSessionStorage {
+  readonly length: number;
+  key(index: number): string | null;
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export const ACTIVE_TEACHER_SESSION_KEY = 'smartclass_active_teacher_uid';
+
 const TEACHER_UID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 
 export function isValidTeacherUid(value: unknown): value is string {
@@ -60,6 +70,35 @@ export function createTeacherStorageKey(
   }
 
   return `${applicationKey}::${ownerUid || 'guest'}`;
+}
+
+export function synchronizeTeacherBrowserSession(
+  storage: TeacherSessionStorage,
+  ownerUid: string | null | undefined,
+): boolean {
+  if (ownerUid && !isValidTeacherUid(ownerUid)) {
+    throw new RangeError('Mã tài khoản giáo viên không hợp lệ.');
+  }
+
+  const previousOwnerUid = storage.getItem(ACTIVE_TEACHER_SESSION_KEY) || '';
+  const nextOwnerUid = ownerUid || '';
+  if (previousOwnerUid === nextOwnerUid) return false;
+
+  const keysToRemove = new Set(['currentStudent', 'activeExam', 'examVersion']);
+  if (isValidTeacherUid(previousOwnerUid)) {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.endsWith(`::${previousOwnerUid}`)) keysToRemove.add(key);
+    }
+  }
+
+  for (const key of keysToRemove) storage.removeItem(key);
+  if (nextOwnerUid) {
+    storage.setItem(ACTIVE_TEACHER_SESSION_KEY, nextOwnerUid);
+  } else {
+    storage.removeItem(ACTIVE_TEACHER_SESSION_KEY);
+  }
+  return true;
 }
 
 export function canAccessTeacherOwnedRecord(

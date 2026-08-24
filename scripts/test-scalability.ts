@@ -34,6 +34,7 @@ check(firebase.includes('persistentLocalCache('), 'Supported browsers keep Fires
 check(firebase.includes('persistentMultipleTabManager()'), 'Multiple browser tabs share a synchronized persistent cache.');
 check(firebase.includes('memoryLocalCache()'), 'Shared devices and unsupported browsers can fall back to memory-only storage.');
 check(firebase.includes('VITE_FIRESTORE_CACHE_MODE'), 'School-managed deployments can disable persistent student-data storage.');
+check(firebase.includes("VITE_FIRESTORE_CACHE_MODE === 'persistent'"), 'Persistent Firestore storage requires explicit opt-in on trusted personal devices.');
 
 check(!footer.includes('getCountFromServer('), 'Anonymous visitors never trigger collection-wide count queries.');
 check(!footer.includes('onSnapshot('), 'Anonymous visitors never open Firestore realtime streams.');

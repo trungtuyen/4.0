@@ -125,14 +125,18 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 - Quản trị viên có thể đăng nhập bằng Google hoặc bằng email đã xác minh.
 - Repository variable `VITE_ADMIN_EMAIL` là tùy chọn. Nếu chưa cấu hình, khi nhập tên `admin` hãy điền email Firebase của quản trị viên; hoặc đăng nhập bằng Google. Sau khi quyền quản trị được Firebase/Firestore xác minh, trình duyệt ghi nhớ email cho phiên hiện tại.
 - Giáo viên mới được tạo ở trạng thái chờ duyệt; quản trị viên phải kích hoạt trước khi sử dụng thư viện.
+- Firebase chặn trực tiếp giáo viên đang chờ duyệt hoặc đã bị khóa, kể cả khi cố truy vấn dữ liệu bên ngoài giao diện; tài khoản đang sử dụng bị đăng xuất ngay khi quản trị viên vô hiệu hóa.
 - Chức năng khôi phục mật khẩu gửi liên kết bảo mật qua Firebase, không hiển thị hoặc đặt trực tiếp mật khẩu.
 - Lớp học, danh sách học sinh, bài đăng, kỳ thi, phiên thi, điểm số và báo cáo được giới hạn theo UID Firebase của giáo viên; quản trị viên có thể truy cập dữ liệu của toàn hệ thống.
 - Bộ câu hỏi, trò chơi, GestureClass, Plicker và báo cáo lưu trên trình duyệt sử dụng khóa riêng cho từng tài khoản, kể cả khi nhiều giáo viên dùng chung một thiết bị.
+- Khi đổi tài khoản hoặc đăng xuất, hệ thống xóa phiên học sinh, đề thi đã giải mã và dấu vết phiên của giáo viên trước; dữ liệu tài khoản kế tiếp được tải lại từ đầu.
 - Báo cáo Plicker, danh sách lớp và bộ câu hỏi đã đồng bộ được tổng hợp đầy đủ cho quản trị viên; giáo viên vẫn chỉ thấy dữ liệu thuộc UID Firebase của chính mình. Các bộ nhớ cũ không rõ chủ sở hữu không được tự động nhập sang tài khoản khác.
 - Lịch thi công khai chỉ chứa tên kỳ thi, thời gian, thời lượng và số câu; không có mã thi, nội dung đề, đáp án, danh sách học sinh hoặc các mã đề. Đề thi gốc trong `exams` luôn riêng tư; bản dành cho học sinh nằm trong `public_exam_access`, được mã hóa AES-256-GCM với khóa dẫn xuất PBKDF2 và chỉ mở bằng mã thi hợp lệ. Không thể liệt kê các đề mã hóa nếu không có quyền quản trị.
 - Khi giáo viên mở kỳ thi, hệ thống tạo danh mục đối chiếu học sinh bằng SHA-256 theo giáo viên và kỳ thi. Cổng thi không đọc danh sách lớp, bảng điểm hoặc báo cáo riêng; học sinh chưa có trong danh sách chỉ được đăng ký cho một kỳ thi đang mở. Mã kỳ thi mới gồm 12 chữ số ngẫu nhiên an toàn; mã đề trộn mới gồm 10 chữ số.
+- Phiên thi và kết quả nộp phải thuộc học sinh đã đăng ký đúng giáo viên, đúng kỳ thi đang mở và có phiên đang làm bài; dữ liệu thừa, đổi chủ sở hữu hoặc điểm vượt số câu đều bị Firestore từ chối.
 - Kiểm thử phân quyền mô phỏng 5.000 tài khoản: mỗi giáo viên chỉ thấy đúng một không gian của mình, khách không thấy dữ liệu riêng và quản trị viên xem được toàn bộ.
-- **GitHub Pages không tự triển khai Firestore Security Rules.** Sau khi cập nhật GitHub, quản trị viên Firebase phải mở dự án `gen-lang-client-0870957273`, chọn cơ sở dữ liệu `ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e`, dán nội dung `firestore.rules` vào mục **Firestore Database → Rules**, kiểm tra rồi chọn **Publish**. Trước khi thao tác này hoàn tất, lớp bảo vệ ở máy chủ vẫn là bộ quy tắc Firebase đã triển khai trước đó.
+- `firebase.json` ghép chính xác bộ quy tắc với cơ sở dữ liệu `ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e`. Nếu repository secret `FIREBASE_SERVICE_ACCOUNT_JSON` đã được cấu hình bằng tài khoản dịch vụ có quyền Firebase Rules, GitHub Actions tự xuất bản `firestore.rules` trước khi triển khai website.
+- Nếu chưa có secret, quản trị viên Firebase vẫn phải mở dự án `gen-lang-client-0870957273`, chọn đúng cơ sở dữ liệu, dán `firestore.rules` vào **Firestore Database → Rules** rồi chọn **Publish**; hoặc đăng nhập Firebase CLI và chạy `npm run deploy:firestore`. Cho đến khi hoàn tất, máy chủ tiếp tục dùng bộ quy tắc đã triển khai trước đó.
 
 ## Lộ trình tiếp theo
 
@@ -155,6 +159,8 @@ npm run test:platform-metrics
 npm run test:scalability
 npm run test:teacher-isolation
 npm run test:hardening
+npm run test:security-hardening
+npm run test:plicker-student-sync
 npm run test:exam-privacy
 npm run test:pwa
 npm run build

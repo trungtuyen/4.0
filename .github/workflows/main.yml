@@ -24,6 +24,7 @@ jobs:
       VITE_ADMIN_EMAIL: ${{ vars.VITE_ADMIN_EMAIL }}
       VITE_GOOGLE_AI_MODEL: ${{ vars.VITE_GOOGLE_AI_MODEL }}
       VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+      VITE_FIRESTORE_CACHE_MODE: ${{ vars.VITE_FIRESTORE_CACHE_MODE || 'memory' }}
 
     steps:
       - name: Checkout source
@@ -65,14 +66,36 @@ jobs:
       - name: Verify shared-device, OMR, wall and guest-write hardening
         run: npm run test:hardening
 
+      - name: Verify owner-scoped Plicker class and student synchronization
+        run: npm run test:plicker-student-sync
+
       - name: Validate Firebase owner-scoped security rules
         run: npm run lint:firestore
+
+      - name: Verify account-switch privacy and restricted student submissions
+        run: npm run test:security-hardening
 
       - name: Verify ecosystem and Plicker offline installation
         run: npm run test:pwa
 
       - name: Build project
         run: npm run build
+
+      - name: Deploy named-database Firestore rules when credentials are available
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/smartclass-firebase-service-account.json
+        shell: bash
+        run: |
+          if [[ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]]; then
+            echo "::warning::Firestore rules were not published. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
+            exit 0
+          fi
+
+          umask 077
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          npm run deploy:firestore
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

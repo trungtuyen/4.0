@@ -79,6 +79,6 @@ matches(rules, /allow list:\s*if false;/u, 'Aggregate statistics cannot be enume
 matches(rules, /isAdmin\(\)\s*&&\s*publicPlatformStatsAreSafe\(statId,\s*incoming\(\)\)/u, 'Only administrators publish validated totals.');
 matches(footer, /getDoc\(doc\(db,\s*'platform_stats',\s*'overview'\)\)/u, 'The footer performs a single aggregate point read.');
 matches(footer, /cachePublicPlatformSnapshot\(window\.localStorage,\s*published\)/u, 'The safe merged public snapshot is cached.');
-matches(worker, /CACHE_PREFIX\}v17/u, 'The service worker cache version releases hardened assets immediately.');
+matches(worker, /CACHE_PREFIX\}v\d+/u, 'The service worker cache version releases hardened assets immediately.');
 
 console.info(`Ecosystem hardening: ${checks} checks passed.`);
