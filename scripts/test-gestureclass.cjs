@@ -13,6 +13,13 @@ async function main() {
   assert.match(index, /href="\.\/styles\.css"/);
   assert.match(index, /src="\.\/app\.js"/);
 
+  const styles = readFileSync(resolve(__dirname, "../public/gestureclass/styles.css"), "utf8");
+  assert.match(styles, /\.app-shell\.play-mode \.question-block h2 \{ font-size: clamp\(30px, 1\.9vw, 40px\)/);
+  assert.match(styles, /\.app-shell\.play-mode \.answer-copy \{ font-size: clamp\(18px, 1\.25vw, 24px\)/);
+  assert.match(styles, /\.app-shell\.play-mode \.play-layout:fullscreen \.question-block h2 \{ font-size: clamp\(42px, 3\.15vw, 62px\)/);
+  assert.match(styles, /\.app-shell\.play-mode \.play-layout:fullscreen \.answer-copy \{ font-size: clamp\(26px, 2vw, 38px\)/);
+  assert.match(styles, /\.app-shell\.play-mode \.play-layout:fullscreen \.play-sidebar \{ display: none; \}/);
+
   const serviceWorker = readFileSync(resolve(__dirname, "../public/service-worker.js"), "utf8");
   assert.match(serviceWorker, /pathname\.startsWith\(`\$\{APP_ROOT\}gestureclass\/`\)/);
   assert.match(serviceWorker, /const fresh = await fetch\(request\)/);
@@ -171,6 +178,9 @@ async function main() {
 
   await click("navigate", { view: "play" });
   assert.match(markup, /Phòng chơi cử chỉ/);
+  assert.match(markup, /class="app-shell play-mode"/);
+  assert.match(markup, /aria-label="Mở chế độ trình chiếu toàn màn hình"/);
+  assert.match(markup, /class="button ghost small fullscreen-exit"/);
   assert.equal((markup.match(/class="answer-card/g) || []).length, 4);
   await click("simulate-gesture", { index: "1" });
   assert.match(markup, /answer-card correct/);
@@ -209,7 +219,7 @@ async function main() {
 
   process.stdout.write(JSON.stringify({
     status: "passed",
-    checked: ["static assets", "dashboard", "question create/duplicate/delete", "question search", "class create/delete confirmation and persistence", "empty class list and synchronized counts", "gesture simulation", "keyboard answers", "flashcards", "random student picker", "responsive navigation", "local persistence"]
+    checked: ["static assets", "projector-scale classroom play mode", "fullscreen presentation controls", "dashboard", "question create/duplicate/delete", "question search", "class create/delete confirmation and persistence", "empty class list and synchronized counts", "gesture simulation", "keyboard answers", "flashcards", "random student picker", "responsive navigation", "local persistence"]
   }) + "\n");
 }
 
