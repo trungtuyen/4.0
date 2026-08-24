@@ -710,24 +710,25 @@ export default function App() {
 
       <main>
         {/* Hero Section */}
-        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 overflow-hidden bg-slate-900">
-          {/* Decorative background elements */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-b from-indigo-500/20 to-transparent rounded-full blur-3xl transform rotate-12"></div>
-            <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-t from-blue-500/20 to-transparent rounded-full blur-3xl transform -rotate-12"></div>
-            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-violet-500/20 rounded-full blur-3xl mix-blend-screen"></div>
-          </div>
+        <section
+          className="relative isolate overflow-hidden bg-cover bg-center bg-no-repeat pt-32 pb-24 px-4 sm:px-6 lg:px-8"
+          style={{ backgroundImage: `url("${import.meta.env.BASE_URL}homepage-classroom-background.jpg")` }}
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-black/70"
+          />
 
           <div className="relative max-w-7xl mx-auto text-center z-10">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20 text-blue-200 text-sm font-medium mb-8 backdrop-blur-sm">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/25 border border-white/35 text-white text-sm font-medium mb-8 backdrop-blur-sm">
               <Zap className="w-4 h-4 text-yellow-400" />
               <span>Cơ hội đầu tư phát triển cùng giáo dục Việt Nam</span>
             </div>
-            <h1 className="text-5xl md:text-7xl font-extrabold text-white tracking-tight mb-6 leading-tight">
+            <h1 className="text-5xl md:text-7xl font-extrabold text-white tracking-tight mb-6 leading-tight drop-shadow-lg">
               Định hình tương lai giáo dục <br className="hidden md:block" />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-violet-400">Giơ tay là điều khiển, học là cuốn</span>
+              <span className="text-amber-200 drop-shadow-lg">Giơ tay là điều khiển, học là cuốn</span>
             </h1>
-            <p className="text-lg md:text-xl text-slate-300 max-w-3xl mx-auto mb-10">
+            <p className="text-lg md:text-xl text-white/90 max-w-3xl mx-auto mb-10 drop-shadow-md">
               Nền tảng tương tác trực tuyến tích hợp nhận diện cử chỉ (gesture recognition) — điều khiển nội dung bằng tay, tối ưu trải nghiệm dạy–học theo thời gian thực.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
@@ -747,22 +748,22 @@ export default function App() {
             </div>
             
             {/* Verified ecosystem metrics */}
-            <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto border-t border-white/10 pt-10">
+            <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto border-t border-white/25 pt-10">
               <div>
                 <div className="text-4xl font-bold text-white mb-2">{ECOSYSTEM_APPLICATIONS.length}</div>
-                <div className="text-sm text-slate-400">Ứng dụng giáo dục</div>
+                <div className="text-sm text-white/85">Ứng dụng giáo dục</div>
               </div>
               <div>
                 <div className="text-4xl font-bold text-white mb-2">{ECOSYSTEM_APPLICATIONS.filter(application => application.dependency === 'browser').length}</div>
-                <div className="text-sm text-slate-400">Công cụ chạy trên thiết bị</div>
+                <div className="text-sm text-white/85">Công cụ chạy trên thiết bị</div>
               </div>
               <div>
                 <div className="text-4xl font-bold text-white mb-2">21</div>
-                <div className="text-sm text-slate-400">Điểm nhận dạng bàn tay</div>
+                <div className="text-sm text-white/85">Điểm nhận dạng bàn tay</div>
               </div>
               <div>
                 <div className="text-4xl font-bold text-white mb-2">A–D</div>
-                <div className="text-sm text-slate-400">Chọn đáp án bằng cử chỉ</div>
+                <div className="text-sm text-white/85">Chọn đáp án bằng cử chỉ</div>
               </div>
             </div>
           </div>
