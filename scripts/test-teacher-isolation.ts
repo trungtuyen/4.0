@@ -115,7 +115,7 @@ verify(examManager.includes('createPrivateStudentRosterDirectory'), 'Publishing 
 verify(examManager.includes('createStudentRosterLookupKey(teacherOwnerUid, exam.id, normalizedStudentName)'), 'Student login checks a private matching key instead of reading all classmates.');
 verify(!examManager.includes('getDocs(studentsQuery)'), 'The public student portal never downloads a teacher’s student list.');
 verify(examManager.includes('id: `${currentStudent.id}_${activeExam.id}`'), 'A student receives at most one protected result document per exam.');
-verify(omr.includes("where('teacherId', '==', teacherId)"), 'OMR result exports cannot include another teacher’s scores.');
+verify(omr.includes("where('teacherId', '==', examOwnerUid)"), 'OMR result exports cannot include another teacher’s scores, including when an administrator scans them.');
 verify(classroom.includes("kind: 'plicker_report'"), 'Plicker summaries are synchronized for administrator oversight.');
 verify(classroom.includes('createPlickerReportDocumentId(ownerUid, report.id)'), 'Each Plicker cloud report includes its teacher ownership.');
 verify(classroom.includes('createTeacherStorageKey(REPORTS_STORAGE_KEY, ownerUid)'), 'Plicker reports are isolated on shared computers.');

@@ -3,6 +3,7 @@ import { ArrowLeft, Camera, Plus, X, Monitor, Image as ImageIcon, Send, MessageC
 import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, arrayUnion, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Teacher } from '../types';
+import { isPlickerSystemCategory } from '../lib/plickerLive';
 import { canAccessTeacherOwnedRecord, filterTeacherOwnedRecords, resolveTeacherAccessScope } from '../lib/teacherIsolation';
 
 interface Category {
@@ -60,7 +61,9 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
       : query(collection(db, 'categories'), where('authorId', '==', accessScope.ownerUid));
     const unsub = onSnapshot(categoriesQuery, (snapshot) => {
       setCategories(filterTeacherOwnedRecords(accessScope,
-        snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Category))));
+        snapshot.docs
+          .filter(item => !isPlickerSystemCategory(item.id, item.data()))
+          .map(item => ({ id: item.id, ...item.data() } as Category))));
     }, error => {
       console.error('Không thể tải lớp học của tài khoản hiện tại:', error);
       setCategories([]);
@@ -131,6 +134,9 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pendingPostImage || !studentName || !selectedCategoryId) return;
+    const selectedCategory = categories.find(category => category.id === selectedCategoryId);
+    if (accessScope.role === 'guest' || !selectedCategory ||
+        !canAccessTeacherOwnedRecord(accessScope, selectedCategory)) return;
 
     try {
       await addDoc(collection(db, 'wall_posts'), {
@@ -175,13 +181,15 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
         </div>
         
         <div className="flex items-center gap-3">
-          <button 
-            onClick={openCamera}
-            className="flex items-center gap-2 px-4 py-2 bg-white/40 hover:bg-white/60 text-slate-800 rounded-lg transition-colors font-medium shadow-sm border border-black/5"
-          >
-            <Camera className="w-5 h-5" />
-            Đăng bài mới
-          </button>
+          {accessScope.role !== 'guest' && (
+            <button 
+              onClick={openCamera}
+              className="flex items-center gap-2 px-4 py-2 bg-white/40 hover:bg-white/60 text-slate-800 rounded-lg transition-colors font-medium shadow-sm border border-black/5"
+            >
+              <Camera className="w-5 h-5" />
+              Đăng bài mới
+            </button>
+          )}
         </div>
       </header>
 

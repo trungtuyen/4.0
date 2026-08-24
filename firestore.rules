@@ -96,6 +96,67 @@ service cloud.firestore {
         incoming().ciphertext is string && incoming().ciphertext.size() > 0;
     }
 
+    function guestStudentIsSafe(studentId) {
+      return incoming().keys().hasAll(['id', 'teacherId', 'name', 'code', 'examId']) &&
+        incoming().keys().hasOnly(['id', 'teacherId', 'name', 'code', 'examId']) &&
+        incoming().id == studentId && isValidId(studentId) &&
+        isValidId(incoming().teacherId) && isValidId(incoming().examId) &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160 &&
+        incoming().code is string && incoming().code.size() > 0 && incoming().code.size() <= 32;
+    }
+
+    function guestResultIsSafe(resultId) {
+      return incoming().keys().hasAll([
+          'id', 'examId', 'studentId', 'score', 'totalQuestions', 'submittedAt',
+          'answers', 'cheatEvents', 'examVersion', 'teacherId'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'examId', 'studentId', 'score', 'totalQuestions', 'submittedAt',
+          'answers', 'cheatEvents', 'examVersion', 'teacherId'
+        ]) &&
+        incoming().id == resultId &&
+        isValidId(incoming().examId) && isValidId(incoming().studentId) &&
+        isValidId(incoming().teacherId) &&
+        incoming().score is int && incoming().score >= 0 &&
+        incoming().totalQuestions is int && incoming().totalQuestions > 0 &&
+        incoming().score <= incoming().totalQuestions &&
+        incoming().submittedAt is string && incoming().submittedAt.size() <= 64 &&
+        incoming().answers is map && incoming().cheatEvents is map &&
+        incoming().examVersion is string && incoming().examVersion.size() <= 128;
+    }
+
+    function guestSessionIsSafe(sessionId) {
+      return incoming().keys().hasAll([
+          'id', 'examId', 'studentId', 'startTime', 'lastActive', 'status', 'teacherId', 'examVersion'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'examId', 'studentId', 'startTime', 'lastActive', 'status', 'teacherId', 'examVersion'
+        ]) &&
+        incoming().id == sessionId &&
+        isValidId(incoming().examId) && isValidId(incoming().studentId) &&
+        isValidId(incoming().teacherId) &&
+        incoming().startTime is string && incoming().startTime.size() <= 64 &&
+        incoming().lastActive is string && incoming().lastActive.size() <= 64 &&
+        (incoming().status == 'taking' || incoming().status == 'submitted') &&
+        incoming().examVersion is string && incoming().examVersion.size() <= 128;
+    }
+
+    function publicPlatformStatsAreSafe(statId, data) {
+      return statId == 'overview' &&
+        data.keys().hasAll([
+          'registeredTeachers', 'activeTeachers', 'registeredSchools', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'registeredTeachers', 'activeTeachers', 'registeredSchools', 'updatedAt'
+        ]) &&
+        data.registeredTeachers is int && data.registeredTeachers >= 0 &&
+        data.activeTeachers is int && data.activeTeachers >= 0 &&
+        data.registeredSchools is int && data.registeredSchools >= 0 &&
+        data.activeTeachers <= data.registeredTeachers &&
+        data.registeredSchools <= data.registeredTeachers &&
+        data.updatedAt is timestamp;
+    }
+
     function publishedExamBelongsToTeacher(examId, teacherId) {
       return isValidId(examId) && isValidId(teacherId) &&
         exists(/databases/$(database)/documents/exams/$(examId)) &&
@@ -191,12 +252,7 @@ service cloud.firestore {
       allow read: if mayAccess(existing(), 'teacherId');
       allow create: if isAdmin() || ownsField(incoming(), 'teacherId') || (
         !isSignedIn() &&
-        isValidId(studentId) &&
-        incoming().id == studentId &&
-        isValidId(incoming().teacherId) &&
-        incoming().name is string &&
-        incoming().name.size() > 0 && incoming().name.size() <= 160 &&
-        incoming().code is string &&
+        guestStudentIsSafe(studentId) &&
         publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
       );
       allow update: if isAdmin() || (
@@ -210,7 +266,7 @@ service cloud.firestore {
       allow read: if mayAccess(existing(), 'teacherId');
       allow create: if isAdmin() || ownsField(incoming(), 'teacherId') || (
         !isSignedIn() &&
-        incoming().id == resultId &&
+        guestResultIsSafe(resultId) &&
         resultId == incoming().studentId + '_' + incoming().examId &&
         publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
       );
@@ -224,7 +280,7 @@ service cloud.firestore {
       allow read: if mayAccess(existing(), 'teacherId');
       allow create: if isAdmin() || ownsField(incoming(), 'teacherId') || (
         !isSignedIn() &&
-        incoming().id == sessionId &&
+        guestSessionIsSafe(sessionId) &&
         sessionId == incoming().studentId + '_' + incoming().examId &&
         publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
       );
@@ -233,10 +289,19 @@ service cloud.firestore {
       ) || (
         !isSignedIn() &&
         ownerRemainsUnchanged('teacherId') &&
+        guestSessionIsSafe(sessionId) &&
         sessionId == incoming().studentId + '_' + incoming().examId &&
         publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId)
       );
       allow delete: if mayAccess(existing(), 'teacherId');
+    }
+
+    match /platform_stats/{statId} {
+      // Public visitors may read one aggregate-only document; private profiles stay protected.
+      allow get: if publicPlatformStatsAreSafe(statId, existing());
+      allow list: if false;
+      allow create, update: if isAdmin() && publicPlatformStatsAreSafe(statId, incoming());
+      allow delete: if isAdmin();
     }
   }
 }

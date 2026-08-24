@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { postApiJson } from '../lib/api';
+import { isValidTeacherUid } from '../lib/teacherIsolation';
 
 interface OMRScannerProps {
   examId: string;
@@ -28,19 +29,28 @@ export default function OMRScanner({ examId, exams, students, classes, teacherId
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const exam = exams.find(e => e.id === examId);
+  const examOwnerUid = isValidTeacherUid(exam?.teacherId) ? exam.teacherId : '';
 
   // Fetch all results for this exam whenever scanner is used or results updated
   useEffect(() => {
     fetchResults();
-  }, [examId, results, teacherId, isAdministrator]);
+  }, [examId, examOwnerUid, results, teacherId, isAdministrator]);
 
   const fetchResults = async () => {
     try {
-      const q = isAdministrator
-        ? query(collection(db, 'results'), where('examId', '==', examId))
-        : query(collection(db, 'results'), where('examId', '==', examId), where('teacherId', '==', teacherId));
+      if (!examOwnerUid || (!isAdministrator && examOwnerUid !== teacherId)) {
+        setAllExamResults([]);
+        return;
+      }
+      const q = query(
+        collection(db, 'results'),
+        where('examId', '==', examId),
+        where('teacherId', '==', examOwnerUid),
+      );
       const querySnapshot = await getDocs(q);
-      const fetchedResults = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const fetchedResults = querySnapshot.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .filter(result => result.teacherId === examOwnerUid && result.examId === examId);
       setAllExamResults(fetchedResults);
     } catch (err) {
       console.error("Error fetching results:", err);
@@ -166,7 +176,11 @@ export default function OMRScanner({ examId, exams, students, classes, teacherId
     if (!results) return;
 
     try {
-      const student = students.find(s => s.code === results.sbd);
+      if (!examOwnerUid || (!isAdministrator && examOwnerUid !== teacherId)) {
+        throw new Error('Không thể xác định đúng giáo viên sở hữu kỳ thi.');
+      }
+      const student = students.find(s =>
+        s.code === results.sbd && s.teacherId === examOwnerUid);
       
       await addDoc(collection(db, 'results'), {
         examId: examId,
@@ -177,7 +191,7 @@ export default function OMRScanner({ examId, exams, students, classes, teacherId
         studentSbd: results.sbd,
         examVersion: results.maDe,
         submittedAt: new Date().toISOString(),
-        teacherId: teacherId,
+        teacherId: examOwnerUid,
         details: results.details,
         type: 'omr_scan'
       });

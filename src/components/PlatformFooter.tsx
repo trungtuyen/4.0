@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import {
   doc,
+  getDoc,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
@@ -140,17 +141,34 @@ function usePlatformMetrics(): PublicPlatformMetrics {
         if (!response.ok || !mounted) return;
 
         const value: unknown = await response.json();
-        const published = readPublicPlatformSnapshot(value);
+        let published = readPublicPlatformSnapshot(value);
+        let connectedToFirebase = false;
+
+        if (!published?.hasRegistrationData) {
+          try {
+            const aggregate = await getDoc(doc(db, 'platform_stats', 'overview'));
+            const cloudMetrics = aggregate.exists()
+              ? readPublicPlatformSnapshot(aggregate.data())
+              : null;
+            if (cloudMetrics) {
+              published = { ...(published || {}), ...cloudMetrics };
+              connectedToFirebase = true;
+            }
+          } catch {
+            // Static CDN metrics and local counters remain available before Rules are published.
+          }
+        }
+
         if (!published) return;
 
-        cachePublicPlatformSnapshot(window.localStorage, value);
+        cachePublicPlatformSnapshot(window.localStorage, published);
         publishedOnlineVisitors = published.onlineVisitors || 0;
         const localOnline = navigator.onLine ? recordLocalPresence(window.localStorage, visitorId) : 0;
         update({
           ...published,
           totalVisits: Math.max(published.totalVisits || 0, localVisits),
           onlineVisitors: Math.max(publishedOnlineVisitors, localOnline),
-          isFirebaseConnected: Object.keys(published).length > 0,
+          isFirebaseConnected: connectedToFirebase || Object.keys(published).length > 0,
         });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;

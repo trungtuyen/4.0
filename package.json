@@ -21,6 +21,7 @@
     "test:platform-metrics": "node --import tsx scripts/test-platform-metrics.ts",
     "test:scalability": "node --import tsx scripts/test-scalability.ts",
     "test:teacher-isolation": "node --import tsx scripts/test-teacher-isolation.ts",
+    "test:hardening": "node --import tsx scripts/test-ecosystem-hardening.ts",
     "test:plicker": "node --import tsx scripts/test-plicker.ts",
     "test:pwa": "node --import tsx scripts/test-pwa.ts",
     "test:plicker-live": "node --import tsx scripts/test-plicker-live.ts",

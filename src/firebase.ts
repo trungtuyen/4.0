@@ -23,10 +23,12 @@ if (appCheckSiteKey && typeof window !== 'undefined') {
   }
 }
 
+// Shared school computers must not retain a previous teacher's Firestore cache.
+// Persistent offline storage is opt-in for individually managed devices only.
 const usePersistentFirestoreCache =
   typeof window !== 'undefined' &&
   typeof indexedDB !== 'undefined' &&
-  import.meta.env.VITE_FIRESTORE_CACHE_MODE !== 'memory';
+  import.meta.env.VITE_FIRESTORE_CACHE_MODE === 'persistent';
 
 export const db = initializeFirestore(app, {
   localCache: usePersistentFirestoreCache

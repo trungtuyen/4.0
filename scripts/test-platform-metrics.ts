@@ -220,7 +220,10 @@ const footer = readFileSync(new URL('../src/components/PlatformFooter.tsx', impo
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 
 ok(rules.includes('allow list: if isAdmin();'), 'Existing Firestore rules continue to restrict teacher lists to administrators.');
-ok(!rules.includes('match /platform_stats/overview'), 'Homepage statistics do not weaken existing Firestore security rules.');
+ok(rules.includes('match /platform_stats/{statId}'), 'Public platform totals have a dedicated aggregate-only rule.');
+ok(rules.includes('allow get: if publicPlatformStatsAreSafe(statId, existing());'), 'Guests can point-read only a validated overview document.');
+ok(rules.includes('allow list: if false;'), 'Guests cannot enumerate platform statistic documents.');
+ok(rules.includes('allow create, update: if isAdmin() && publicPlatformStatsAreSafe(statId, incoming());'), 'Only administrators can publish validated platform totals.');
 ok(!rules.includes('match /platform_presence/{visitorId}'), 'Homepage statistics do not add public Firestore write permissions.');
 
 for (const label of [
@@ -244,6 +247,8 @@ ok(!footer.includes('runTransaction(db'), 'Public page views do not contend on a
 ok(!footer.includes("platform_presence', visitorId"), 'Anonymous page views do not create remote heartbeat writes.');
 ok(!footer.includes('onSnapshot('), 'The homepage does not create per-visitor Firestore realtime listeners.');
 ok(footer.includes('platform-stats.json'), 'Public aggregate data comes from a CDN-cacheable static snapshot.');
+ok(footer.includes("getDoc(doc(db, 'platform_stats', 'overview'))"), 'Missing registration totals use one safe aggregate point read.');
+ok(footer.includes('cachePublicPlatformSnapshot(window.localStorage, published)'), 'The merged aggregate is cached to avoid repeated point reads.');
 ok(footer.includes('PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS'), 'Public aggregates use a bounded refresh schedule.');
 ok(footer.includes('serverTimestamp()'), 'Authorized administrator publication keeps trusted server timestamps.');
 ok(app.includes('publishPlatformRegistrationMetrics(profiles)'), 'Verified administrators publish aggregate-only registration statistics.');

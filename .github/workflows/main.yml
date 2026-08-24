@@ -62,6 +62,9 @@ jobs:
       - name: Verify teacher data isolation and administrator oversight
         run: npm run test:teacher-isolation
 
+      - name: Verify shared-device, OMR, wall and guest-write hardening
+        run: npm run test:hardening
+
       - name: Validate Firebase owner-scoped security rules
         run: npm run lint:firestore
 

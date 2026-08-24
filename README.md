@@ -32,18 +32,18 @@ Trang đăng nhập học sinh sử dụng bố cục quyển sách hai trang, t
 
 ## Thống kê cộng đồng tại chân trang
 
-Chân trang hiển thị tám chỉ số: **lượt truy cập, trường đăng ký, giáo viên tham gia, người đang trực tuyến, lớp học, học sinh, kỳ thi và số ứng dụng giáo dục**. Số liệu công khai được phân phối qua tệp tĩnh `public/platform-stats.json`, phù hợp với CDN miễn phí; mỗi trình duyệt kiểm tra lại tối đa 15 phút một lần.
+Chân trang hiển thị tám chỉ số: **lượt truy cập, trường đăng ký, giáo viên tham gia, người đang trực tuyến, lớp học, học sinh, kỳ thi và số ứng dụng giáo dục**. Số liệu công khai được phân phối chủ yếu qua tệp tĩnh `public/platform-stats.json`, phù hợp với CDN miễn phí; mỗi trình duyệt kiểm tra lại tối đa 15 phút một lần. Khi tệp tĩnh chưa có số đăng ký, ứng dụng chỉ đọc đúng một tài liệu tổng hợp `platform_stats/overview` làm phương án dự phòng.
 
 - Trang chủ không tạo truy vấn đếm Firestore, không mở luồng realtime và không ghi nhịp hoạt động từ mỗi lượt truy cập. Vì vậy số lần đọc/ghi Firebase không tăng theo số người chỉ mở trang chủ.
-- Khi quản trị viên đăng nhập, ứng dụng tổng hợp số lượng giáo viên đang hoạt động và số trường khác nhau. Bộ nhớ trên thiết bị và tài liệu `platform_stats/overview`, nếu Firebase cấp quyền riêng, chỉ chứa số lượng; không chứa tên, email hay danh sách trường.
+- Khi quản trị viên đăng nhập, ứng dụng tổng hợp số lượng giáo viên đang hoạt động và số trường khác nhau. Bộ nhớ trên thiết bị và tài liệu `platform_stats/overview` chỉ chứa số lượng; không chứa tên, email hay danh sách trường.
 - Tệp `platform-stats.json` chỉ chứa số liệu đã xác minh. Quản trị viên hoặc quy trình tổng hợp riêng có thể cập nhật tệp định kỳ; giá trị chưa xác minh phải giữ `null` và hiển thị `—`, tuyệt đối không tự tạo số liệu.
 - Khi chưa có số liệu tổng hợp, lượt truy cập và phiên đang hoạt động chỉ phản ánh trình duyệt hiện tại; giao diện không tuyên bố đây là tổng số trực tuyến toàn hệ thống.
-- Quy tắc Firestore hiện có không bị thay đổi và không mở thêm quyền công khai đối với hồ sơ giáo viên, học sinh hoặc bài thi.
+- Rules chỉ cho khách `get` tài liệu tổng hợp `platform_stats/overview`, cấm truy vấn danh sách và chỉ cho quản trị ghi đúng các trường số lượng đã được kiểm tra. Hồ sơ giáo viên, học sinh và bài thi vẫn không công khai.
 
 ## Kiến trúc local-first và khả năng chịu tải
 
 - Các ứng dụng được tải theo nhu cầu; giao diện quản trị không tải toàn bộ trò chơi, Plicker, Excel, PDF và quản lý thi khi giáo viên chưa mở.
-- Firestore sử dụng IndexedDB tối đa khoảng 64 MB, đồng bộ giữa nhiều tab và khôi phục dữ liệu đã truy cập khi mất mạng. Trên máy dùng chung, đặt `VITE_FIRESTORE_CACHE_MODE=memory` để không lưu lâu dài dữ liệu học sinh.
+- Firestore dùng bộ nhớ tạm thời theo mặc định, vì vậy máy tính dùng chung không giữ lâu dữ liệu của giáo viên trước. Chỉ đặt `VITE_FIRESTORE_CACHE_MODE=persistent` trên thiết bị cá nhân được quản lý khi cần IndexedDB, đồng bộ nhiều tab và mở lại dữ liệu đã truy cập lúc mất mạng.
 - Màn hình danh sách kỳ thi chỉ theo dõi danh sách đề. Danh sách học sinh/lớp, kết quả và giám sát phòng thi chỉ kết nối khi giáo viên mở đúng chức năng; nhịp cập nhật phòng thi là 60 giây.
 - Website có thể cài cả hệ sinh thái bằng `smartclass.webmanifest`; luồng cài riêng ứng dụng Plicker bằng `plicker.webmanifest` vẫn được giữ nguyên.
 - Service worker lưu giao diện, GestureClass, biểu tượng và bản thống kê công khai để giảm tải mạng và hỗ trợ mở lại nội dung đã dùng khi mất kết nối.
@@ -154,6 +154,7 @@ npm run test:ai-services
 npm run test:platform-metrics
 npm run test:scalability
 npm run test:teacher-isolation
+npm run test:hardening
 npm run test:exam-privacy
 npm run test:pwa
 npm run build
