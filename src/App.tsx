@@ -8,6 +8,7 @@ import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemAppl
 import PlatformFooter, { publishPlatformRegistrationMetrics } from './components/PlatformFooter';
 import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
 import { createPlickerLaunchPath, readRequestedApplication, selectApplicationManifest } from './lib/plickerPwa';
+import { synchronizeTeacherBrowserSession } from './lib/teacherIsolation';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ExamManager = lazy(() => import('./components/ExamManager'));
@@ -98,6 +99,11 @@ export default function App() {
 
   useEffect(() => {
     return onAuthStateChanged(auth, async firebaseUser => {
+      if (synchronizeTeacherBrowserSession(sessionStorage, firebaseUser?.uid)) {
+        setCurrentUser(null);
+        setTeachers([]);
+      }
+
       if (!firebaseUser) {
         setCurrentUser(null);
         setTeachers([]);
@@ -128,6 +134,35 @@ export default function App() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (!currentUser || currentUser === 'admin' || !auth.currentUser) return;
+    if (currentUser.id !== auth.currentUser.uid) return;
+    const signedInUid = auth.currentUser.uid;
+
+    return onSnapshot(doc(db, 'teachers', signedInUid), profile => {
+      if (profile.exists() && profile.id === signedInUid && profile.data().status === 'active') {
+        return;
+      }
+
+      synchronizeTeacherBrowserSession(sessionStorage, null);
+      setCurrentUser(null);
+      setTeachers([]);
+      setAuthMessage('Tài khoản giáo viên đã bị khóa hoặc chưa được quản trị viên phê duyệt.');
+      setCurrentView('auth');
+      void signOut(auth).catch(() => undefined);
+    }, error => {
+      console.error('Không thể theo dõi trạng thái tài khoản giáo viên:', error);
+      if (typeof error === 'object' && error !== null && 'code' in error &&
+          String(error.code) === 'permission-denied') {
+        synchronizeTeacherBrowserSession(sessionStorage, null);
+        setCurrentUser(null);
+        setTeachers([]);
+        setCurrentView('auth');
+        void signOut(auth).catch(() => undefined);
+      }
+    });
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser !== 'admin' || !auth.currentUser) return;
@@ -299,9 +334,7 @@ export default function App() {
       void signOut(auth);
       setCurrentUser(null);
       setTeachers([]);
-      sessionStorage.removeItem('currentStudent');
-      sessionStorage.removeItem('activeExam');
-      sessionStorage.removeItem('examVersion');
+      synchronizeTeacherBrowserSession(sessionStorage, null);
       setCurrentView('landing');
     }} teachers={teachers} setTeachers={setTeachers} currentUser={currentUser} initialApplication={requestedApplication} />;
   }
