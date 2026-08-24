@@ -405,7 +405,7 @@ export default function PlatformFooter({
           <div>
             <h4 className="mb-4 text-sm font-bold uppercase tracking-[0.16em] text-white">Giải pháp nổi bật</h4>
             <ul className="space-y-3 text-sm text-slate-400">
-              <li><button type="button" onClick={() => onOpenProduct('gesture-core')} className="transition hover:text-white">Điều khiển lớp học bằng cử chỉ</button></li>
+              <li><button type="button" onClick={() => onOpenProduct('gesture-class')} className="transition hover:text-white">Lớp học tương tác GestureClass</button></li>
               <li><button type="button" onClick={() => onOpenProduct('plicker')} className="transition hover:text-white">Tương tác thẻ Plicker</button></li>
               <li><button type="button" onClick={() => onOpenProduct('exam-manager')} className="transition hover:text-white">Quản lý kỳ thi trực tuyến</button></li>
               <li><button type="button" onClick={() => onOpenProduct('chatbot')} className="transition hover:text-white">Tư vấn học đường AI</button></li>

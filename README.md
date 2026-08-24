@@ -8,11 +8,10 @@ Nền tảng trò chơi và công cụ giáo dục tương tác dành cho giáo 
 
 Website: <https://trungtuyen.github.io/4.0/>
 
-## Danh mục 13 ứng dụng
+## Danh mục 12 ứng dụng
 
 | Ứng dụng | Mục đích | Điều kiện hoạt động |
 | --- | --- | --- |
-| GestureCore Edu | Trắc nghiệm, lật thẻ và chọn học sinh bằng cử chỉ tay | Trình duyệt, camera |
 | GestureClass | Quản lý lớp, ngân hàng câu hỏi, trắc nghiệm cử chỉ, lật thẻ và gọi tên | Trình duyệt, camera |
 | Vòng quay may mắn | Chọn học sinh hoặc phần thưởng ngẫu nhiên | Trình duyệt |
 | Bốc thẻ tương tác | Bốc và lật thẻ trong hoạt động trên lớp | Trình duyệt |
@@ -61,21 +60,6 @@ Giữ nguyên kho GitHub và đường dẫn hiện tại; Cloudflare Pages là 
 6. Tệp `_routes.json` chỉ cho phép `/api/*` đi qua Cloudflare Functions; HTML, CSS, JavaScript, ảnh, manifest và thống kê vẫn là tài nguyên tĩnh miễn phí.
 
 GitHub Pages tiếp tục dùng đường dẫn `/4.0/`; manifest, biểu tượng và service worker dùng đường dẫn tương đối nên hoạt động cả trên Cloudflare Pages và GitHub Pages.
-
-## GestureCore Edu — AGSA
-
-Mô-đun mới cung cấp:
-
-- nhận dạng 1–4 ngón tay để chọn đáp án A–D;
-- nắm tay để xác nhận, xòe tay để hủy;
-- bộ lọc One Euro giảm rung điểm bàn tay;
-- phân loại ngón bằng góc khớp, khoảng cách và ngưỡng kép;
-- bỏ phiếu nhiều khung hình có trọng số chất lượng;
-- máy trạng thái chống một cử chỉ kích hoạt nhiều lần;
-- trắc nghiệm, lật thẻ, chọn học sinh và phòng thử nghiệm AGSA;
-- nhập/xuất dữ liệu Excel và lưu cục bộ trên thiết bị.
-
-Video camera được xử lý trong trình duyệt. Ứng dụng không chủ động tải video lên máy chủ.
 
 ## GestureClass — lớp học tương tác
 
@@ -144,14 +128,12 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 2. Hoàn thiện xác thực học sinh, phân quyền theo trường/lớp và bảo vệ dữ liệu cá nhân.
 3. Nâng cấp Plicker, chấm phiếu OMR, ngân hàng câu hỏi và báo cáo kết quả theo lớp.
 4. Bổ sung quản lý trường học, gói sử dụng, thanh toán và thống kê thực tế.
-5. Đo độ trễ, độ chính xác và mức ổn định AGSA để phục vụ hồ sơ nghiên cứu khoa học.
 
 ## Kiểm tra
 
 ```bash
 npm run lint
 npm run lint:firestore
-npm run test:gesture
 npm run test:gestureclass
 npm run test:platform
 npm run test:ai-services

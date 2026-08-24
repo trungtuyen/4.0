@@ -5,11 +5,23 @@ import { normalizeApiServer } from '../src/lib/api';
 import { isAdministratorAlias, resolveAdministratorLoginEmail } from '../src/lib/adminAuth';
 import { describeTeacherAccountError, validateTeacherCredentials } from '../src/lib/teacherAccounts';
 
-assert.equal(ECOSYSTEM_APPLICATIONS.length, 13, 'The catalog exposes all 13 applications.');
-assert.equal(new Set(ECOSYSTEM_APPLICATIONS.map((app) => app.id)).size, 13, 'Application IDs are unique.');
-assert.ok(ECOSYSTEM_APPLICATIONS.some((app) => app.id === 'gesture-core'));
-assert.ok(ECOSYSTEM_APPLICATIONS.some((app) => app.id === 'gesture-class'));
-assert.ok(ECOSYSTEM_APPLICATIONS.some((app) => app.id === 'plicker'));
+assert.equal(ECOSYSTEM_APPLICATIONS.length, 12, 'The catalog exposes exactly 12 applications.');
+assert.equal(new Set(ECOSYSTEM_APPLICATIONS.map(app => app.id)).size, 12, 'Application IDs remain unique.');
+assert.equal(ECOSYSTEM_APPLICATIONS.some(app => app.name === 'GestureCore Edu'), false, 'The removed application never appears in the ecosystem catalog.');
+assert.ok(ECOSYSTEM_APPLICATIONS.some(app => app.id === 'gesture-class'), 'GestureClass remains available.');
+assert.ok(ECOSYSTEM_APPLICATIONS.some(app => app.id === 'plicker'), 'Plicker remains available.');
+
+const application = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const dashboard = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
+const footer = readFileSync(new URL('../src/components/PlatformFooter.tsx', import.meta.url), 'utf8');
+const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+
+assert.doesNotMatch(application, /GestureCoreEdu|gesture-core/, 'The homepage has no routes, cards, or lazy imports for the removed application.');
+assert.doesNotMatch(dashboard, /GestureCoreEdu|gesture-core/, 'The teacher library has no routes, cards, or lazy imports for the removed application.');
+assert.doesNotMatch(footer, /gesture-core/, 'Footer links cannot launch a removed application.');
+assert.match(footer, /onOpenProduct\('gesture-class'\)/, 'The footer points to the supported GestureClass application.');
+assert.match(readme, /Danh mục 12 ứng dụng/, 'Documentation displays the updated application count.');
+assert.ok(!existsSync(new URL('../src/components/GestureCoreEdu.tsx', import.meta.url)), 'The removed application component is not shipped in the source tree.');
 
 const gestureClassIndex = readFileSync(new URL('../public/gestureclass/index.html', import.meta.url), 'utf8');
 assert.match(gestureClassIndex, /href="\.\/styles\.css"/, 'GestureClass styles use the GitHub Pages subdirectory.');
@@ -41,4 +53,4 @@ assert.match(validateTeacherCredentials('teacher@example.edu.vn', 'password-123'
 assert.match(describeTeacherAccountError({ code: 'auth/email-already-in-use' }), /đã có tài khoản/);
 assert.match(describeTeacherAccountError({ code: 'auth/operation-not-allowed' }), /Email\/Mật khẩu/);
 
-console.info('SmartClass ecosystem and GestureClass integration: 29 checks passed.');
+console.info('SmartClass 12-application ecosystem and GestureClass integration: 35 checks passed.');

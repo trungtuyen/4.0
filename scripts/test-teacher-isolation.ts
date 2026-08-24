@@ -122,7 +122,7 @@ verify(classroom.includes('createTeacherStorageKey(REPORTS_STORAGE_KEY, ownerUid
 verify(gestureClass.includes('gestureclass.v1.private::${ownerUid}'), 'The standalone GestureClass iframe isolates its local workspace.');
 
 for (const componentName of [
-  'AdminDashboard', 'DragDropGame', 'GestureCoreEdu', 'HeadShakeGame',
+  'AdminDashboard', 'DragDropGame', 'HeadShakeGame',
   'PlickerClassroom', 'PlickerScanner', 'SecretBoxGame',
 ]) {
   const source = readFileSync(new URL(`../src/components/${componentName}.tsx`, import.meta.url), 'utf8');

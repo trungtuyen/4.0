@@ -49,7 +49,7 @@ check(!JSON.stringify(snapshot).includes('@'), 'The public snapshot contains no 
 
 for (const application of [
   'LuckyDraw', 'PlickerClassroom', 'HeadShakeGame', 'AIChatbot', 'ExamManager',
-  'SecretBoxGame', 'DragDropGame', 'ExcelMerger', 'PdfMerger', 'GestureCoreEdu', 'GestureClass',
+  'SecretBoxGame', 'DragDropGame', 'ExcelMerger', 'PdfMerger', 'GestureClass',
 ]) {
   check(dashboard.includes(`lazy(() => import('./${application}'))`), `${application} loads only when the teacher opens it.`);
 }

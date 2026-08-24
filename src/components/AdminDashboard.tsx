@@ -26,7 +26,6 @@ const SecretBoxGame = lazy(() => import('./SecretBoxGame'));
 const DragDropGame = lazy(() => import('./DragDropGame'));
 const ExcelMerger = lazy(() => import('./ExcelMerger'));
 const PdfMerger = lazy(() => import('./PdfMerger'));
-const GestureCoreEdu = lazy(() => import('./GestureCoreEdu'));
 const GestureClass = lazy(() => import('./GestureClass'));
 
 interface CameraCaptureProps {
@@ -155,7 +154,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const currentUserName = currentUser === 'admin' ? 'Admin' : currentUser?.name;
   const studentsStorageKey = createTeacherStorageKey('students', accessScope.ownerUid);
   const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
-  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-core' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>(initialApplication === 'plicker' ? 'plicker' : 'main');
+  const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>(initialApplication === 'plicker' ? 'plicker' : 'main');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -863,17 +862,6 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
             </header>
             <div className="flex-1 overflow-auto p-4 md:p-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
-                <div
-                  onClick={() => setActiveLibraryView('gesture-core')}
-                  className="group cursor-pointer rounded-2xl border border-cyan-300 bg-gradient-to-br from-slate-900 to-indigo-950 p-3 shadow-sm transition-shadow hover:shadow-lg md:p-6"
-                >
-                  <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/20 text-cyan-300 transition-transform group-hover:scale-110 md:mb-4 md:h-12 md:w-12">
-                    <Hand className="h-5 w-5 md:h-6 md:w-6" />
-                  </div>
-                  <h3 className="mb-1 text-sm font-bold text-white md:mb-2 md:text-lg">GestureCore Edu</h3>
-                  <p className="line-clamp-2 text-[10px] text-slate-300 md:text-sm">Trắc nghiệm, lật thẻ và chọn học sinh bằng cử chỉ bàn tay ổn định AGSA.</p>
-                </div>
-
                 <button
                   type="button"
                   onClick={() => setActiveLibraryView('gesture-class')}
@@ -1009,8 +997,6 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               </div>
             </div>
           </>
-        ) : activeLibraryView === 'gesture-core' ? (
-          <GestureCoreEdu onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'gesture-class' ? (
           <GestureClass onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'create-exam' ? (

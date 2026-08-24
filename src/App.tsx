@@ -1,5 +1,5 @@
 import React, { lazy, useState, useEffect } from 'react';
-import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Hand, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react';
+import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
 import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
@@ -18,7 +18,6 @@ const LuckyDraw = lazy(() => import('./components/LuckyDraw'));
 const DragDropGame = lazy(() => import('./components/DragDropGame'));
 const SecretBoxGame = lazy(() => import('./components/SecretBoxGame'));
 const LearningWall = lazy(() => import('./components/LearningWall'));
-const GestureCoreEdu = lazy(() => import('./components/GestureCoreEdu'));
 const GestureClass = lazy(() => import('./components/GestureClass'));
 const ExcelMerger = lazy(() => import('./components/ExcelMerger'));
 const PdfMerger = lazy(() => import('./components/PdfMerger'));
@@ -26,7 +25,6 @@ const PdfMerger = lazy(() => import('./components/PdfMerger'));
 const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
 
 const PRODUCT_ICONS: Record<EcosystemApplicationId, LucideIcon> = {
-  'gesture-core': Hand,
   'gesture-class': MonitorPlay,
   'lucky-draw': Target,
   'lucky-draw-cards': Layers,
@@ -77,11 +75,14 @@ function describeAuthError(error: unknown): string {
 
 export default function App() {
   const requestedApplication = readRequestedApplication(window.location.search);
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-core' | 'gesture-class' | 'excel-merger' | 'pdf-merger'>(() => {
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-class' | 'excel-merger' | 'pdf-merger'>(() => {
     if (requestedApplication === 'plicker') return 'admin';
     const saved = sessionStorage.getItem('currentView');
     try {
-      return saved ? JSON.parse(saved) : 'landing';
+      const restored = saved ? JSON.parse(saved) : 'landing';
+      const isInternalView = ['landing', 'auth', 'admin', 'student_exam'].includes(restored);
+      const isAvailableApplication = ECOSYSTEM_APPLICATIONS.some(application => application.id === restored);
+      return isInternalView || isAvailableApplication ? restored : 'landing';
     } catch {
       return 'landing';
     }
@@ -397,10 +398,6 @@ export default function App() {
 
   if (currentView === 'learning-wall') {
     return <LearningWall currentUser={currentUser} onBack={() => setCurrentView('landing')} />;
-  }
-
-  if (currentView === 'gesture-core') {
-    return <GestureCoreEdu onBack={() => setCurrentView('landing')} />;
   }
 
   if (currentView === 'gesture-class') {
@@ -825,26 +822,7 @@ export default function App() {
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {/* GestureCore Edu */}
-              <div
-                onClick={() => setCurrentView('gesture-core')}
-                className="group relative bg-slate-900 rounded-3xl p-8 border border-cyan-400/40 hover:border-cyan-300 hover:shadow-2xl hover:shadow-cyan-500/20 transition-all duration-300 overflow-hidden cursor-pointer md:col-span-2 lg:col-span-3"
-              >
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.25),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(139,92,246,0.22),transparent_45%)]"></div>
-                <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-7">
-                  <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-violet-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:-translate-y-1 transition-transform duration-300 shrink-0">
-                    <Hand className="w-8 h-8" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="inline-flex px-3 py-1 rounded-full bg-cyan-400/10 text-cyan-300 text-xs font-bold mb-3">DỰ ÁN NGHIÊN CỨU AGSA</div>
-                    <h3 className="text-2xl font-extrabold text-white mb-2">GestureCore Edu — Điều khiển học tập bằng cử chỉ</h3>
-                    <p className="text-slate-300 leading-relaxed max-w-4xl">Nhận dạng 1–4 ngón tay và nắm tay theo thời gian thực, ổn định bằng bộ lọc thích ứng, bỏ phiếu nhiều khung hình và khóa chống kích hoạt lặp. Tích hợp trắc nghiệm, lật thẻ, chọn học sinh và phòng thử nghiệm số liệu.</p>
-                  </div>
-                  <div className="flex items-center gap-2 text-cyan-300 font-bold shrink-0">Mở phần mềm <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></div>
-                </div>
-              </div>
-
-              {ECOSYSTEM_APPLICATIONS.filter(application => application.id !== 'gesture-core').map(application => {
+              {ECOSYSTEM_APPLICATIONS.map(application => {
                 const ProductIcon = PRODUCT_ICONS[application.id];
                 const needsServer = application.dependency === 'ai-server';
 
