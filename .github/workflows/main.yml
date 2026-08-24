@@ -78,6 +78,9 @@ jobs:
       - name: Verify ecosystem and Plicker offline installation
         run: npm run test:pwa
 
+      - name: Verify private browser-based PDF splitting and merging
+        run: npm run test:pdf
+
       - name: Build project
         run: npm run build
 

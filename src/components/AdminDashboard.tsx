@@ -1003,8 +1003,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   <div className="w-9 h-9 md:w-12 md:h-12 bg-red-100 text-red-600 rounded-xl flex items-center justify-center mb-2 md:mb-4 group-hover:scale-110 transition-transform">
                     <FileText className="w-5 h-5 md:w-6 md:h-6" />
                   </div>
-                  <h3 className="text-sm md:text-lg font-bold text-slate-800 mb-1 md:mb-2">Gộp file PDF</h3>
-                  <p className="text-slate-500 text-[10px] md:text-sm line-clamp-2">Công cụ gộp nhiều tệp PDF thành một tệp duy nhất nhanh chóng và an toàn.</p>
+                  <h3 className="text-sm md:text-lg font-bold text-slate-800 mb-1 md:mb-2">Tách, gộp file PDF</h3>
+                  <p className="text-slate-500 text-[10px] md:text-sm line-clamp-2">Tách từng trang, trích khoảng trang hoặc gộp nhiều tệp PDF an toàn ngay trên thiết bị.</p>
                 </div>
               </div>
             </div>

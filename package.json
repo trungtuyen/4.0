@@ -26,6 +26,7 @@
     "test:security-hardening": "node --import tsx scripts/test-security-hardening.ts",
     "test:plicker": "node --import tsx scripts/test-plicker.ts",
     "test:pwa": "node --import tsx scripts/test-pwa.ts",
+    "test:pdf": "node --import tsx scripts/test-pdf-tools.ts",
     "test:plicker-live": "node --import tsx scripts/test-plicker-live.ts",
     "test:plicker-mobile": "node --import tsx scripts/test-plicker-mobile.ts",
     "test:plicker-display": "node --import tsx scripts/test-plicker-display.ts",

@@ -110,8 +110,8 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   },
   {
     id: 'pdf-merger',
-    name: 'Gộp tệp PDF',
-    description: 'Ghép nhiều tài liệu PDF trực tiếp trên trình duyệt và tải kết quả về máy.',
+    name: 'Tách, gộp file PDF',
+    description: 'Tách từng trang, trích khoảng trang hoặc gộp nhiều PDF an toàn ngay trên thiết bị.',
     dependency: 'browser',
     category: 'Công cụ',
   },

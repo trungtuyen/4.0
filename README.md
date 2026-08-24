@@ -24,7 +24,7 @@ Website: <https://trungtuyen.github.io/4.0/>
 | Mở ô bí mật | Tổ chức trò chơi câu hỏi hoặc phần thưởng | Trình duyệt |
 | Kéo thả đúng chỗ | Tạo bài tập kéo thả đáp án | Trình duyệt |
 | Gộp tệp Excel | Ghép dữ liệu từ nhiều bảng tính | Trình duyệt |
-| Gộp tệp PDF | Ghép nhiều tài liệu PDF | Trình duyệt |
+| Tách, gộp file PDF | Tách từng trang, trích khoảng trang hoặc ghép nhiều tài liệu PDF | Trình duyệt |
 
 ## Cổng thi học sinh
 
