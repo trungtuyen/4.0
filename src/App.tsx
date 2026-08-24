@@ -112,6 +112,7 @@ export default function App() {
         return;
       }
 
+      setTeachers([]);
       try {
         const profile = await getDoc(doc(db, 'teachers', firebaseUser.uid));
         if (profile.exists() && profile.data().status === 'active') {
@@ -294,9 +295,13 @@ export default function App() {
   };
 
   if (currentView === 'admin' && currentUser && auth.currentUser) {
-    return <AdminDashboard onLogout={() => {
+    return <AdminDashboard key={auth.currentUser.uid} onLogout={() => {
       void signOut(auth);
       setCurrentUser(null);
+      setTeachers([]);
+      sessionStorage.removeItem('currentStudent');
+      sessionStorage.removeItem('activeExam');
+      sessionStorage.removeItem('examVersion');
       setCurrentView('landing');
     }} teachers={teachers} setTeachers={setTeachers} currentUser={currentUser} initialApplication={requestedApplication} />;
   }

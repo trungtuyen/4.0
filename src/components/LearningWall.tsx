@@ -3,7 +3,7 @@ import { ArrowLeft, Camera, Plus, X, Monitor, Image as ImageIcon, Send, MessageC
 import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, arrayUnion, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Teacher } from '../types';
-import { resolveTeacherAccessScope } from '../lib/teacherIsolation';
+import { canAccessTeacherOwnedRecord, filterTeacherOwnedRecords, resolveTeacherAccessScope } from '../lib/teacherIsolation';
 
 interface Category {
   id: string;
@@ -11,6 +11,8 @@ interface Category {
   color?: string;
   parentId?: string;
   author?: string;
+  authorId?: string;
+  ownerUid?: string;
 }
 
 interface Post {
@@ -22,6 +24,8 @@ interface Post {
   score?: number;
   comments?: { id: string, text: string, createdAt: any }[];
   likes?: number;
+  authorId?: string;
+  teacherId?: string;
 }
 
 interface LearningWallProps {
@@ -45,8 +49,9 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
 
   // Listen to categories (classes)
   useEffect(() => {
+    setCategories([]);
+    setOpenedClassId(null);
     if (accessScope.role === 'guest') {
-      setCategories([]);
       return;
     }
 
@@ -54,7 +59,8 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
       ? collection(db, 'categories')
       : query(collection(db, 'categories'), where('authorId', '==', accessScope.ownerUid));
     const unsub = onSnapshot(categoriesQuery, (snapshot) => {
-      setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
+      setCategories(filterTeacherOwnedRecords(accessScope,
+        snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Category))));
     }, error => {
       console.error('Không thể tải lớp học của tài khoản hiện tại:', error);
       setCategories([]);
@@ -64,8 +70,8 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
 
   // Listen to posts
   useEffect(() => {
+    setPosts([]);
     if (accessScope.role === 'guest') {
-      setPosts([]);
       return;
     }
 
@@ -74,7 +80,8 @@ export default function LearningWall({ onBack, currentUser }: LearningWallProps)
       : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid));
     const unsub = onSnapshot(postsQuery, (snapshot) => {
       const nextPosts = snapshot.docs
-        .filter(item => item.data().kind !== 'plicker_report')
+        .filter(item => item.data().kind !== 'plicker_report' &&
+          canAccessTeacherOwnedRecord(accessScope, item.data()))
         .map(item => ({ id: item.id, ...item.data() } as Post));
       nextPosts.sort((left, right) => {
         const leftTime = typeof left.createdAt?.toMillis === 'function' ? left.createdAt.toMillis() : 0;

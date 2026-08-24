@@ -138,7 +138,8 @@ const worker = readFileSync(new URL('../public/service-worker.js', import.meta.u
 for (const feature of [
   'const [categoriesReady, setCategoriesReady] = useState(false)',
   'setCategoriesReady(true)',
-  'filterPlickerStudentsByClasses(students, plickerCategories)',
+  'filterPlickerStudentsByClasses(',
+  'administratorCloudStudents',
   'if (!categoriesReady) return',
   'filterPlickerStudentsByClasses(previous, categories)',
   'categories={plickerCategories}',
@@ -162,7 +163,7 @@ for (const feature of [
   checks += 1;
 }
 assert.doesNotMatch(classroom, /title="Học sinh" value=\{allStudents\.length\}/u);
-assert.match(worker, /CACHE_PREFIX\}v15/u);
+assert.match(worker, /CACHE_PREFIX\}v16/u);
 checks += 2;
 
 console.info(`Plicker student counts, orphan cleanup and Firebase class synchronization: ${checks} checks passed.`);

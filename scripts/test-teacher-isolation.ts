@@ -6,6 +6,7 @@ import {
   createPlickerReportDocumentId,
   createStudentRosterLookupKey,
   createTeacherStorageKey,
+  filterTeacherOwnedRecords,
   isValidTeacherUid,
   normalizeStudentRosterName,
   resolveTeacherAccessScope,
@@ -49,6 +50,10 @@ verify(!canAccessTeacherOwnedRecord(firstTeacher, {
   authorId: 'teacher-two',
 }), 'Conflicting owner fields fail closed.');
 verify(!canAccessTeacherOwnedRecord(administrator, null), 'A missing document never appears as accessible.');
+verify(filterTeacherOwnedRecords(firstTeacher, [
+  { teacherId: 'teacher-one' },
+  { teacherId: 'teacher-two' },
+]).length === 1, 'Snapshot data is filtered again after Firebase owner-scoped queries.');
 verify(isValidTeacherUid('teacher_one-123'), 'Ordinary Firebase-safe account identifiers are accepted.');
 verify(!isValidTeacherUid('../../teacher-one'), 'Path traversal is rejected.');
 verify(!isValidTeacherUid(''), 'Blank owner identifiers are rejected.');
@@ -131,7 +136,9 @@ verify(rules.includes("allow read: if mayAccess(existing(), 'authorId');"), 'Lea
 verify(rules.includes("allow read: if mayAccess(existing(), 'teacherId');"), 'Classes, results and live exam sessions are protected by their teacher.');
 verify(rules.includes('Student login uses an anonymized exam directory'), 'Student records remain private even though the exam portal supports guest login.');
 verify(rules.includes('ownerRemainsUnchanged'), 'Teachers cannot take over another account by rewriting ownership.');
-verify(rules.includes("existing().status == 'published'"), 'Only published exams are available to anonymous students.');
+verify(rules.includes('match /public_exam_schedules/{scheduleId}'), 'Students see only a separate public exam schedule.');
+verify(rules.includes('match /public_exam_access/{accessId}'), 'Authorized students receive a separate encrypted exam payload.');
+verify(rules.includes('allow list: if isAdmin();'), 'Teachers and guests cannot list encrypted exams from other workspaces.');
 verify(rules.includes('publishedExamBelongsToTeacher'), 'Public exam submissions are validated against the correct teacher and published exam.');
 verify(!rules.includes('allow read: if true'), 'No collection is unconditionally readable by the public.');
 verify(!rules.includes('allow create: if true'), 'No collection accepts unconditional public writes.');

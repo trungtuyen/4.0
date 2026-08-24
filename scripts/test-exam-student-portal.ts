@@ -45,6 +45,11 @@ verify(exams[0].id === 'draft', 'Schedule sorting does not mutate Firestore snap
 
 const component = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
 verify(component.includes("where('status', '==', 'published')"), 'Student schedule subscribes only to published exams.');
+verify(component.includes('PUBLIC_EXAM_SCHEDULES_COLLECTION'), 'Student notices are stored separately from private teacher exams.');
+verify(component.includes('PUBLIC_EXAM_ACCESS_COLLECTION'), 'Students unlock only their authorized encrypted exam.');
+verify(component.includes('{exam.questionCount} câu'), 'Student notices show a count without downloading question content.');
+verify(!component.includes("query(collection(db, 'exams'), where('status', '==', 'published'))"),
+  'The public student portal never downloads the full private exam collection.');
 verify(component.includes('buildStudentExamSchedule'), 'Student schedule uses the tested ordering helper.');
 verify(component.includes('THÔNG BÁO LỊCH THI'), 'The book layout includes the exam notice panel.');
 verify(component.includes('Danh sách được cập nhật tự động'), 'The interface explains the live teacher-to-student connection.');

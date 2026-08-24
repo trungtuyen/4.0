@@ -1,15 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileText, LogOut, ChevronRight, ChevronLeft, Save, PlayCircle, StopCircle, Calendar, Upload, X, Download, Shuffle, Activity, ArrowRight, Camera, GraduationCap, BookOpen, Bell, ShieldCheck, UserRound, KeyRound, CalendarClock, Loader2 } from 'lucide-react';
 import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
 import * as XLSX from 'xlsx';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
 import {
+  createExamAccessDocumentId,
+  createPublicExamSchedule,
+  createPublicExamScheduleId,
+  createSecureExamAccessCode,
+  openProtectedExamAccess,
+  protectExamForAccess,
+  PUBLIC_EXAM_ACCESS_COLLECTION,
+  PUBLIC_EXAM_SCHEDULES_COLLECTION,
+  type ProtectedExamAccess,
+  type PublicExamSchedule,
+} from '../lib/examPrivacy';
+import {
+  canAccessTeacherOwnedRecord,
   createPrivateStudentRosterDirectory,
   createStudentRosterLookupKey,
   createTeacherStorageKey,
+  filterTeacherOwnedRecords,
+  isValidTeacherUid,
   resolveTeacherAccessScope,
   type PrivateStudentRosterEntry,
 } from '../lib/teacherIsolation';
@@ -41,6 +56,7 @@ interface Exam {
   }[];
   teacherId?: string;
   studentDirectory?: Record<string, PrivateStudentRosterEntry>;
+  accessVersionCode?: string;
 }
 
 interface StudentClass {
@@ -95,6 +111,52 @@ interface ExamManagerProps {
 const EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000;
 const EXAM_SESSION_ONLINE_WINDOW_MS = 90_000;
 
+async function synchronizeExamPublication(exam: Exam, previousExam: Exam = exam): Promise<void> {
+  if (!isValidTeacherUid(exam.teacherId)) {
+    throw new Error('Kỳ thi chưa được gắn với tài khoản giáo viên hợp lệ.');
+  }
+
+  const previousCodes = [previousExam.id, ...(previousExam.shuffledVersions || []).map(version => version.code)];
+  if (exam.status !== 'published') {
+    if (previousExam.status !== 'published') return;
+    const previousAccessIds = await Promise.all(previousCodes.map(createExamAccessDocumentId));
+    await Promise.all([
+      deleteDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION,
+        await createPublicExamScheduleId(exam.teacherId, previousExam.id))),
+      ...previousAccessIds.map(accessId =>
+        deleteDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId))),
+    ]);
+    return;
+  }
+
+  const authorizedExams: { code: string; exam: Exam }[] = [{ code: exam.id, exam }];
+  for (const version of exam.shuffledVersions || []) {
+    const selectedVersion: Exam = {
+      ...exam,
+      questions: version.questions,
+      accessVersionCode: version.code,
+    };
+    delete selectedVersion.shuffledVersions;
+    delete selectedVersion.versionCodes;
+    authorizedExams.push({ code: version.code, exam: selectedVersion });
+  }
+
+  await Promise.all(authorizedExams.map(async authorized => {
+    const accessId = await createExamAccessDocumentId(authorized.code);
+    await setDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId),
+      await protectExamForAccess(authorized.exam, authorized.code));
+  }));
+
+  const schedule = await createPublicExamSchedule(exam);
+  await setDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, schedule.id), schedule);
+
+  const activeCodes = new Set(authorizedExams.map(authorized => authorized.code));
+  await Promise.all(previousCodes
+    .filter(code => !activeCodes.has(code))
+    .map(async code => deleteDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION,
+      await createExamAccessDocumentId(code)))));
+}
+
 export default function ExamManager({ onBack, initialMode = 'landing', currentUser }: ExamManagerProps) {
   const [appMode, setAppMode] = useState<'landing' | 'teacher' | 'student'>(initialMode);
   const [teacherTab, setTeacherTab] = useState<'exams' | 'students' | 'monitoring' | 'results' | 'scanning'>('exams');
@@ -105,16 +167,17 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [classes, setClasses] = useState<StudentClass[]>([]);
   const [results, setResults] = useState<ExamResult[]>([]);
   const [activeSessions, setActiveSessions] = useState<ExamSession[]>([]);
+  const restoredPublishedExamIds = useRef(new Set<string>());
 
   useEffect(() => {
     if (appMode !== 'teacher') return;
     const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+    setExams([]);
+    setStudents([]);
+    setClasses([]);
+    setResults([]);
+    setActiveSessions([]);
     if (accessScope.role === 'guest') {
-      setExams([]);
-      setStudents([]);
-      setClasses([]);
-      setResults([]);
-      setActiveSessions([]);
       return;
     }
 
@@ -134,22 +197,26 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
     const subscriptions: (() => void)[] = [];
     subscriptions.push(onSnapshot(examsQuery, (snapshot: any) => {
-      setExams(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as Exam)));
-    }));
+      setExams(filterTeacherOwnedRecords(accessScope,
+        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as Exam))));
+    }, () => setExams([])));
 
     if (teacherTab !== 'exams') {
       subscriptions.push(onSnapshot(studentsQuery, (snapshot: any) => {
-        setStudents(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentAccount)));
-      }));
+        setStudents(filterTeacherOwnedRecords(accessScope,
+          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as StudentAccount))));
+      }, () => setStudents([])));
       subscriptions.push(onSnapshot(classesQuery, (snapshot: any) => {
-        setClasses(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentClass)));
-      }));
+        setClasses(filterTeacherOwnedRecords(accessScope,
+          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as StudentClass))));
+      }, () => setClasses([])));
     }
 
     if (teacherTab === 'results') {
       subscriptions.push(onSnapshot(resultsQuery, (snapshot: any) => {
-        setResults(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as ExamResult)));
-      }));
+        setResults(filterTeacherOwnedRecords(accessScope,
+          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamResult))));
+      }, () => setResults([])));
     }
 
     let pendingSessions: ExamSession[] | null = null;
@@ -157,7 +224,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
     if (teacherTab === 'monitoring') {
       subscriptions.push(onSnapshot(sessionsQuery, (snapshot: any) => {
-        pendingSessions = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as ExamSession));
+        pendingSessions = filterTeacherOwnedRecords(accessScope,
+          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamSession)));
         if (!sessionUpdateTimer) {
           sessionUpdateTimer = setTimeout(() => {
             if (pendingSessions) {
@@ -166,7 +234,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
             sessionUpdateTimer = null;
           }, 2000);
         }
-      }));
+      }, () => setActiveSessions([])));
     }
 
     return () => {
@@ -174,6 +242,26 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       if (sessionUpdateTimer) clearTimeout(sessionUpdateTimer);
     };
   }, [currentUser, appMode, teacherTab]);
+
+  useEffect(() => {
+    if (appMode !== 'teacher') return;
+    const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+    if (accessScope.role !== 'teacher') return;
+
+    for (const exam of exams) {
+      if (exam.status !== 'published' || exam.teacherId !== accessScope.ownerUid ||
+          restoredPublishedExamIds.current.has(exam.id)) continue;
+      restoredPublishedExamIds.current.add(exam.id);
+      void (async () => {
+        const scheduleId = await createPublicExamScheduleId(accessScope.ownerUid, exam.id);
+        const existingSchedule = await getDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, scheduleId));
+        if (!existingSchedule.exists()) await synchronizeExamPublication(exam);
+      })().catch(error => {
+        restoredPublishedExamIds.current.delete(exam.id);
+        console.error('Không thể chuyển kỳ thi cũ sang lịch thi và đề thi bảo mật:', error);
+      });
+    }
+  }, [appMode, currentUser, exams]);
 
   // --- Teacher State ---
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -201,7 +289,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [examStatus, setExamStatus] = useState<'login' | 'waiting' | 'taking' | 'finished'>('login');
   const [studentScore, setStudentScore] = useState<{score: number, total: number} | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [publishedStudentExams, setPublishedStudentExams] = useState<Exam[]>([]);
+  const [publishedStudentExams, setPublishedStudentExams] = useState<PublicExamSchedule[]>([]);
   const [studentScheduleLoading, setStudentScheduleLoading] = useState(false);
   const [studentScheduleError, setStudentScheduleError] = useState('');
   const [scheduleNow, setScheduleNow] = useState(() => Date.now());
@@ -229,12 +317,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
     setStudentScheduleLoading(true);
     setStudentScheduleError('');
-    const publishedExamsQuery = query(collection(db, 'exams'), where('status', '==', 'published'));
+    const publishedExamsQuery = query(collection(db, PUBLIC_EXAM_SCHEDULES_COLLECTION),
+      where('status', '==', 'published'));
 
     const unsubscribe = onSnapshot(
       publishedExamsQuery,
       (snapshot: any) => {
-        setPublishedStudentExams(snapshot.docs.map((examDoc: any) => ({ id: examDoc.id, ...examDoc.data() } as Exam)));
+        setPublishedStudentExams(snapshot.docs.map((examDoc: any) =>
+          ({ id: examDoc.id, ...examDoc.data() } as PublicExamSchedule)));
         setStudentScheduleLoading(false);
       },
       (error) => {
@@ -259,15 +349,17 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
   // --- Teacher Functions ---
   const handleCreateExam = () => {
+    const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+    if (accessScope.role === 'guest') return;
     setEditingExam({
-      id: Math.floor(100000 + Math.random() * 900000).toString(),
+      id: createSecureExamAccessCode(),
       title: 'Kỳ thi mới',
       durationMinutes: 45,
       questions: [],
       status: 'draft',
       createdAt: new Date().toISOString(),
       startTime: new Date().toISOString().slice(0, 16),
-      teacherId: currentUser === 'admin' ? 'admin' : currentUser?.id
+      teacherId: accessScope.ownerUid,
     });
     setIsExamModalOpen(true);
   };
@@ -397,7 +489,13 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const handleSaveExam = async () => {
     if (editingExam) {
       try {
+        const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+        if (!canAccessTeacherOwnedRecord(accessScope, editingExam)) {
+          throw new Error('Bạn không có quyền thay đổi kỳ thi của giáo viên khác.');
+        }
+        const previousExam = exams.find(exam => exam.id === editingExam.id) || editingExam;
         await setDoc(doc(db, 'exams', editingExam.id), editingExam);
+        await synchronizeExamPublication(editingExam, previousExam);
         setIsExamModalOpen(false);
         setEditingExam(null);
       } catch (error) {
@@ -714,8 +812,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           };
         }
         await setDoc(doc(db, 'exams', examId), nextExam);
+        await synchronizeExamPublication(nextExam, exam);
       } catch (error) {
         console.error("Error updating exam status:", error);
+        alert('Không thể cập nhật kỳ thi. Hãy kiểm tra quyền Firebase và thử lại.');
       }
     }
   };
@@ -727,14 +827,17 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     try {
       if (exam.isShuffled) {
         // Turn off shuffle
-        await setDoc(doc(db, 'exams', examId), { ...exam, isShuffled: false, shuffledVersions: [] });
+        const nextExam = { ...exam, isShuffled: false, shuffledVersions: [], versionCodes: [] };
+        await setDoc(doc(db, 'exams', examId), nextExam);
+        await synchronizeExamPublication(nextExam, exam);
         alert('Đã tắt chế độ tự động trộn đề.');
       } else {
         // Turn on shuffle and generate 5 versions
         const versions = [];
         const versionCodes = [];
         for (let i = 0; i < 5; i++) {
-          const code = Math.floor(100 + Math.random() * 900).toString();
+          let code = createSecureExamAccessCode(10);
+          while (code === exam.id || versionCodes.includes(code)) code = createSecureExamAccessCode(10);
           versionCodes.push(code);
           const shuffledQuestions = [...exam.questions].sort(() => Math.random() - 0.5).map(q => {
             const optionsWithIndex = q.options.map((opt, index) => ({ text: opt, isCorrect: index === q.correctAnswer }));
@@ -748,7 +851,9 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           });
           versions.push({ code, questions: shuffledQuestions });
         }
-        await setDoc(doc(db, 'exams', examId), { ...exam, isShuffled: true, shuffledVersions: versions, versionCodes: versionCodes });
+        const nextExam = { ...exam, isShuffled: true, shuffledVersions: versions, versionCodes };
+        await setDoc(doc(db, 'exams', examId), nextExam);
+        await synchronizeExamPublication(nextExam, exam);
         alert(`Đã tạo 5 mã đề: ${versions.map(v => v.code).join(', ')}`);
       }
     } catch (error) {
@@ -828,7 +933,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       code: newCode,
       name: 'Học sinh mới',
       classId: selectedClassId,
-      teacherId: currentUser === 'admin' ? 'admin' : currentUser?.id
+      teacherId: resolveTeacherAccessScope(currentUser, auth.currentUser?.uid).ownerUid,
     };
     try {
       await setDoc(doc(db, 'students', newStudent.id), newStudent);
@@ -846,7 +951,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       code: Math.floor(100000 + Math.random() * 900000).toString(),
       name: name,
       classId: selectedClassId,
-      teacherId: currentUser === 'admin' ? 'admin' : currentUser?.id
+      teacherId: resolveTeacherAccessScope(currentUser, auth.currentUser?.uid).ownerUid,
     }));
 
     try {
@@ -868,7 +973,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         const newClass = {
           id: Math.random().toString(36).substr(2, 9),
           name: newClassName.trim(),
-          teacherId: currentUser === 'admin' ? 'admin' : currentUser?.id
+          teacherId: resolveTeacherAccessScope(currentUser, auth.currentUser?.uid).ownerUid,
         };
         await setDoc(doc(db, 'classes', newClass.id), newClass);
         setSelectedClassId(newClass.id);
@@ -917,42 +1022,20 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     }
 
     try {
-      // Only the already-public published schedule is needed to resolve exam codes.
-      let exam: Exam | null = null;
-      let versionCode = 'Gốc';
-      let studentExam: Exam | null = null;
-      let publicExams = publishedStudentExams;
-      if (!publicExams.length) {
-        const publicScheduleQuery = query(collection(db, 'exams'), where('status', '==', 'published'));
-        const publicScheduleSnapshot = await getDocs(publicScheduleQuery);
-        publicExams = publicScheduleSnapshot.docs.map(examDoc => ({
-          id: examDoc.id,
-          ...examDoc.data(),
-        } as Exam));
-      }
-
-      const directExam = publicExams.find(item => item.id === normalizedExamCode);
-      if (directExam) {
-        exam = directExam;
-        studentExam = { ...exam };
-      } else {
-        for (const e of publicExams) {
-          if (e.status === 'published' && e.shuffledVersions) {
-            const version = e.shuffledVersions.find(v => v.code === normalizedExamCode);
-            if (version) {
-              exam = e;
-              studentExam = { ...e, questions: version.questions };
-              versionCode = version.code;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!exam || !studentExam) {
+      // Resolve exactly one encrypted exam payload without listing any teacher's private exams.
+      const accessId = await createExamAccessDocumentId(normalizedExamCode);
+      const encryptedExam = await getDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId));
+      if (!encryptedExam.exists()) {
         setLoginError('Mã kỳ thi không hợp lệ hoặc kỳ thi chưa mở!');
         return;
       }
+
+      const exam = await openProtectedExamAccess<Exam>(
+        encryptedExam.data() as ProtectedExamAccess,
+        normalizedExamCode,
+      );
+      let versionCode = exam.accessVersionCode || 'Gốc';
+      let studentExam: Exam = { ...exam };
 
       if (!canStudentEnterExam(exam)) {
         setLoginError(`Kỳ thi chưa đến giờ mở. Thời gian dự kiến: ${formatExamScheduleDate(exam.startTime)}.`);
@@ -978,7 +1061,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       }
 
       // Resolve a roster entry without exposing names, student codes or the private roster.
-      const teacherOwnerUid = exam.teacherId || 'admin';
+      const teacherOwnerUid = exam.teacherId;
+      if (!isValidTeacherUid(teacherOwnerUid)) {
+        setLoginError('Kỳ thi chưa được gắn với tài khoản giáo viên hợp lệ.');
+        return;
+      }
       const rosterLookupKey = await createStudentRosterLookupKey(teacherOwnerUid, exam.id, normalizedStudentName);
       const rosterEntry = exam.studentDirectory?.[rosterLookupKey];
       let student: StudentAccount | undefined = rosterEntry
@@ -1042,7 +1129,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           startTime: new Date().toISOString(),
           lastActive: new Date().toISOString(),
           status: 'taking',
-          teacherId: activeExam.teacherId || 'admin',
+          teacherId: activeExam.teacherId || '',
           examVersion: examVersion
         });
       } catch (error) {
@@ -1146,7 +1233,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         answers: studentAnswers,
         cheatEvents: { ...cheatEvents },
         examVersion: examVersion,
-        teacherId: activeExam.teacherId || 'admin'
+        teacherId: activeExam.teacherId || '',
       };
 
       try {
@@ -1415,7 +1502,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                             </div>
                             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
                               <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />{exam.durationMinutes} phút</span>
-                              <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />{exam.questions.length} câu</span>
+                              <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />{exam.questionCount} câu</span>
                               <span className="ml-auto font-bold text-blue-700">Mã thi do giáo viên cung cấp</span>
                             </div>
                           </article>
@@ -2728,6 +2815,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                 onClick={async () => {
                   if (examToDelete) {
                     try {
+                      const existingExam = exams.find(exam => exam.id === examToDelete);
+                      if (existingExam?.status === 'published') {
+                        await synchronizeExamPublication({ ...existingExam, status: 'closed' }, existingExam);
+                      }
                       await deleteDoc(doc(db, 'exams', examToDelete));
                     } catch (error) {
                       console.error("Error deleting exam:", error);

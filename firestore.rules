@@ -56,6 +56,46 @@ service cloud.firestore {
       return !('teacherId' in incoming()) || incoming().teacherId == incoming().authorId;
     }
 
+    function categoryOwnerIsConsistent() {
+      return !('ownerUid' in incoming()) || incoming().ownerUid == incoming().authorId;
+    }
+
+    function isProtectedExamIdentifier(identifier) {
+      return identifier is string && identifier.matches('^[a-f0-9]{64}$');
+    }
+
+    function publicScheduleIsSafe(scheduleId) {
+      return isProtectedExamIdentifier(scheduleId) &&
+        incoming().keys().hasAll([
+          'id', 'teacherId', 'title', 'durationMinutes', 'questionCount', 'status', 'createdAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'teacherId', 'title', 'durationMinutes', 'questionCount', 'status', 'createdAt', 'startTime'
+        ]) &&
+        incoming().id == scheduleId &&
+        isValidId(incoming().teacherId) &&
+        incoming().title is string && incoming().title.size() <= 240 &&
+        incoming().durationMinutes is int && incoming().durationMinutes > 0 &&
+        incoming().questionCount is int && incoming().questionCount >= 0 &&
+        incoming().status == 'published';
+    }
+
+    function encryptedExamAccessIsSafe(accessId) {
+      return isProtectedExamIdentifier(accessId) &&
+        incoming().keys().hasAll([
+          'teacherId', 'examId', 'status', 'version', 'iterations', 'salt', 'iv', 'ciphertext', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'teacherId', 'examId', 'status', 'version', 'iterations', 'salt', 'iv', 'ciphertext', 'updatedAt'
+        ]) &&
+        isValidId(incoming().teacherId) && isValidId(incoming().examId) &&
+        incoming().status == 'published' && incoming().version == 1 &&
+        incoming().iterations is int && incoming().iterations >= 100000 &&
+        incoming().iterations <= 500000 &&
+        incoming().salt is string && incoming().iv is string &&
+        incoming().ciphertext is string && incoming().ciphertext.size() > 0;
+    }
+
     function publishedExamBelongsToTeacher(examId, teacherId) {
       return isValidId(examId) && isValidId(teacherId) &&
         exists(/databases/$(database)/documents/exams/$(examId)) &&
@@ -78,9 +118,12 @@ service cloud.firestore {
 
     match /categories/{categoryId} {
       allow read: if mayAccess(existing(), 'authorId');
-      allow create: if isAdmin() || ownsField(incoming(), 'authorId');
+      allow create: if isAdmin() || (
+        ownsField(incoming(), 'authorId') && categoryOwnerIsConsistent()
+      );
       allow update: if isAdmin() || (
-        ownsField(existing(), 'authorId') && ownerRemainsUnchanged('authorId')
+        ownsField(existing(), 'authorId') && ownerRemainsUnchanged('authorId') &&
+        categoryOwnerIsConsistent()
       );
       allow delete: if mayAccess(existing(), 'authorId');
     }
@@ -98,13 +141,39 @@ service cloud.firestore {
     }
 
     match /exams/{examId} {
-      // Only published schedules are visible on the unauthenticated student portal.
-      allow read: if mayAccess(existing(), 'teacherId') ||
-        (!isSignedIn() && existing().status == 'published');
+      // Questions, answers, shuffled versions and roster lookup data are always private.
+      allow read: if mayAccess(existing(), 'teacherId');
       allow create: if isAdmin() || ownsField(incoming(), 'teacherId');
       allow update: if isAdmin() || (
         ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
       );
+      allow delete: if mayAccess(existing(), 'teacherId');
+    }
+
+    match /public_exam_schedules/{scheduleId} {
+      // Public notices contain metadata only: no exam code, questions, answers or roster.
+      allow read: if existing().status == 'published';
+      allow create: if (isAdmin() || ownsField(incoming(), 'teacherId')) &&
+        publicScheduleIsSafe(scheduleId);
+      allow update: if (isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      )) && publicScheduleIsSafe(scheduleId);
+      allow delete: if mayAccess(existing(), 'teacherId');
+    }
+
+    match /public_exam_access/{accessId} {
+      // Guests may request one encrypted payload only when they know its exam-code hash.
+      allow get: if mayAccess(existing(), 'teacherId') ||
+        (!isSignedIn() && existing().status == 'published' &&
+          publishedExamBelongsToTeacher(existing().examId, existing().teacherId));
+      allow list: if isAdmin();
+      allow create: if (isAdmin() || ownsField(incoming(), 'teacherId')) &&
+        encryptedExamAccessIsSafe(accessId) &&
+        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId);
+      allow update: if (isAdmin() || (
+        ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
+      )) && encryptedExamAccessIsSafe(accessId) &&
+        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId);
       allow delete: if mayAccess(existing(), 'teacherId');
     }
 

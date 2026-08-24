@@ -47,6 +47,9 @@ jobs:
       - name: Verify student exam portal
         run: npm run test:student-portal
 
+      - name: Verify encrypted exams and isolation across 5000 teacher workspaces
+        run: npm run test:exam-privacy
+
       - name: Verify Google Gemini and school counseling fallbacks
         run: npm run test:ai-services
 

@@ -2,7 +2,8 @@ export interface ExamScheduleItem {
   id: string;
   title: string;
   durationMinutes: number;
-  questions: unknown[];
+  questions?: unknown[];
+  questionCount?: number;
   status: 'draft' | 'published' | 'closed';
   startTime?: string;
 }

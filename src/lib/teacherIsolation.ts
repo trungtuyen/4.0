@@ -76,6 +76,13 @@ export function canAccessTeacherOwnedRecord(
     .every(owner => isValidTeacherUid(owner) && owner === scope.ownerUid);
 }
 
+export function filterTeacherOwnedRecords<T extends TeacherOwnedRecord>(
+  scope: TeacherAccessScope,
+  records: readonly T[],
+): T[] {
+  return records.filter(record => canAccessTeacherOwnedRecord(scope, record));
+}
+
 export function createPlickerReportDocumentId(ownerUid: string, reportId: string): string {
   if (!isValidTeacherUid(ownerUid) || !isValidTeacherUid(reportId)) {
     throw new RangeError('Không thể đồng bộ báo cáo do mã giáo viên hoặc phiên học không hợp lệ.');

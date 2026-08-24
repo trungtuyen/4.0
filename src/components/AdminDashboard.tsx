@@ -7,9 +7,15 @@ import { auth, db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
 import { assignPlickerCardIds, filterPlickerStudentsByClasses, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
-import { isPlickerSystemCategory, mergePlickerCloudRosters } from '../lib/plickerLive';
+import { isPlickerSystemCategory, mergePlickerCloudRosters, type PlickerLiveQuestionSet } from '../lib/plickerLive';
 import type { PlickerClassroomReport } from '../lib/plickerReports';
-import { createTeacherStorageKey, resolveTeacherAccessScope } from '../lib/teacherIsolation';
+import {
+  canAccessTeacherOwnedRecord,
+  createTeacherStorageKey,
+  filterTeacherOwnedRecords,
+  isValidTeacherUid,
+  resolveTeacherAccessScope,
+} from '../lib/teacherIsolation';
 
 const LuckyDraw = lazy(() => import('./LuckyDraw'));
 const PlickerScanner = lazy(() => import('./PlickerClassroom'));
@@ -122,9 +128,30 @@ interface AdminDashboardProps {
   initialApplication?: 'plicker' | null;
 }
 
+interface DashboardStudent {
+  id: string;
+  classId: string;
+  name: string;
+  email?: string;
+  cardId?: number;
+  teacherId?: string;
+}
+
+interface DashboardCategory {
+  id: string;
+  title: string;
+  color?: string;
+  parentId?: string;
+  author?: string;
+  time?: string;
+  bgType?: 'color' | 'image';
+  bgValue?: string;
+  authorId?: string;
+}
+
 export default function AdminDashboard({ onLogout, teachers, setTeachers, currentUser, initialApplication }: AdminDashboardProps) {
   const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
-  const currentUserId = currentUser === 'admin' ? 'admin' : accessScope.ownerUid;
+  const currentUserId = accessScope.ownerUid;
   const currentUserName = currentUser === 'admin' ? 'Admin' : currentUser?.name;
   const studentsStorageKey = createTeacherStorageKey('students', accessScope.ownerUid);
   const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
@@ -151,7 +178,9 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const [cameraTarget, setCameraTarget] = useState<'new' | 'edit' | 'global_post' | { type: 'category', categoryId: string } | null>(null);
 
   // Categories State
-  const [categories, setCategories] = useState<{ id: string; title: string; color?: string; parentId?: string; author?: string; time?: string; bgType?: 'color' | 'image'; bgValue?: string; authorId?: string }[]>([]);
+  const [categories, setCategories] = useState<DashboardCategory[]>([]);
+  const [administratorCloudStudents, setAdministratorCloudStudents] = useState<DashboardStudent[]>([]);
+  const [administratorQuestionSets, setAdministratorQuestionSets] = useState<(PlickerLiveQuestionSet & { teacherId: string })[]>([]);
   const [categoriesReady, setCategoriesReady] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryTitle, setEditingCategoryTitle] = useState('');
@@ -166,8 +195,11 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const [activeScorePostId, setActiveScorePostId] = useState<string | null>(null);
 
   useEffect(() => {
+    setCategories([]);
+    setAdministratorCloudStudents([]);
+    setAdministratorQuestionSets([]);
+    setCategoriesReady(false);
     if (accessScope.role === 'guest') {
-      setCategories([]);
       setCategoriesReady(true);
       return;
     }
@@ -176,21 +208,68 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       ? collection(db, 'categories')
       : query(collection(db, 'categories'), where('authorId', '==', accessScope.ownerUid));
     const unsub = onSnapshot(categoriesQuery, (snapshot) => {
-      setCategories(snapshot.docs
+      const visibleDocuments = snapshot.docs.filter(item =>
+        canAccessTeacherOwnedRecord(accessScope, item.data()));
+      const visibleCategories = visibleDocuments
         .filter(item => !isPlickerSystemCategory(item.id, item.data()))
-        .map(item => ({ id: item.id, ...item.data() } as any)));
+        .map(item => ({ id: item.id, ...item.data() } as DashboardCategory));
+      setCategories(visibleCategories);
+
+      if (accessScope.role === 'administrator') {
+        const classOwners = new Map(visibleCategories.map(category => [category.id, category.authorId]));
+        const cloudStudents = new Map<string, DashboardStudent>();
+        const cloudQuestionSets = new Map<string, PlickerLiveQuestionSet & { teacherId: string }>();
+
+        for (const item of visibleDocuments) {
+          if (!isPlickerSystemCategory(item.id, item.data())) continue;
+          const room = item.data();
+          const teacherId = room.ownerUid;
+          if (!isValidTeacherUid(teacherId) || room.authorId !== teacherId) continue;
+
+          for (const [classId, roster] of Object.entries(room.rosters || {})) {
+            if (classOwners.get(classId) !== teacherId || !Array.isArray(roster)) continue;
+            for (const entry of roster) {
+              if (!entry || !isValidTeacherUid(entry.id) || entry.classId !== classId ||
+                  typeof entry.name !== 'string' || !entry.name.trim()) continue;
+              cloudStudents.set(`${teacherId}:${classId}:${entry.id}`, {
+                id: entry.id,
+                classId,
+                name: entry.name.trim(),
+                ...(typeof entry.cardId === 'number' ? { cardId: entry.cardId } : {}),
+                teacherId,
+              });
+            }
+          }
+
+          if (!Array.isArray(room.librarySets)) continue;
+          for (const questionSet of room.librarySets) {
+            if (!questionSet || !isValidTeacherUid(questionSet.id) ||
+                typeof questionSet.title !== 'string' || !Array.isArray(questionSet.questions)) continue;
+            cloudQuestionSets.set(`${teacherId}:${questionSet.id}`, {
+              ...questionSet as PlickerLiveQuestionSet,
+              id: `${teacherId}__${questionSet.id}`,
+              teacherId,
+            });
+          }
+        }
+
+        setAdministratorCloudStudents([...cloudStudents.values()]);
+        setAdministratorQuestionSets([...cloudQuestionSets.values()]);
+      }
       setCategoriesReady(true);
     }, error => {
       console.error('Không thể tải dữ liệu lớp học theo tài khoản:', error);
       setCategories([]);
+      setAdministratorCloudStudents([]);
+      setAdministratorQuestionSets([]);
       setCategoriesReady(true);
     });
     return unsub;
   }, [accessScope.ownerUid, accessScope.role]);
 
   useEffect(() => {
+    setPosts([]);
     if (accessScope.role === 'guest') {
-      setPosts([]);
       return;
     }
 
@@ -198,7 +277,13 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       ? collection(db, 'wall_posts')
       : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid));
     const unsub = onSnapshot(postsQuery, (snapshot) => {
-      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+      const visiblePosts = filterTeacherOwnedRecords(accessScope, snapshot.docs
+        .map(item => ({ id: item.id, ...item.data() } as {
+          id: string;
+          authorId?: string;
+          teacherId?: string;
+        })));
+      setPosts(visiblePosts as typeof posts);
     }, error => {
       console.error('Không thể tải nội dung riêng của giáo viên:', error);
       setPosts([]);
@@ -286,7 +371,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const [newClass, setNewClass] = useState({ name: '', academicYear: '' });
   
   // Students State
-  const [students, setStudents] = useState<{ id: string; classId: string; name: string; email?: string; cardId?: number }[]>(() => {
+  const [students, setStudents] = useState<DashboardStudent[]>(() => {
     try {
       const saved = localStorage.getItem(studentsStorageKey);
       return saved ? assignPlickerCardIds(JSON.parse(saved)) : [];
@@ -306,22 +391,29 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   }, [students, studentsStorageKey]);
 
   const myCategories = useMemo(() =>
-    currentUserId === 'admin' ? categories : categories.filter(category => category.authorId === currentUserId),
-  [categories, currentUserId]);
+    accessScope.role === 'administrator' ? categories : categories.filter(category => category.authorId === currentUserId),
+  [accessScope.role, categories, currentUserId]);
   const plickerCategories = useMemo(() =>
     myCategories.filter(category => !category.parentId),
   [myCategories]);
   const plickerStudents = useMemo(() =>
-    filterPlickerStudentsByClasses(students, plickerCategories),
-  [plickerCategories, students]);
+    filterPlickerStudentsByClasses(
+      accessScope.role === 'administrator'
+        ? [...students, ...administratorCloudStudents.filter(cloudStudent =>
+          !students.some(student => student.id === cloudStudent.id && student.classId === cloudStudent.classId))]
+        : students,
+      plickerCategories,
+    ),
+  [accessScope.role, administratorCloudStudents, plickerCategories, students]);
   const synchronizedPlickerReports = useMemo(() => posts
-    .filter(post => post.kind === 'plicker_report' && post.report?.id)
+    .filter(post => post.kind === 'plicker_report' && post.report?.id &&
+      canAccessTeacherOwnedRecord(accessScope, post))
     .map(post => ({
       ...post.report!,
       teacherId: post.teacherId || post.authorId || '',
     }))
     .sort((left, right) => right.completedAt.localeCompare(left.completedAt)),
-  [posts]);
+  [accessScope.ownerUid, accessScope.role, posts]);
 
   useEffect(() => {
     if (accessScope.role !== 'administrator' || !categoriesReady) return;
@@ -387,7 +479,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
           return {
             id: Math.random().toString(36).substr(2, 9),
             classId: classId,
-            name: name
+            name: name,
+            teacherId: accessScope.ownerUid,
           };
         });
         setStudents([...students, ...newStudents]);
@@ -410,7 +503,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       return {
         id: Math.random().toString(36).substr(2, 9),
         classId: activeClassId,
-        name: name
+        name: name,
+        teacherId: accessScope.ownerUid,
       };
     });
     
@@ -920,7 +1014,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
         ) : activeLibraryView === 'gesture-class' ? (
           <GestureClass onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'create-exam' ? (
-          <ExamManager initialMode="teacher" onBack={() => setActiveLibraryView('main')} currentUser={currentUser} />
+          <ExamManager key={accessScope.ownerUid} initialMode="teacher" onBack={() => setActiveLibraryView('main')} currentUser={currentUser} />
         ) : activeLibraryView === 'chatbot' ? (
           <div className="flex-1 flex flex-col h-full bg-slate-50">
             <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 md:py-5 flex items-center gap-4 shrink-0">
@@ -958,12 +1052,14 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
           <HeadShakeGame onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'plicker' ? (
           <PlickerScanner 
+            key={accessScope.ownerUid}
             onBack={() => setActiveLibraryView('main')}
             onLogout={onLogout}
             schoolName={currentUser === 'admin' ? '' : currentUser?.school || ''}
             teacherName={currentUser === 'admin' ? '' : currentUser?.name || ''}
             isAdministrator={currentUser === 'admin'}
             synchronizedReports={synchronizedPlickerReports}
+            administratorQuestionSets={administratorQuestionSets}
             categories={plickerCategories}
             categoriesReady={categoriesReady}
             allStudents={plickerStudents}
@@ -985,6 +1081,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   id: Math.random().toString(36).substr(2, 9),
                   classId,
                   name,
+                  teacherId: accessScope.ownerUid,
                   createdAt: new Date().toISOString()
                 }));
                 setStudents(previous => assignPlickerCardIds([...previous, ...newStudents]));
@@ -1017,6 +1114,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                 id: Math.random().toString(36).substr(2, 9),
                 classId,
                 name,
+                teacherId: accessScope.ownerUid,
                 createdAt: new Date().toISOString()
               }));
               setStudents(previous => assignPlickerCardIds([...previous, ...newStudents]));

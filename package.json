@@ -16,6 +16,7 @@
     "test:platform": "node --import tsx scripts/test-platform.ts",
     "test:head-shake": "node --import tsx scripts/test-head-shake-questions.ts",
     "test:student-portal": "node --import tsx scripts/test-exam-student-portal.ts",
+    "test:exam-privacy": "node --import tsx scripts/test-exam-privacy.ts",
     "test:ai-services": "node --import tsx scripts/test-ai-services.ts",
     "test:platform-metrics": "node --import tsx scripts/test-platform-metrics.ts",
     "test:scalability": "node --import tsx scripts/test-scalability.ts",

@@ -65,6 +65,7 @@ import {
   summarizePlickerLiveAnswers,
   type PlickerDeviceRole,
   type PlickerLiveQuestion,
+  type PlickerLiveQuestionSet,
   type PlickerLiveRoom,
   type PlickerLiveSession,
 } from '../lib/plickerLive';
@@ -104,6 +105,7 @@ interface PlickerClassroomProps {
   teacherName?: string;
   isAdministrator?: boolean;
   synchronizedReports?: (PlickerClassroomReport & { teacherId?: string })[];
+  administratorQuestionSets?: (PlickerLiveQuestionSet & { teacherId: string })[];
 }
 
 interface ClassroomQuestion extends PlickerLiveQuestion {
@@ -220,7 +222,9 @@ function initialReports(ownerUid: string): ClassroomReport[] {
   try {
     const saved = localStorage.getItem(createTeacherStorageKey(REPORTS_STORAGE_KEY, ownerUid));
     const parsed = saved ? JSON.parse(saved) as ClassroomReport[] : [];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(report => report && (!report.teacherId || report.teacherId === ownerUid))
+      : [];
   } catch {
     return [];
   }
@@ -352,7 +356,7 @@ function MetricCard({
 }
 
 export default function PlickerClassroom({
-  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents, schoolName = '', teacherName = '', isAdministrator = false, synchronizedReports = [],
+  onBack, categories, categoriesReady, allStudents, onCreateClass, onDeleteClass, onAddStudents, onUpdateStudent, onDeleteStudent, onSyncStudents, schoolName = '', teacherName = '', isAdministrator = false, synchronizedReports = [], administratorQuestionSets = [],
 }: PlickerClassroomProps) {
   const ownerUid = auth.currentUser?.uid || '';
   const [view, setView] = useState<ClassroomView>(() => readRequestedPlickerSection(window.location.search) || 'overview');
@@ -434,6 +438,14 @@ export default function PlickerClassroom({
   const registeredStudents = useMemo(() =>
     filterPlickerStudentsByClasses(allStudents, categories),
   [allStudents, categories]);
+  const visibleQuestionSets = useMemo(() => {
+    if (!isAdministrator) return sets;
+    const combined = new Map<string, ClassroomQuestionSet>(sets.map(set => [set.id, set]));
+    for (const questionSet of administratorQuestionSets) {
+      combined.set(questionSet.id, questionSet as ClassroomQuestionSet);
+    }
+    return [...combined.values()];
+  }, [administratorQuestionSets, isAdministrator, sets]);
   const selectedClass = categories.find(item => item.id === selectedClassId) || null;
   const classStudents = useMemo(() =>
     registeredStudents
@@ -444,7 +456,7 @@ export default function PlickerClassroom({
   const classStudentsByCard = useMemo(() => new Map(
     classStudents.map((student, index) => [student.cardId || index + 1, student]),
   ), [classStudents]);
-  const selectedSet = sets.find(item => item.id === selectedSetId) || null;
+  const selectedSet = visibleQuestionSets.find(item => item.id === selectedSetId) || null;
   const currentQuestion = selectedSet?.questions[questionIndex] || null;
   const questionKey = currentQuestion && selectedSet ? createPlickerQuestionKey(selectedSet.id, currentQuestion.id) : '';
   const currentAnswers = answersByQuestion[questionKey] || [];
@@ -668,7 +680,7 @@ export default function PlickerClassroom({
   }, [deletedQuestionSetIds, ownerUid, saveRoomFields, sets, syncReady]);
 
   useEffect(() => {
-    if (!categoriesReady || !syncReady || !ownerUid) return;
+    if (!categoriesReady || !syncReady || !ownerUid || isAdministrator) return;
     const remoteRosters = currentRoomRef.current?.rosters || {};
     const mergedDeletedClasses = mergePlickerDeletedClasses(
       deletedClassIds,
@@ -707,7 +719,7 @@ export default function PlickerClassroom({
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [categories, categoriesReady, deletedClassIds, ownerUid, registeredStudents, saveRoomFields, syncReady]);
+  }, [categories, categoriesReady, deletedClassIds, isAdministrator, ownerUid, registeredStudents, saveRoomFields, syncReady]);
 
   useEffect(() => {
     const refreshInstallationState = () => {
@@ -749,16 +761,19 @@ export default function PlickerClassroom({
       setReports(synchronizedReports);
       return;
     }
-    if (!synchronizedReports.length) return;
+    const ownedReports = synchronizedReports.filter(report => report.teacherId === ownerUid);
+    if (!ownedReports.length) return;
 
     setReports(previous => {
-      const combined = new Map<string, ClassroomReport>(previous.map(report => [report.id, report]));
-      for (const report of synchronizedReports) combined.set(report.id, report);
+      const combined = new Map<string, ClassroomReport>(previous
+        .filter(report => !report.teacherId || report.teacherId === ownerUid)
+        .map(report => [report.id, report]));
+      for (const report of ownedReports) combined.set(report.id, report);
       return [...combined.values()]
         .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
         .slice(0, 100);
     });
-  }, [isAdministrator, synchronizedReports]);
+  }, [isAdministrator, ownerUid, synchronizedReports]);
 
   useEffect(() => {
     if (!categoriesReady || !ownerUid) return;
@@ -827,8 +842,8 @@ export default function PlickerClassroom({
   }, [categories, pendingClassTitle, selectedClassId]);
 
   useEffect(() => {
-    if (!selectedSetId && sets[0]) setSelectedSetId(sets[0].id);
-  }, [selectedSetId, sets]);
+    if (!selectedSetId && visibleQuestionSets[0]) setSelectedSetId(visibleQuestionSets[0].id);
+  }, [selectedSetId, visibleQuestionSets]);
 
   const recordAnswer = useCallback((
     student: Student,
@@ -1678,7 +1693,7 @@ export default function PlickerClassroom({
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard title="Lớp đã tạo" value={categories.length} note="Danh sách được gắn mã thẻ tự động" accent="bg-blue-50 text-blue-600" icon={<GraduationCap className="h-5 w-5" />} />
               <MetricCard title="Học sinh" value={registeredStudents.length} note="Mỗi lớp tối đa 63 mã thẻ riêng" accent="bg-emerald-50 text-emerald-600" icon={<Users className="h-5 w-5" />} />
-              <MetricCard title="Bộ câu hỏi" value={sets.length} note="Hỗ trợ câu hỏi và khảo sát A/B/C/D" accent="bg-amber-50 text-amber-600" icon={<Layers className="h-5 w-5" />} />
+              <MetricCard title="Bộ câu hỏi" value={visibleQuestionSets.length} note="Hỗ trợ câu hỏi và khảo sát A/B/C/D" accent="bg-amber-50 text-amber-600" icon={<Layers className="h-5 w-5" />} />
               <MetricCard title="Câu trả lời" value={totalRecorded} note={`${reports.length} buổi học đã lưu`} accent="bg-violet-50 text-violet-600" icon={<BarChart3 className="h-5 w-5" />} />
             </section>
 
@@ -1811,7 +1826,7 @@ export default function PlickerClassroom({
               </div>
             </div>
 
-            {sets.length === 0 ? (
+            {visibleQuestionSets.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
                 <Layers className="mx-auto h-12 w-12 text-indigo-300" />
                 <h3 className="mt-4 text-lg font-semibold">Chưa có bộ câu hỏi</h3>
@@ -1819,7 +1834,7 @@ export default function PlickerClassroom({
               </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {sets.map(set => (
+                {visibleQuestionSets.map(set => (
                   <article
                     key={set.id}
                     className={`rounded-2xl border bg-white p-5 shadow-sm ${
@@ -1903,7 +1918,7 @@ export default function PlickerClassroom({
                 Bộ câu hỏi
                 <select value={selectedSetId} onChange={event => { setSelectedSetId(event.target.value); setQuestionIndex(0); setScanning(false); }} className="mt-1 block w-full rounded-lg border border-slate-200 p-2 text-sm text-slate-900">
                   <option value="">Chọn bộ câu hỏi...</option>
-                  {sets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+                  {visibleQuestionSets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
                 </select>
               </label>
               <div className="flex items-end gap-2">
