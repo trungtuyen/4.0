@@ -7,7 +7,7 @@ import { db, auth } from './firebase';
 import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
 import PlatformFooter, { publishPlatformRegistrationMetrics } from './components/PlatformFooter';
 import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
-import { createPlickerLaunchPath, readRequestedApplication } from './lib/plickerPwa';
+import { createPlickerLaunchPath, readRequestedApplication, selectApplicationManifest } from './lib/plickerPwa';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ExamManager = lazy(() => import('./components/ExamManager'));
@@ -277,6 +277,7 @@ export default function App() {
 
   const launchApplication = (applicationId: EcosystemApplicationId) => {
     if (applicationId === 'plicker') {
+      selectApplicationManifest('plicker', import.meta.env.BASE_URL);
       window.history.replaceState(window.history.state, '', createPlickerLaunchPath(import.meta.env.BASE_URL));
       if (currentUser && auth.currentUser) {
         setCurrentView('admin');

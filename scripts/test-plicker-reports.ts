@@ -282,7 +282,7 @@ for (const feature of [
 }
 assert.match(dashboard, /schoolName=\{currentUser/u);
 assert.match(dashboard, /teacherName=\{currentUser/u);
-assert.match(worker, /CACHE_PREFIX\}v13/u);
+assert.match(worker, /CACHE_PREFIX\}v14/u);
 checks += 3;
 
 if (process.env.PLICKER_REPORT_TEST_OUTPUT) writeFileSync(process.env.PLICKER_REPORT_TEST_OUTPUT, bytes);

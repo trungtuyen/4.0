@@ -33,6 +33,18 @@ export function createPlickerLaunchPath(baseUrl: string, section?: PlickerSectio
   return `${normalizedBase}?${query.toString()}`;
 }
 
+export function selectApplicationManifest(
+  application: 'ecosystem' | 'plicker',
+  baseUrl: string,
+): void {
+  if (typeof document === 'undefined') return;
+  const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+  if (!manifest) return;
+
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  manifest.href = `${normalizedBase}${application === 'plicker' ? 'plicker' : 'smartclass'}.webmanifest`;
+}
+
 export function getPwaInstallationInstructions(userAgent: string): string {
   if (/iphone|ipad|ipod/i.test(userAgent)) {
     return 'Mở bằng Safari, nhấn nút Chia sẻ và chọn “Thêm vào Màn hình chính”.';

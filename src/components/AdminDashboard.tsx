@@ -1,17 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { lazy, useState, useRef, useEffect, useMemo } from 'react';
 import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText, Eye, EyeOff } from 'lucide-react';
 import { Teacher } from '../types';
-import LuckyDraw from './LuckyDraw';
-import PlickerScanner from './PlickerClassroom';
-import HeadShakeGame from './HeadShakeGame';
-import AIChatbot from './AIChatbot';
-import ExamManager from './ExamManager';
-import SecretBoxGame from './SecretBoxGame';
-import DragDropGame from './DragDropGame';
-import ExcelMerger from './ExcelMerger';
-import PdfMerger from './PdfMerger';
-import GestureCoreEdu from './GestureCoreEdu';
-import GestureClass from './GestureClass';
 import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
@@ -19,6 +8,18 @@ import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
 import { assignPlickerCardIds, filterPlickerStudentsByClasses, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
 import { isPlickerSystemCategory, mergePlickerCloudRosters } from '../lib/plickerLive';
+
+const LuckyDraw = lazy(() => import('./LuckyDraw'));
+const PlickerScanner = lazy(() => import('./PlickerClassroom'));
+const HeadShakeGame = lazy(() => import('./HeadShakeGame'));
+const AIChatbot = lazy(() => import('./AIChatbot'));
+const ExamManager = lazy(() => import('./ExamManager'));
+const SecretBoxGame = lazy(() => import('./SecretBoxGame'));
+const DragDropGame = lazy(() => import('./DragDropGame'));
+const ExcelMerger = lazy(() => import('./ExcelMerger'));
+const PdfMerger = lazy(() => import('./PdfMerger'));
+const GestureCoreEdu = lazy(() => import('./GestureCoreEdu'));
+const GestureClass = lazy(() => import('./GestureClass'));
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;

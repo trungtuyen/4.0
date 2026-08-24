@@ -1,7 +1,12 @@
 import { initializeApp } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 export const app = initializeApp(firebaseConfig);
@@ -18,5 +23,17 @@ if (appCheckSiteKey && typeof window !== 'undefined') {
   }
 }
 
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const usePersistentFirestoreCache =
+  typeof window !== 'undefined' &&
+  typeof indexedDB !== 'undefined' &&
+  import.meta.env.VITE_FIRESTORE_CACHE_MODE !== 'memory';
+
+export const db = initializeFirestore(app, {
+  localCache: usePersistentFirestoreCache
+    ? persistentLocalCache({
+      cacheSizeBytes: 64 * 1024 * 1024,
+      tabManager: persistentMultipleTabManager(),
+    })
+    : memoryLocalCache(),
+}, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);

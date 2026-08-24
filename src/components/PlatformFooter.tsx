@@ -7,6 +7,7 @@ import {
   Building2,
   CheckCircle2,
   ClipboardCheck,
+  Download,
   GraduationCap,
   HeartHandshake,
   Layers,
@@ -19,38 +20,34 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
-  collection,
   doc,
-  getCountFromServer,
-  increment,
-  onSnapshot,
-  query,
-  runTransaction,
   serverTimestamp,
   setDoc,
-  Timestamp,
-  where,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ECOSYSTEM_APPLICATIONS, type EcosystemApplicationId } from '../ecosystem';
 import {
-  PLATFORM_CLOUD_VISIT_KEY,
-  PLATFORM_COUNT_REFRESH_INTERVAL_MS,
   PLATFORM_HEARTBEAT_INTERVAL_MS,
-  PLATFORM_PRESENCE_WINDOW_MS,
+  PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS,
+  cachePublicPlatformSnapshot,
   cacheRegistrationMetrics,
-  countRecentVisitors,
   formatPlatformCount,
   getOrCreateVisitorIdentifier,
+  readCachedPublicPlatformSnapshot,
   readCachedRegistrationMetrics,
-  readNonNegativeInteger,
-  readPublicRegistrationMetrics,
+  readPublicPlatformSnapshot,
   recordLocalPresence,
   recordLocalVisit,
+  shouldRefreshPublicPlatformSnapshot,
   summarizeTeacherRegistrations,
   type PublicPlatformMetrics,
   type RegisteredTeacherSummaryInput,
 } from '../lib/platformMetrics';
+import {
+  getPwaInstallationInstructions,
+  isInstalledPwa,
+  promptPwaInstallation,
+} from '../lib/plickerPwa';
 
 interface PlatformFooterProps {
   onTeacherRegister: () => void;
@@ -100,10 +97,12 @@ function usePlatformMetrics(): PublicPlatformMetrics {
 
   useEffect(() => {
     let mounted = true;
-    let remotePresenceEnabled = true;
+    let publishedOnlineVisitors = 0;
+    let snapshotRequest: AbortController | null = null;
     const visitorId = getOrCreateVisitorIdentifier(window.localStorage);
     const localVisits = recordLocalVisit(window.localStorage, window.sessionStorage);
     const localRegistration = readCachedRegistrationMetrics(window.localStorage);
+    const cachedSnapshot = readCachedPublicPlatformSnapshot(window.localStorage);
 
     const update = (changes: Partial<PublicPlatformMetrics>) => {
       if (mounted) setMetrics(current => ({ ...current, ...changes }));
@@ -111,116 +110,79 @@ function usePlatformMetrics(): PublicPlatformMetrics {
 
     const heartbeat = () => {
       const localOnline = navigator.onLine ? recordLocalPresence(window.localStorage, visitorId) : 0;
-      update({ onlineVisitors: localOnline });
-
-      if (!navigator.onLine || !remotePresenceEnabled) return;
-      void setDoc(doc(db, 'platform_presence', visitorId), {
-        visitorId,
-        lastSeen: serverTimestamp(),
-      }).catch(error => {
-        remotePresenceEnabled = false;
-        console.info('Chế độ trực tuyến đang sử dụng dữ liệu phiên trên thiết bị.', error);
-      });
+      update({ onlineVisitors: Math.max(localOnline, publishedOnlineVisitors) });
     };
 
     update({
       totalVisits: localVisits,
       onlineVisitors: navigator.onLine ? 1 : 0,
+      ...(cachedSnapshot?.metrics || {}),
       ...(localRegistration ? { ...localRegistration, hasRegistrationData: true } : {}),
     });
+    publishedOnlineVisitors = cachedSnapshot?.metrics.onlineVisitors || 0;
     heartbeat();
 
-    try {
-      if (window.sessionStorage.getItem(PLATFORM_CLOUD_VISIT_KEY) !== '1') {
-        const traffic = doc(db, 'platform_stats', 'traffic');
-        void runTransaction(db, async transaction => {
-          const snapshot = await transaction.get(traffic);
-          if (snapshot.exists()) {
-            transaction.update(traffic, { totalVisits: increment(1), updatedAt: serverTimestamp() });
-          } else {
-            transaction.set(traffic, { totalVisits: 1, updatedAt: serverTimestamp() });
-          }
-        }).then(() => {
-          window.sessionStorage.setItem(PLATFORM_CLOUD_VISIT_KEY, '1');
-        }).catch(error => {
-          console.info('Lượt truy cập đang được ghi nhận trên thiết bị.', error);
+    const refreshPublishedSnapshot = async () => {
+      if (!navigator.onLine || document.visibilityState === 'hidden') return;
+
+      const latest = readCachedPublicPlatformSnapshot(window.localStorage);
+      if (!shouldRefreshPublicPlatformSnapshot(latest)) return;
+
+      snapshotRequest?.abort();
+      snapshotRequest = new AbortController();
+
+      try {
+        const response = await fetch(`${import.meta.env.BASE_URL}platform-stats.json`, {
+          cache: 'default',
+          credentials: 'same-origin',
+          signal: snapshotRequest.signal,
         });
+        if (!response.ok || !mounted) return;
+
+        const value: unknown = await response.json();
+        const published = readPublicPlatformSnapshot(value);
+        if (!published) return;
+
+        cachePublicPlatformSnapshot(window.localStorage, value);
+        publishedOnlineVisitors = published.onlineVisitors || 0;
+        const localOnline = navigator.onLine ? recordLocalPresence(window.localStorage, visitorId) : 0;
+        update({
+          ...published,
+          totalVisits: Math.max(published.totalVisits || 0, localVisits),
+          onlineVisitors: Math.max(publishedOnlineVisitors, localOnline),
+          isFirebaseConnected: Object.keys(published).length > 0,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        console.info('Thống kê đang sử dụng dữ liệu đã lưu trên thiết bị.');
       }
-    } catch (error) {
-      console.info('Không thể truy cập bộ nhớ phiên; dùng thống kê cục bộ.', error);
-    }
-
-    const unsubscribeTraffic = onSnapshot(
-      doc(db, 'platform_stats', 'traffic'),
-      snapshot => {
-        if (!snapshot.exists()) return;
-        update({
-          totalVisits: readNonNegativeInteger(snapshot.data().totalVisits, localVisits),
-          isFirebaseConnected: true,
-        });
-      },
-      () => undefined,
-    );
-
-    const unsubscribeOverview = onSnapshot(
-      doc(db, 'platform_stats', 'overview'),
-      snapshot => {
-        if (!snapshot.exists()) return;
-        const registration = readPublicRegistrationMetrics(snapshot.data());
-        if (!registration) return;
-        update({ ...registration, hasRegistrationData: true, isFirebaseConnected: true });
-      },
-      () => undefined,
-    );
-
-    const activeVisitors = query(
-      collection(db, 'platform_presence'),
-      where('lastSeen', '>=', Timestamp.fromMillis(Date.now() - PLATFORM_PRESENCE_WINDOW_MS)),
-    );
-
-    const unsubscribePresence = onSnapshot(
-      activeVisitors,
-      snapshot => {
-        const visitors = countRecentVisitors(snapshot.docs.map(item => item.data()));
-        update({
-          onlineVisitors: Math.max(visitors, navigator.onLine ? 1 : 0),
-          isFirebaseConnected: true,
-        });
-      },
-      () => undefined,
-    );
-
-    const refreshEducationalCounts = async () => {
-      const resources = ['classes', 'students', 'exams'] as const;
-      const results = await Promise.allSettled(
-        resources.map(resource => getCountFromServer(collection(db, resource))),
-      );
-      if (!mounted) return;
-
-      const changes: Partial<PublicPlatformMetrics> = {};
-      if (results[0].status === 'fulfilled') changes.classrooms = results[0].value.data().count;
-      if (results[1].status === 'fulfilled') changes.students = results[1].value.data().count;
-      if (results[2].status === 'fulfilled') changes.exams = results[2].value.data().count;
-      if (results.some(result => result.status === 'fulfilled')) changes.isFirebaseConnected = true;
-      update(changes);
     };
 
-    void refreshEducationalCounts();
+    void refreshPublishedSnapshot();
     const heartbeatInterval = window.setInterval(heartbeat, PLATFORM_HEARTBEAT_INTERVAL_MS);
-    const countInterval = window.setInterval(refreshEducationalCounts, PLATFORM_COUNT_REFRESH_INTERVAL_MS);
-    const handleConnectivityChange = () => heartbeat();
+    const snapshotInterval = window.setInterval(refreshPublishedSnapshot, PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS);
+    const handleConnectivityChange = () => {
+      heartbeat();
+      void refreshPublishedSnapshot();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        heartbeat();
+        void refreshPublishedSnapshot();
+      }
+    };
     window.addEventListener('online', handleConnectivityChange);
     window.addEventListener('offline', handleConnectivityChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       mounted = false;
-      unsubscribeTraffic();
-      unsubscribeOverview();
-      unsubscribePresence();
+      snapshotRequest?.abort();
       window.clearInterval(heartbeatInterval);
-      window.clearInterval(countInterval);
+      window.clearInterval(snapshotInterval);
       window.removeEventListener('online', handleConnectivityChange);
       window.removeEventListener('offline', handleConnectivityChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -234,11 +196,23 @@ export default function PlatformFooter({
   onOpenProduct,
 }: PlatformFooterProps) {
   const metrics = usePlatformMetrics();
+  const [installed, setInstalled] = useState(() => isInstalledPwa());
+
+  const installPlatform = async () => {
+    const result = await promptPwaInstallation();
+    if (result === 'accepted') {
+      setInstalled(true);
+      return;
+    }
+    if (result === 'unavailable') {
+      window.alert(getPwaInstallationInstructions(navigator.userAgent));
+    }
+  };
 
   const cards: MetricCard[] = [
     {
       label: 'Lượt truy cập',
-      detail: 'Phiên truy cập thực tế',
+      detail: metrics.isFirebaseConnected ? 'Số liệu tổng hợp đã xác minh' : 'Phiên ghi nhận trên thiết bị',
       value: metrics.totalVisits,
       icon: BarChart3,
       accent: 'from-sky-400 to-blue-500',
@@ -259,7 +233,7 @@ export default function PlatformFooter({
     },
     {
       label: 'Đang trực tuyến',
-      detail: 'Cập nhật theo thời gian thực',
+      detail: 'Phiên hoạt động và số liệu tổng hợp',
       value: metrics.onlineVisitors,
       icon: Activity,
       accent: 'from-emerald-400 to-teal-500',
@@ -320,7 +294,7 @@ export default function PlatformFooter({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
               </span>
-              {metrics.isFirebaseConnected ? 'Dữ liệu hệ thống đang cập nhật' : 'Đang đồng bộ dữ liệu thực tế'}
+              {metrics.isFirebaseConnected ? 'Số liệu tổng hợp đã đồng bộ' : 'Hệ thống sẵn sàng trên thiết bị'}
             </div>
           </div>
 
@@ -367,14 +341,26 @@ export default function PlatformFooter({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={onTeacherRegister}
-              className="inline-flex w-fit shrink-0 items-center gap-2 rounded-full bg-emerald-400 px-6 py-3.5 text-sm font-bold text-slate-950 transition hover:-translate-y-0.5 hover:bg-emerald-300"
-            >
-              Giáo viên đăng ký miễn phí
-              <ArrowRight className="h-4 w-4" />
-            </button>
+            <div className="flex shrink-0 flex-col items-start gap-3 sm:flex-row lg:flex-col">
+              <button
+                type="button"
+                onClick={onTeacherRegister}
+                className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-400 px-6 py-3.5 text-sm font-bold text-slate-950 transition hover:-translate-y-0.5 hover:bg-emerald-300"
+              >
+                Giáo viên đăng ký miễn phí
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              {!installed && (
+                <button
+                  type="button"
+                  onClick={() => void installPlatform()}
+                  className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:border-sky-300 hover:text-sky-200"
+                >
+                  <Download className="h-4 w-4" />
+                  Cài ứng dụng trên thiết bị
+                </button>
+              )}
+            </div>
           </div>
         </section>
 

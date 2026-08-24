@@ -53,6 +53,12 @@ jobs:
       - name: Verify privacy-safe homepage community statistics
         run: npm run test:platform-metrics
 
+      - name: Verify local-first scalability and static deployment
+        run: npm run test:scalability
+
+      - name: Verify ecosystem and Plicker offline installation
+        run: npm run test:pwa
+
       - name: Build project
         run: npm run build
 

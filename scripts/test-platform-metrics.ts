@@ -1,24 +1,29 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  PLATFORM_CLOUD_VISIT_KEY,
   PLATFORM_PRESENCE_STORAGE_KEY,
   PLATFORM_PRESENCE_WINDOW_MS,
   PLATFORM_REGISTRATION_STORAGE_KEY,
   PLATFORM_SESSION_VISIT_KEY,
+  PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS,
+  PLATFORM_SNAPSHOT_STORAGE_KEY,
   PLATFORM_VISITOR_STORAGE_KEY,
   PLATFORM_VISITS_STORAGE_KEY,
+  cachePublicPlatformSnapshot,
   cacheRegistrationMetrics,
   countRecentVisitors,
   formatPlatformCount,
   getOrCreateVisitorIdentifier,
   normalizeSchoolName,
+  readCachedPublicPlatformSnapshot,
   readCachedRegistrationMetrics,
   readNonNegativeInteger,
+  readPublicPlatformSnapshot,
   readPublicRegistrationMetrics,
   readTimestampMilliseconds,
   recordLocalPresence,
   recordLocalVisit,
+  shouldRefreshPublicPlatformSnapshot,
   summarizeTeacherRegistrations,
   type BrowserStorageLike,
 } from '../src/lib/platformMetrics';
@@ -169,6 +174,47 @@ registrationStorage.setItem(PLATFORM_REGISTRATION_STORAGE_KEY, '{invalid-json');
 equal(readCachedRegistrationMetrics(registrationStorage), null, 'Invalid cached registration totals are never displayed.');
 equal(cacheRegistrationMetrics(inaccessibleStorage, { registeredTeachers: 2, activeTeachers: 1, registeredSchools: 1 }), false, 'Blocked storage cannot break registration summary handling.');
 
+const snapshotStorage = new MemoryStorage();
+const validSnapshot = {
+  version: 1,
+  totalVisits: 125,
+  onlineVisitors: 12,
+  registeredTeachers: 9,
+  activeTeachers: 7,
+  registeredSchools: 3,
+  classrooms: 14,
+  students: 420,
+  exams: 18,
+};
+
+equal(readPublicPlatformSnapshot(validSnapshot), {
+  totalVisits: 125,
+  onlineVisitors: 12,
+  classrooms: 14,
+  students: 420,
+  exams: 18,
+  registeredTeachers: 9,
+  activeTeachers: 7,
+  registeredSchools: 3,
+  hasRegistrationData: true,
+}, 'A public CDN snapshot exposes only verified aggregate counters.');
+equal(readPublicPlatformSnapshot({ version: 1, classrooms: null, students: null }), {}, 'Unavailable public totals remain unknown instead of becoming fake zeroes.');
+equal(readPublicPlatformSnapshot({ students: '420' }), null, 'Untrusted numeric strings are rejected from the public snapshot.');
+equal(readPublicPlatformSnapshot({ classrooms: -1 }), null, 'Negative public classroom totals are rejected.');
+equal(readPublicPlatformSnapshot({ registeredTeachers: 2, registeredSchools: 1 }), null, 'Incomplete teacher registration aggregates are rejected.');
+equal(readPublicPlatformSnapshot({ registeredTeachers: 2, activeTeachers: 3, registeredSchools: 1 }), null, 'Invalid registration totals cannot be published through the CDN snapshot.');
+equal(readPublicPlatformSnapshot(null), null, 'A missing public snapshot fails safely.');
+
+const cachedSnapshot = cachePublicPlatformSnapshot(snapshotStorage, validSnapshot, timestamp);
+ok(Boolean(cachedSnapshot), 'Verified aggregate snapshots can be cached locally.');
+equal(readCachedPublicPlatformSnapshot(snapshotStorage), cachedSnapshot, 'The last verified aggregate snapshot survives a reload.');
+equal(shouldRefreshPublicPlatformSnapshot(cachedSnapshot, timestamp + PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS - 1), false, 'Fresh aggregate snapshots do not trigger another network request.');
+equal(shouldRefreshPublicPlatformSnapshot(cachedSnapshot, timestamp + PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS), true, 'Aggregate snapshots refresh only after the fifteen-minute cache window.');
+equal(shouldRefreshPublicPlatformSnapshot(null, timestamp), true, 'A missing snapshot is fetched once.');
+equal(cachePublicPlatformSnapshot(inaccessibleStorage, validSnapshot, timestamp), null, 'Blocked storage never breaks public metric handling.');
+snapshotStorage.setItem(PLATFORM_SNAPSHOT_STORAGE_KEY, '{invalid-json');
+equal(readCachedPublicPlatformSnapshot(snapshotStorage), null, 'Corrupt cached snapshots are rejected safely.');
+
 const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const footer = readFileSync(new URL('../src/components/PlatformFooter.tsx', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -193,10 +239,13 @@ for (const label of [
 }
 
 ok(!footer.includes("collection(db, 'teachers')"), 'The public footer never queries private teacher profiles.');
-ok(footer.includes("getCountFromServer(collection(db, resource))"), 'Public classroom, student, and exam metrics use Firestore aggregate queries.');
-ok(footer.includes('runTransaction(db'), 'Visitor increments are atomic.');
-ok(PLATFORM_CLOUD_VISIT_KEY.length > 0 && footer.includes('PLATFORM_CLOUD_VISIT_KEY'), 'Cloud visits are limited to one count per browser session.');
-ok(footer.includes('serverTimestamp()'), 'Presence and visit timestamps use the trusted Firestore server clock.');
+ok(!footer.includes('getCountFromServer('), 'The public footer never scans Firestore collections per visitor.');
+ok(!footer.includes('runTransaction(db'), 'Public page views do not contend on a centralized Firestore counter.');
+ok(!footer.includes("platform_presence', visitorId"), 'Anonymous page views do not create remote heartbeat writes.');
+ok(!footer.includes('onSnapshot('), 'The homepage does not create per-visitor Firestore realtime listeners.');
+ok(footer.includes('platform-stats.json'), 'Public aggregate data comes from a CDN-cacheable static snapshot.');
+ok(footer.includes('PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS'), 'Public aggregates use a bounded refresh schedule.');
+ok(footer.includes('serverTimestamp()'), 'Authorized administrator publication keeps trusted server timestamps.');
 ok(app.includes('publishPlatformRegistrationMetrics(profiles)'), 'Verified administrators publish aggregate-only registration statistics.');
 ok(app.includes('<PlatformFooter'), 'The new community footer is rendered on the homepage.');
 ok(!footer.includes('href="#"'), 'Footer actions use real navigation instead of dead placeholder links.');

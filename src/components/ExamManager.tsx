@@ -83,8 +83,12 @@ interface ExamManagerProps {
   currentUser?: any;
 }
 
+const EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000;
+const EXAM_SESSION_ONLINE_WINDOW_MS = 90_000;
+
 export default function ExamManager({ onBack, initialMode = 'landing', currentUser }: ExamManagerProps) {
   const [appMode, setAppMode] = useState<'landing' | 'teacher' | 'student'>(initialMode);
+  const [teacherTab, setTeacherTab] = useState<'exams' | 'students' | 'monitoring' | 'results' | 'scanning'>('exams');
 
   // --- Mock Data & State ---
   const [exams, setExams] = useState<Exam[]>([]);
@@ -110,46 +114,50 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       sessionsQuery = query(collection(db, 'exam_sessions'), where('teacherId', '==', currentUser.id));
     }
 
-    const unsubExams = onSnapshot(examsQuery, (snapshot: any) => {
+    const subscriptions: (() => void)[] = [];
+    subscriptions.push(onSnapshot(examsQuery, (snapshot: any) => {
       setExams(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as Exam)));
-    });
-    const unsubStudents = onSnapshot(studentsQuery, (snapshot: any) => {
-      setStudents(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentAccount)));
-    });
-    const unsubClasses = onSnapshot(classesQuery, (snapshot: any) => {
-      setClasses(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentClass)));
-    });
-    const unsubResults = onSnapshot(resultsQuery, (snapshot: any) => {
-      setResults(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as ExamResult)));
-    });
-    
+    }));
+
+    if (teacherTab !== 'exams') {
+      subscriptions.push(onSnapshot(studentsQuery, (snapshot: any) => {
+        setStudents(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentAccount)));
+      }));
+      subscriptions.push(onSnapshot(classesQuery, (snapshot: any) => {
+        setClasses(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentClass)));
+      }));
+    }
+
+    if (teacherTab === 'results') {
+      subscriptions.push(onSnapshot(resultsQuery, (snapshot: any) => {
+        setResults(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as ExamResult)));
+      }));
+    }
+
     let pendingSessions: ExamSession[] | null = null;
     let sessionUpdateTimer: NodeJS.Timeout | null = null;
 
-    const unsubSessions = onSnapshot(sessionsQuery, (snapshot: any) => {
-      pendingSessions = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as ExamSession));
-      if (!sessionUpdateTimer) {
-        sessionUpdateTimer = setTimeout(() => {
-          if (pendingSessions) {
-            setActiveSessions(pendingSessions);
-          }
-          sessionUpdateTimer = null;
-        }, 2000); // Update UI at most once every 2 seconds
-      }
-    });
+    if (teacherTab === 'monitoring') {
+      subscriptions.push(onSnapshot(sessionsQuery, (snapshot: any) => {
+        pendingSessions = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as ExamSession));
+        if (!sessionUpdateTimer) {
+          sessionUpdateTimer = setTimeout(() => {
+            if (pendingSessions) {
+              setActiveSessions(pendingSessions);
+            }
+            sessionUpdateTimer = null;
+          }, 2000);
+        }
+      }));
+    }
 
     return () => {
-      unsubExams();
-      unsubStudents();
-      unsubClasses();
-      unsubResults();
-      unsubSessions();
+      subscriptions.forEach(unsubscribe => unsubscribe());
       if (sessionUpdateTimer) clearTimeout(sessionUpdateTimer);
     };
-  }, [currentUser, appMode]);
+  }, [currentUser, appMode, teacherTab]);
 
   // --- Teacher State ---
-  const [teacherTab, setTeacherTab] = useState<'exams' | 'students' | 'monitoring' | 'results' | 'scanning'>('exams');
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -1022,7 +1030,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       pingTimer = setInterval(() => {
         const sessionId = `${currentStudent.id}_${activeExam.id}`;
         setDoc(doc(db, 'exam_sessions', sessionId), { lastActive: new Date().toISOString() }, { merge: true }).catch(console.error);
-      }, 30000); // 30 seconds
+      }, EXAM_SESSION_HEARTBEAT_INTERVAL_MS);
     }
     return () => clearInterval(pingTimer);
   }, [examStatus, currentStudent, activeExam]);
@@ -2063,7 +2071,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                       .map(session => {
                         const student = students.find(s => s.id === session.studentId);
                         const studentClass = classes.find(c => c.id === student?.classId);
-                        const isOnline = new Date().getTime() - new Date(session.lastActive).getTime() < 60000; // active in last 60s
+                        const isOnline = new Date().getTime() - new Date(session.lastActive).getTime() < EXAM_SESSION_ONLINE_WINDOW_MS;
                         
                         return (
                           <tr key={session.id} className="hover:bg-slate-50">

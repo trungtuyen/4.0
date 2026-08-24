@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:static": "vite build",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
@@ -16,6 +17,7 @@
     "test:student-portal": "node --import tsx scripts/test-exam-student-portal.ts",
     "test:ai-services": "node --import tsx scripts/test-ai-services.ts",
     "test:platform-metrics": "node --import tsx scripts/test-platform-metrics.ts",
+    "test:scalability": "node --import tsx scripts/test-scalability.ts",
     "test:plicker": "node --import tsx scripts/test-plicker.ts",
     "test:pwa": "node --import tsx scripts/test-pwa.ts",
     "test:plicker-live": "node --import tsx scripts/test-plicker-live.ts",

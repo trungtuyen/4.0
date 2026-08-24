@@ -4,10 +4,11 @@ export const PLATFORM_SESSION_VISIT_KEY = 'smartclass_platform_session_visit_v1'
 export const PLATFORM_CLOUD_VISIT_KEY = 'smartclass_platform_cloud_visit_v1';
 export const PLATFORM_PRESENCE_STORAGE_KEY = 'smartclass_platform_presence_v1';
 export const PLATFORM_REGISTRATION_STORAGE_KEY = 'smartclass_platform_registration_summary_v1';
+export const PLATFORM_SNAPSHOT_STORAGE_KEY = 'smartclass_platform_public_snapshot_v1';
 
-export const PLATFORM_HEARTBEAT_INTERVAL_MS = 30_000;
+export const PLATFORM_HEARTBEAT_INTERVAL_MS = 45_000;
 export const PLATFORM_PRESENCE_WINDOW_MS = 90_000;
-export const PLATFORM_COUNT_REFRESH_INTERVAL_MS = 60_000;
+export const PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS = 15 * 60_000;
 
 export interface BrowserStorageLike {
   getItem(key: string): string | null;
@@ -35,6 +36,11 @@ export interface PublicPlatformMetrics extends RegistrationMetrics {
   exams: number | null;
   hasRegistrationData: boolean;
   isFirebaseConnected: boolean;
+}
+
+export interface CachedPublicPlatformSnapshot {
+  cachedAt: number;
+  metrics: Partial<PublicPlatformMetrics>;
 }
 
 export function normalizeSchoolName(value: unknown): string {
@@ -246,4 +252,73 @@ export function readCachedRegistrationMetrics(
   } catch {
     return null;
   }
+}
+
+export function readPublicPlatformSnapshot(value: unknown): Partial<PublicPlatformMetrics> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+
+  const data = value as Record<string, unknown>;
+  const metrics: Partial<PublicPlatformMetrics> = {};
+  const countFields = ['totalVisits', 'onlineVisitors', 'classrooms', 'students', 'exams'] as const;
+
+  for (const field of countFields) {
+    const count = data[field];
+    if (count === undefined || count === null) continue;
+    if (typeof count !== 'number' || readNonNegativeInteger(count, -1) < 0) return null;
+    metrics[field] = count;
+  }
+
+  const registrationFields = ['registeredTeachers', 'activeTeachers', 'registeredSchools'] as const;
+  const providedRegistrationFields = registrationFields.filter(field => data[field] !== undefined && data[field] !== null);
+
+  if (providedRegistrationFields.length > 0) {
+    if (providedRegistrationFields.length !== registrationFields.length) return null;
+    const registration = readPublicRegistrationMetrics(data);
+    if (!registration) return null;
+    Object.assign(metrics, registration, { hasRegistrationData: true });
+  }
+
+  return metrics;
+}
+
+export function cachePublicPlatformSnapshot(
+  storage: BrowserStorageLike | null | undefined,
+  value: unknown,
+  cachedAt = Date.now(),
+): CachedPublicPlatformSnapshot | null {
+  const metrics = readPublicPlatformSnapshot(value);
+  if (!metrics || !Number.isSafeInteger(cachedAt) || cachedAt < 0) return null;
+
+  const snapshot = { cachedAt, metrics };
+  return writeStorage(storage, PLATFORM_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot)) ? snapshot : null;
+}
+
+export function readCachedPublicPlatformSnapshot(
+  storage: BrowserStorageLike | null | undefined,
+): CachedPublicPlatformSnapshot | null {
+  try {
+    const raw = readStorage(storage, PLATFORM_SNAPSHOT_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+
+    const candidate = parsed as Record<string, unknown>;
+    if (!Number.isSafeInteger(candidate.cachedAt) || Number(candidate.cachedAt) < 0) return null;
+    const metrics = readPublicPlatformSnapshot(candidate.metrics);
+    if (!metrics) return null;
+
+    return { cachedAt: candidate.cachedAt as number, metrics };
+  } catch {
+    return null;
+  }
+}
+
+export function shouldRefreshPublicPlatformSnapshot(
+  snapshot: CachedPublicPlatformSnapshot | null,
+  now = Date.now(),
+  maxAge = PLATFORM_SNAPSHOT_REFRESH_INTERVAL_MS,
+): boolean {
+  if (!snapshot) return true;
+  if (!Number.isSafeInteger(now) || !Number.isSafeInteger(maxAge) || maxAge < 0) return true;
+  if (snapshot.cachedAt > now + 5_000) return true;
+  return now - snapshot.cachedAt >= maxAge;
 }

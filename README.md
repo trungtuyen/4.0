@@ -32,13 +32,35 @@ Trang đăng nhập học sinh sử dụng bố cục quyển sách hai trang, t
 
 ## Thống kê cộng đồng tại chân trang
 
-Chân trang hiển thị tám chỉ số: **lượt truy cập, trường đăng ký, giáo viên tham gia, người đang trực tuyến, lớp học, học sinh, kỳ thi và số ứng dụng giáo dục**. Số liệu lớp, học sinh và kỳ thi sử dụng truy vấn đếm của Firestore, không tải danh sách hoặc công khai hồ sơ cá nhân.
+Chân trang hiển thị tám chỉ số: **lượt truy cập, trường đăng ký, giáo viên tham gia, người đang trực tuyến, lớp học, học sinh, kỳ thi và số ứng dụng giáo dục**. Số liệu công khai được phân phối qua tệp tĩnh `public/platform-stats.json`, phù hợp với CDN miễn phí; mỗi trình duyệt kiểm tra lại tối đa 15 phút một lần.
 
-- Khi quản trị viên đăng nhập, ứng dụng tổng hợp số lượng giáo viên, giáo viên đang hoạt động và số trường khác nhau. Bộ nhớ trên thiết bị và tài liệu `platform_stats/overview`, nếu Firebase đã cấp quyền phù hợp, chỉ chứa số lượng; không chứa tên, email hay danh sách trường.
-- Bộ đếm `platform_stats/traffic`, nếu được quản trị viên Firebase cấu hình riêng, sử dụng giao dịch nguyên tử; trình duyệt ghi nhận tối đa một lượt cho mỗi phiên.
-- `platform_presence/{visitorId}` lưu mã trình duyệt ngẫu nhiên và thời điểm hoạt động gần nhất; không lưu IP, email, vị trí hay thông tin thiết bị. Một phiên quá 90 giây không cập nhật sẽ không được tính đang trực tuyến.
-- Nếu Firebase chưa cấp quyền thống kê riêng hoặc mất kết nối, số lượt truy cập và trạng thái trực tuyến tự chuyển sang dữ liệu trên thiết bị; các số chưa xác minh hiển thị `—`, không tạo số liệu giả.
-- Tính năng không thay đổi quy tắc Firestore hiện có và không mở thêm quyền công khai đối với dữ liệu giáo viên, học sinh hoặc bài thi. Sau khi đăng nhập quản trị, số giáo viên và trường đã xác minh vẫn hiển thị trên chính thiết bị đó.
+- Trang chủ không tạo truy vấn đếm Firestore, không mở luồng realtime và không ghi nhịp hoạt động từ mỗi lượt truy cập. Vì vậy số lần đọc/ghi Firebase không tăng theo số người chỉ mở trang chủ.
+- Khi quản trị viên đăng nhập, ứng dụng tổng hợp số lượng giáo viên đang hoạt động và số trường khác nhau. Bộ nhớ trên thiết bị và tài liệu `platform_stats/overview`, nếu Firebase cấp quyền riêng, chỉ chứa số lượng; không chứa tên, email hay danh sách trường.
+- Tệp `platform-stats.json` chỉ chứa số liệu đã xác minh. Quản trị viên hoặc quy trình tổng hợp riêng có thể cập nhật tệp định kỳ; giá trị chưa xác minh phải giữ `null` và hiển thị `—`, tuyệt đối không tự tạo số liệu.
+- Khi chưa có số liệu tổng hợp, lượt truy cập và phiên đang hoạt động chỉ phản ánh trình duyệt hiện tại; giao diện không tuyên bố đây là tổng số trực tuyến toàn hệ thống.
+- Quy tắc Firestore hiện có không bị thay đổi và không mở thêm quyền công khai đối với hồ sơ giáo viên, học sinh hoặc bài thi.
+
+## Kiến trúc local-first và khả năng chịu tải
+
+- Các ứng dụng được tải theo nhu cầu; giao diện quản trị không tải toàn bộ trò chơi, Plicker, Excel, PDF và quản lý thi khi giáo viên chưa mở.
+- Firestore sử dụng IndexedDB tối đa khoảng 64 MB, đồng bộ giữa nhiều tab và khôi phục dữ liệu đã truy cập khi mất mạng. Trên máy dùng chung, đặt `VITE_FIRESTORE_CACHE_MODE=memory` để không lưu lâu dài dữ liệu học sinh.
+- Màn hình danh sách kỳ thi chỉ theo dõi danh sách đề. Danh sách học sinh/lớp, kết quả và giám sát phòng thi chỉ kết nối khi giáo viên mở đúng chức năng; nhịp cập nhật phòng thi là 60 giây.
+- Website có thể cài cả hệ sinh thái bằng `smartclass.webmanifest`; luồng cài riêng ứng dụng Plicker bằng `plicker.webmanifest` vẫn được giữ nguyên.
+- Service worker lưu giao diện, GestureClass, biểu tượng và bản thống kê công khai để giảm tải mạng và hỗ trợ mở lại nội dung đã dùng khi mất kết nối.
+- Tính năng xác thực tập trung, thi trực tuyến đồng thời, đồng bộ thời gian thực và AI đám mây vẫn chịu hạn mức Firebase hoặc nhà cung cấp AI. Kiến trúc này giảm tải đáng kể nhưng không thay thế kiểm thử tải hoặc cam kết tự động phục vụ 50.000 người.
+
+## Triển khai miễn phí bằng Cloudflare Pages
+
+Giữ nguyên kho GitHub và đường dẫn hiện tại; Cloudflare Pages là lựa chọn phân phối tĩnh bổ sung:
+
+1. Tạo dự án Cloudflare Pages từ kho `trungtuyen/4.0`.
+2. Chọn lệnh build `npm run build:static` và thư mục đầu ra `dist`; tệp `.npmrc` đã xử lý tương thích các gói React hiện có.
+3. Nếu cần, thêm biến `VITE_APP_BASE_PATH=/`; Cloudflare Pages cũng được nhận diện tự động qua `CF_PAGES=1`.
+4. Thêm tên miền `*.pages.dev` của dự án vào Firebase Authentication → **Authorized domains** trước khi kiểm thử đăng nhập.
+5. Nếu đã bật App Check/reCAPTCHA, đăng ký thêm tên miền `*.pages.dev` tương ứng.
+6. Tệp `_routes.json` chỉ cho phép `/api/*` đi qua Cloudflare Functions; HTML, CSS, JavaScript, ảnh, manifest và thống kê vẫn là tài nguyên tĩnh miễn phí.
+
+GitHub Pages tiếp tục dùng đường dẫn `/4.0/`; manifest, biểu tượng và service worker dùng đường dẫn tương đối nên hoạt động cả trên Cloudflare Pages và GitHub Pages.
 
 ## GestureCore Edu — AGSA
 
@@ -124,5 +146,7 @@ npm run test:gestureclass
 npm run test:platform
 npm run test:ai-services
 npm run test:platform-metrics
+npm run test:scalability
+npm run test:pwa
 npm run build
 ```

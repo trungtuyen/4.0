@@ -5,6 +5,7 @@ import {
   getPwaInstallationInstructions,
   readRequestedApplication,
   readRequestedPlickerSection,
+  selectApplicationManifest,
 } from '../src/lib/plickerPwa';
 
 let checks = 0;
@@ -36,12 +37,13 @@ const manifest = JSON.parse(readFileSync(new URL('../public/plicker.webmanifest'
   shortcuts: { url: string }[];
 };
 
-assert.equal(manifest.id, '/4.0/?app=plicker');
+assert.equal(manifest.id, './?app=plicker');
 assert.match(manifest.name, /Thẻ tương tác lớp học/);
 assert.equal(manifest.short_name, 'Thẻ lớp học');
-assert.equal(manifest.scope, '/4.0/');
+assert.equal(manifest.scope, './');
 assert.equal(manifest.display, 'standalone');
-assert.equal(readRequestedApplication(new URL(manifest.start_url, 'https://trungtuyen.github.io').search), 'plicker');
+assert.equal(readRequestedApplication(new URL(manifest.start_url, 'https://trungtuyen.github.io/4.0/plicker.webmanifest').search), 'plicker');
+assert.equal(new URL(manifest.start_url, 'https://lop-hoc.pages.dev/plicker.webmanifest').pathname, '/');
 assert.ok(manifest.icons.some(icon => icon.sizes === '192x192'));
 assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
 assert.ok(manifest.icons.some(icon => icon.purpose === 'maskable'));
@@ -51,8 +53,8 @@ checks += 11;
 
 for (const icon of manifest.icons) {
   assert.equal(icon.type, 'image/png');
-  assert.ok(icon.src.startsWith('/4.0/icons/'));
-  const iconUrl = new URL(`../public/${icon.src.slice('/4.0/'.length)}`, import.meta.url);
+  assert.ok(icon.src.startsWith('./icons/'));
+  const iconUrl = new URL(`../public/${icon.src.slice('./'.length)}`, import.meta.url);
   assert.ok(existsSync(iconUrl), `${icon.src} exists.`);
   const image = readFileSync(iconUrl);
   assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
@@ -63,8 +65,25 @@ for (const icon of manifest.icons) {
 }
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-assert.match(html, /rel="manifest" href="%BASE_URL%plicker\.webmanifest"/);
+assert.match(html, /rel="manifest" href="%BASE_URL%smartclass\.webmanifest"/);
+assert.match(html, /%BASE_URL%plicker\.webmanifest/);
 assert.match(html, /rel="apple-touch-icon"/);
+
+const platformManifest = JSON.parse(readFileSync(new URL('../public/smartclass.webmanifest', import.meta.url), 'utf8')) as {
+  name: string;
+  start_url: string;
+  scope: string;
+  icons: { src: string }[];
+  shortcuts: { url: string }[];
+};
+assert.match(platformManifest.name, /Lớp Học Thông Minh 4\.0/);
+assert.equal(platformManifest.scope, './');
+assert.equal(new URL(platformManifest.start_url, 'https://trungtuyen.github.io/4.0/smartclass.webmanifest').pathname, '/4.0/');
+assert.equal(new URL(platformManifest.start_url, 'https://lop-hoc.pages.dev/smartclass.webmanifest').pathname, '/');
+assert.ok(platformManifest.icons.every(icon => icon.src.startsWith('./icons/')));
+assert.ok(platformManifest.shortcuts.some(shortcut => shortcut.url.includes('app=plicker')));
+assert.doesNotThrow(() => selectApplicationManifest('ecosystem', '/4.0/'));
+checks += 8;
 
 const worker = readFileSync(new URL('../public/service-worker.js', import.meta.url), 'utf8');
 assert.match(worker, /self\.addEventListener\('install'/);
@@ -75,6 +94,9 @@ assert.match(worker, /url\.origin !== self\.location\.origin/);
 assert.match(worker, /url\.pathname\.includes\('\/api\/'\)/);
 assert.match(worker, /url\.pathname\.includes\('\/\/__\/auth\/'\)|url\.pathname\.includes\('\/__\/auth\/'\)/);
 assert.match(worker, /offline\.html/);
+assert.match(worker, /smartclass\.webmanifest/);
+assert.match(worker, /platform-stats\.json/);
+assert.match(worker, /gestureclass\/styles\.css/);
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
