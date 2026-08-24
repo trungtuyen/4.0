@@ -16,10 +16,10 @@ Website: <https://trungtuyen.github.io/4.0/>
 | GestureClass | Quản lý lớp, ngân hàng câu hỏi, trắc nghiệm cử chỉ, lật thẻ và gọi tên | Trình duyệt, camera |
 | Vòng quay may mắn | Chọn học sinh hoặc phần thưởng ngẫu nhiên | Trình duyệt |
 | Bốc thẻ tương tác | Bốc và lật thẻ trong hoạt động trên lớp | Trình duyệt |
-| Tương tác thẻ Plicker | Quản lý câu hỏi, lớp học và nhận diện thẻ đáp án | Firebase; quét AI cần máy chủ riêng |
+| Tương tác thẻ Plicker | Quản lý câu hỏi, lớp học và nhận diện thẻ đáp án | Firebase; nhận diện camera trực tiếp trên thiết bị |
 | Tường học tập | Chia sẻ bài làm, nhận xét và học liệu | Firebase Authentication và Firestore |
 | Lắc đầu chọn đáp án | Trả lời câu hỏi bằng chuyển động đầu | Trình duyệt, camera; tự tạo câu hỏi ngay trên GitHub Pages |
-| Tư vấn học đường AI | Hỗ trợ phân tích và trao đổi về tình huống học đường | Máy chủ AI riêng |
+| Tư vấn học đường AI | Hỗ trợ phân tích và trao đổi về tình huống học đường | Google Gemini qua Firebase AI Logic; có dự phòng trên thiết bị |
 | Quản lý kỳ thi | Tạo đề, tổ chức thi và tổng hợp kết quả | Firebase; chấm phiếu OMR cần máy chủ AI |
 | Mở ô bí mật | Tổ chức trò chơi câu hỏi hoặc phần thưởng | Trình duyệt |
 | Kéo thả đúng chỗ | Tạo bài tập kéo thả đáp án | Trình duyệt |
@@ -64,19 +64,28 @@ npm install --legacy-peer-deps
 npm run dev
 ```
 
-Máy chủ phát triển chạy tại `http://localhost:3000`. Để sử dụng các chức năng AI, đặt biến môi trường `GEMINI_API_KEY` **chỉ trên máy chủ**. Không đưa khóa API vào mã frontend, GitHub Pages hoặc biến có tiền tố `VITE_`.
+Máy chủ phát triển chạy tại `http://localhost:3000`. Tư vấn học đường sử dụng mặc định **Google Gemini 3.1 Flash-Lite** qua Firebase AI Logic; không cần vận hành máy chủ Node.js riêng. Nếu tự triển khai máy chủ tùy chọn, đặt biến môi trường `GEMINI_API_KEY` **chỉ trên máy chủ**. Không đưa khóa API Gemini vào mã frontend, GitHub Pages hoặc biến có tiền tố `VITE_`.
 
-## GitHub Pages và máy chủ AI
+## Google Gemini, Firebase AI Logic và GitHub Pages
 
-GitHub Pages chỉ triển khai giao diện tĩnh; các địa chỉ `/api/chat`, `/api/scan`, `/api/generate-questions` và `/api/scan-plicker` không tự hoạt động tại đây.
+GitHub Pages chỉ triển khai giao diện tĩnh. Để dùng AI đám mây an toàn, ứng dụng gọi **Google Gemini 3.1 Flash-Lite** thông qua Firebase AI Logic; dịch vụ trung gian của Firebase giữ khóa Gemini phía máy chủ thay vì nhúng khóa vào trình duyệt.
+
+- **Tương tác thẻ Plicker:** thuật toán nhận diện thẻ xử lý khung hình ngay trên thiết bị; chỉ sử dụng Firebase để lưu lớp, câu hỏi và đồng bộ buổi học. Không cần máy chủ AI để quét thẻ.
+- **Tư vấn học đường AI:** ưu tiên máy chủ riêng nếu quản trị viên chủ động cấu hình; mặc định sử dụng Google Gemini qua Firebase AI Logic; khi chưa kích hoạt Firebase AI, mất mạng hoặc hết hạn mức, tự động dùng AI trong trình duyệt nếu khả dụng rồi chuyển sang bộ tư vấn học đường tích hợp.
+- Tình huống có nguy cơ tự gây hại, bạo lực hoặc xâm hại được ưu tiên hướng dẫn an toàn ngay trên thiết bị, kèm số **111**, **113** và **115** phù hợp.
+
+Để kích hoạt **Google Gemini** trên dự án Firebase hiện có:
+
+1. Mở Firebase Console → **AI Services → AI Logic → Get started**.
+2. Chọn **Gemini Developer API** để có thể sử dụng hạn mức miễn phí phù hợp.
+3. Đăng ký website `https://trungtuyen.github.io` trong **App Check** bằng **reCAPTCHA Enterprise**.
+4. Đặt repository variable `VITE_FIREBASE_APP_CHECK_SITE_KEY` bằng site key công khai của reCAPTCHA Enterprise. Không đặt secret key tại đây.
+5. Nếu cần đổi model, đặt repository variable `VITE_GOOGLE_AI_MODEL`; mặc định là `gemini-3.1-flash-lite`.
+6. Chạy lại workflow GitHub Pages. Khi Firebase AI Logic chưa được kích hoạt, tư vấn tích hợp trên thiết bị vẫn tiếp tục hoạt động.
 
 Riêng ứng dụng **Lắc đầu chọn đáp án** tạo câu hỏi theo ba lớp dự phòng: ưu tiên máy chủ AI đã cấu hình, sau đó sử dụng AI có sẵn trong trình duyệt nếu thiết bị hỗ trợ, cuối cùng dùng bộ tạo câu hỏi theo môn học chạy trực tiếp trên thiết bị. Vì vậy nút **Tạo bằng AI** vẫn hoạt động ngay trên GitHub Pages, không yêu cầu đưa khóa API vào mã frontend. Chế độ trên thiết bị hỗ trợ Toán theo dạng bài và khối lớp, Tin học, AI, Tiếng Việt, Tiếng Anh, Khoa học, Lịch sử, Địa lý, Giáo dục thể chất, môi trường, an toàn giao thông và tài chính cá nhân.
 
-1. Triển khai `server.ts` lên dịch vụ có khả năng chạy Node.js và HTTPS.
-2. Khai báo `GEMINI_API_KEY` trong biến môi trường riêng của máy chủ.
-3. Nếu cần, đặt `ALLOWED_ORIGINS=https://trungtuyen.github.io` trên máy chủ.
-4. Khai báo GitHub repository variable `VITE_API_BASE_URL` bằng địa chỉ máy chủ HTTPS; hoặc mở **Tư vấn học đường AI → Cấu hình máy chủ AI** để lưu địa chỉ riêng cho trình duyệt.
-5. Kiểm tra endpoint `/api/health`; trường `aiConfigured` cho biết máy chủ đã nhận khóa API hay chưa, nhưng không tiết lộ khóa.
+Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ thống có yêu cầu riêng: triển khai `server.ts` lên dịch vụ HTTPS, khai báo `GEMINI_API_KEY`, tùy chọn `GEMINI_MODEL=gemini-3.1-flash-lite`, giới hạn `ALLOWED_ORIGINS` và cấu hình `VITE_API_BASE_URL`. Endpoint `/api/health` chỉ công khai tình trạng cấu hình và tên model, không tiết lộ khóa.
 
 ## Tài khoản giáo viên và quản trị
 
@@ -90,7 +99,7 @@ Riêng ứng dụng **Lắc đầu chọn đáp án** tạo câu hỏi theo ba l
 
 ## Lộ trình tiếp theo
 
-1. Triển khai máy chủ AI, cấu hình tên miền Firebase và kiểm thử đăng nhập quản trị trên website thật.
+1. Kích hoạt Firebase AI Logic, đăng ký App Check/reCAPTCHA Enterprise và kiểm thử Google Gemini trên website thật.
 2. Hoàn thiện xác thực học sinh, phân quyền theo trường/lớp và bảo vệ dữ liệu cá nhân.
 3. Nâng cấp Plicker, chấm phiếu OMR, ngân hàng câu hỏi và báo cáo kết quả theo lớp.
 4. Bổ sung quản lý trường học, gói sử dụng, thanh toán và thống kê thực tế.
@@ -103,5 +112,6 @@ npm run lint
 npm run test:gesture
 npm run test:gestureclass
 npm run test:platform
+npm run test:ai-services
 npm run build
 ```

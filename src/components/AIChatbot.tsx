@@ -1,11 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertCircle, ServerCog, CheckCircle2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertCircle, ServerCog, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
-import { getConfiguredApiServer, postApiJson, saveApiServer } from '../lib/api';
+import { getConfiguredApiServer, saveApiServer } from '../lib/api';
+import { GOOGLE_AI_MODEL, requestSchoolCounseling, type SchoolCounselingSource } from '../lib/aiService';
+import type { SchoolCounselingMessage } from '../lib/schoolCounselor';
+
+const COUNSELING_SOURCE_LABELS: Record<SchoolCounselingSource, string> = {
+  'google-gemini': 'Google Gemini · Firebase AI',
+  'private-server': 'Máy chủ AI riêng',
+  'browser-ai': 'AI ngay trên thiết bị',
+  'on-device': 'Tư vấn tích hợp trên thiết bị',
+  'safety-support': 'Ưu tiên an toàn khẩn cấp',
+};
 
 export default function AIChatbot() {
-  const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([
-    { role: 'model', text: 'Xin chào! Tôi là AI phân tích tâm lý bạo lực học đường. Tôi có thể giúp gì cho bạn?' }
+  const [messages, setMessages] = useState<SchoolCounselingMessage[]>([
+    { role: 'model', text: 'Xin chào! Tôi là trợ lý tư vấn học đường. Tôi có thể hỗ trợ về bắt nạt, bạo lực học đường, áp lực thi cử, cảm xúc hoặc các tình huống giữa gia đình và nhà trường.' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -13,6 +23,7 @@ export default function AIChatbot() {
   const [serverAddress, setServerAddress] = useState(() => getConfiguredApiServer());
   const [showServerSettings, setShowServerSettings] = useState(false);
   const [serverMessage, setServerMessage] = useState('');
+  const [activeSource, setActiveSource] = useState<SchoolCounselingSource | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -33,20 +44,12 @@ export default function AIChatbot() {
     setError(null);
 
     try {
-      const data = await postApiJson<{ text?: string }>('chat', {
-        message: userMessage,
-        history: messages,
-        systemInstruction: "Bạn là một chuyên gia tâm lý học đường, chuyên phân tích và tư vấn về các vấn đề bạo lực học đường. Hãy đưa ra những lời khuyên hữu ích, phân tích tâm lý của học sinh (cả nạn nhân và người bắt nạt), và đề xuất các giải pháp cho giáo viên và phụ huynh. Hãy trả lời bằng tiếng Việt, thân thiện và thấu cảm."
-      });
-
-      if (data.text) {
-        setMessages(prev => [...prev, { role: 'model', text: data.text }]);
-      } else {
-        throw new Error("Không nhận được phản hồi từ AI");
-      }
+      const response = await requestSchoolCounseling(userMessage, messages);
+      setActiveSource(response.source);
+      setMessages(prev => [...prev, { role: 'model', text: response.text }]);
     } catch (err: any) {
       console.error("Chatbot error:", err);
-      setError(err.message || "Đã xảy ra lỗi khi kết nối với AI");
+      setError(err.message || "Không thể xử lý tình huống lúc này. Vui lòng thử lại.");
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +66,9 @@ export default function AIChatbot() {
     try {
       const normalized = saveApiServer(serverAddress);
       setServerAddress(normalized);
-      setServerMessage(normalized ? 'Đã lưu địa chỉ máy chủ AI cho trình duyệt này.' : 'Đã xóa cấu hình máy chủ AI.');
+      setServerMessage(normalized
+        ? 'Đã lưu máy chủ riêng; Google Gemini và chế độ trên thiết bị vẫn được giữ làm dự phòng.'
+        : 'Đã trở lại chế độ tự động: Google Gemini, AI trình duyệt hoặc tư vấn trên thiết bị.');
       setError(null);
     } catch (err) {
       setServerMessage('');
@@ -74,18 +79,24 @@ export default function AIChatbot() {
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-        <button
-          type="button"
-          onClick={() => setShowServerSettings(value => !value)}
-          className="flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-900"
-        >
-          <ServerCog className="h-4 w-4" />
-          {serverAddress ? 'Máy chủ AI đã được cấu hình' : 'Cấu hình máy chủ AI'}
-        </button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setShowServerSettings(value => !value)}
+            className="flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-900"
+          >
+            {serverAddress ? <ServerCog className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+            {serverAddress ? 'Máy chủ riêng · có dự phòng AI' : 'Google Gemini · tự động tối ưu'}
+          </button>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {activeSource ? COUNSELING_SOURCE_LABELS[activeSource] : 'Sẵn sàng hỗ trợ'}
+          </span>
+        </div>
         {showServerSettings && (
           <div className="mt-3 space-y-2">
             <p className="text-xs leading-5 text-slate-600">
-              GitHub Pages chỉ chạy giao diện. Nhập địa chỉ HTTPS của máy chủ AI; khóa API phải được giữ trên máy chủ, không nhập tại đây.
+              Mặc định ứng dụng ưu tiên Google Gemini ({GOOGLE_AI_MODEL}) qua Firebase AI Logic và tự chuyển sang chế độ trên thiết bị khi cần. Máy chủ HTTPS riêng là tùy chọn nâng cao; không nhập khóa API tại đây.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
@@ -96,7 +107,7 @@ export default function AIChatbot() {
                 className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500"
               />
               <button type="button" onClick={handleSaveServer} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-                Lưu cấu hình
+                Lưu tùy chọn
               </button>
             </div>
             {serverMessage && (
@@ -166,6 +177,9 @@ export default function AIChatbot() {
             <Send className="w-5 h-5" />
           </button>
         </div>
+        <p className="mx-auto mt-2 max-w-4xl text-xs text-slate-500">
+          Không nhập họ tên, địa chỉ hoặc dữ liệu nhạy cảm của học sinh. Trường hợp nguy hiểm: gọi 111, 113 hoặc 115.
+        </p>
       </div>
     </div>
   );

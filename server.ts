@@ -7,6 +7,7 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
 const allowedOrigins = new Set(
   (process.env.ALLOWED_ORIGINS || 'https://trungtuyen.github.io,http://localhost:3000,http://127.0.0.1:3000')
     .split(',')
@@ -39,7 +40,12 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', aiConfigured: Boolean(process.env.GEMINI_API_KEY) });
+  res.json({
+    status: 'ok',
+    aiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    aiProvider: 'google-gemini',
+    model: GEMINI_MODEL,
+  });
 });
 
 // Helper for Gemini API
@@ -47,7 +53,7 @@ async function callGemini(model: string, contents: any[], systemInstruction?: st
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   
   const body: any = { 
     contents,
@@ -65,7 +71,10 @@ async function callGemini(model: string, contents: any[], systemInstruction?: st
 
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
     body: JSON.stringify(body)
   });
 
@@ -91,7 +100,7 @@ app.post("/api/chat", async (req, res) => {
       { role: 'user', parts: [{ text: message }] }
     ];
 
-    const result = await callGemini("gemini-1.5-flash", contents, systemInstruction);
+    const result = await callGemini(GEMINI_MODEL, contents, systemInstruction);
     const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "Không có phản hồi từ AI";
     
     res.json({ text });
@@ -144,7 +153,7 @@ app.post("/api/scan", async (req, res) => {
       required: ["sbd", "maDe", "part1"]
     };
 
-    const result = await callGemini("gemini-1.5-flash", contents, undefined, responseSchema);
+    const result = await callGemini(GEMINI_MODEL, contents, undefined, responseSchema);
     let text = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
     res.json(JSON.parse(text));
@@ -181,7 +190,7 @@ app.post("/api/generate-questions", async (req, res) => {
       }
     };
 
-    const result = await callGemini("gemini-1.5-flash", contents, "Bạn là một giáo viên chuyên soạn đề thi trắc nghiệm.", responseSchema);
+    const result = await callGemini(GEMINI_MODEL, contents, "Bạn là một giáo viên chuyên soạn đề thi trắc nghiệm.", responseSchema);
     let text = result.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
     
     res.json(JSON.parse(text));
@@ -231,7 +240,7 @@ app.post("/api/scan-plicker", async (req, res) => {
       required: ["detections"]
     };
 
-    const result = await callGemini("gemini-1.5-flash", contents, "Bạn là một chuyên gia nhận diện thẻ Plicker.", responseSchema);
+    const result = await callGemini(GEMINI_MODEL, contents, "Bạn là một chuyên gia nhận diện thẻ Plicker.", responseSchema);
     let text = result.candidates?.[0]?.content?.parts?.[0]?.text || '{"detections": []}';
     
     // Sometimes Gemini wraps JSON in markdown blocks even with responseMimeType

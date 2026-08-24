@@ -22,6 +22,8 @@ jobs:
     env:
       VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
       VITE_ADMIN_EMAIL: ${{ vars.VITE_ADMIN_EMAIL }}
+      VITE_GOOGLE_AI_MODEL: ${{ vars.VITE_GOOGLE_AI_MODEL }}
+      VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
 
     steps:
       - name: Checkout source
@@ -44,6 +46,9 @@ jobs:
 
       - name: Verify student exam portal
         run: npm run test:student-portal
+
+      - name: Verify Google Gemini and school counseling fallbacks
+        run: npm run test:ai-services
 
       - name: Build project
         run: npm run build

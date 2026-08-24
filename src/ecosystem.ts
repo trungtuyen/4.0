@@ -1,4 +1,4 @@
-export type EcosystemDependency = 'browser' | 'firebase' | 'ai-server';
+export type EcosystemDependency = 'browser' | 'firebase' | 'ai-cloud' | 'ai-server';
 
 export type EcosystemApplicationId =
   | 'gesture-core'
@@ -55,8 +55,8 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   {
     id: 'plicker',
     name: 'Tương tác thẻ Plicker',
-    description: 'Soạn bộ câu hỏi, quản lý lớp và nhận diện thẻ trả lời qua camera.',
-    dependency: 'ai-server',
+    description: 'Soạn câu hỏi, quản lý lớp và nhận diện thẻ qua camera ngay trên thiết bị.',
+    dependency: 'firebase',
     category: 'Đánh giá',
   },
   {
@@ -76,8 +76,8 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   {
     id: 'chatbot',
     name: 'Tư vấn học đường AI',
-    description: 'Trao đổi về tình huống học đường thông qua máy chủ AI được cấu hình riêng.',
-    dependency: 'ai-server',
+    description: 'Tư vấn tình huống học đường bằng Google Gemini, tự động dự phòng khi mất kết nối.',
+    dependency: 'ai-cloud',
     category: 'Công cụ',
   },
   {
@@ -120,5 +120,6 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
 export const ECOSYSTEM_DEPENDENCY_LABELS: Record<EcosystemDependency, string> = {
   browser: 'Chạy trên trình duyệt',
   firebase: 'Cần dữ liệu Firebase',
+  'ai-cloud': 'AI Google Gemini',
   'ai-server': 'Cần máy chủ AI',
 };
