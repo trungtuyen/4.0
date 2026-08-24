@@ -62,6 +62,8 @@ check(manager.includes('EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000'), 'Student 
 check(worker.includes('smartclass.webmanifest'), 'The offline shell includes the complete educational ecosystem.');
 check(worker.includes('plicker.webmanifest'), 'The existing dedicated Plicker installation remains available.');
 check(worker.includes('gestureclass/app.js'), 'GestureClass remains usable after its assets are cached.');
+check(worker.includes('projector-readable-v1'), 'Classroom displays receive the current large-type GestureClass assets.');
+check(worker.includes("fetch(request, { cache: 'no-store' })"), 'GestureClass and navigation requests bypass obsolete browser caches.');
 check(worker.includes('LEGACY_CACHE_PREFIX'), 'Outdated Plicker-only service-worker caches are cleaned safely.');
 check(headers.includes('max-age=31536000, immutable'), 'Hashed assets are cached aggressively at the CDN.');
 check(headers.includes('stale-while-revalidate'), 'Public counters tolerate temporary network interruptions.');

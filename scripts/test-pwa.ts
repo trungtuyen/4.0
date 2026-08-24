@@ -97,6 +97,9 @@ assert.match(worker, /offline\.html/);
 assert.match(worker, /smartclass\.webmanifest/);
 assert.match(worker, /platform-stats\.json/);
 assert.match(worker, /gestureclass\/styles\.css/);
+assert.match(worker, /\$\{CACHE_PREFIX\}v21/);
+assert.match(worker, /projector-readable-v1/);
+assert.match(worker, /fetch\(request, \{ cache: 'no-store' \}\)/);
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
@@ -112,6 +115,6 @@ assert.match(classroom, /readRequestedPlickerSection/);
 assert.match(main, /initializePwaInstallation\(\)/);
 assert.match(main, /registerClassroomServiceWorker\(import\.meta\.env\.BASE_URL\)/);
 assert.ok(existsSync(new URL('../public/offline.html', import.meta.url)));
-checks += 19;
+checks += 22;
 
 console.info(`Plicker installable PWA: ${checks} checks passed.`);

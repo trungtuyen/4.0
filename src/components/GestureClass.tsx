@@ -7,7 +7,7 @@ interface GestureClassProps {
 
 export default function GestureClass({ onBack }: GestureClassProps) {
   const ownerUid = auth.currentUser?.uid || 'guest';
-  const applicationUrl = `${import.meta.env.BASE_URL}gestureclass/index.html?owner=${encodeURIComponent(ownerUid)}`;
+  const applicationUrl = `${import.meta.env.BASE_URL}gestureclass/index.html?owner=${encodeURIComponent(ownerUid)}&v=projector-readable-v1`;
 
   return (
     <section className="flex h-dvh min-h-screen w-full flex-col overflow-hidden bg-slate-50">

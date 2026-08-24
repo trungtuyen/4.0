@@ -53,7 +53,7 @@ verify(dashboard.includes('>GestureClass</h3>'), 'GestureClass remains visible i
 verify(footer.includes("onOpenProduct('gesture-class')"), 'The footer promotes the supported GestureClass application.');
 verify(readme.includes('Danh mục 12 ứng dụng'), 'Project documentation reports twelve available applications.');
 verify(!readme.includes('GestureCore Edu'), 'Project documentation does not advertise the removed application.');
-verify(serviceWorker.includes('${CACHE_PREFIX}v20'), 'Existing installations refresh their obsolete application catalog.');
+verify(serviceWorker.includes('${CACHE_PREFIX}v21'), 'Existing installations refresh the large-type GestureClass presentation assets.');
 verify(!existsSync(new URL('../src/components/GestureCoreEdu.tsx', import.meta.url)), 'The removed application source is no longer distributed.');
 verify(!packageManifest.scripts['test:gesture'], 'Package scripts no longer point to deleted GestureCore-only tests.');
 verify(packageManifest.scripts['test:catalog'] === 'node --import tsx scripts/test-application-catalog.ts', 'The application catalog has a dedicated regression suite.');

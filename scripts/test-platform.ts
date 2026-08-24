@@ -24,13 +24,14 @@ assert.match(readme, /Danh mục 12 ứng dụng/, 'Documentation displays the u
 assert.ok(!existsSync(new URL('../src/components/GestureCoreEdu.tsx', import.meta.url)), 'The removed application component is not shipped in the source tree.');
 
 const gestureClassIndex = readFileSync(new URL('../public/gestureclass/index.html', import.meta.url), 'utf8');
-assert.match(gestureClassIndex, /href="\.\/styles\.css"/, 'GestureClass styles use the GitHub Pages subdirectory.');
-assert.match(gestureClassIndex, /src="\.\/app\.js"/, 'GestureClass scripts use the GitHub Pages subdirectory.');
+assert.match(gestureClassIndex, /href="\.\/styles\.css\?v=projector-readable-v1"/, 'GestureClass styles use the GitHub Pages subdirectory and refresh projector layouts.');
+assert.match(gestureClassIndex, /src="\.\/app\.js\?v=projector-readable-v1"/, 'GestureClass scripts use the GitHub Pages subdirectory and a matching release version.');
 assert.ok(existsSync(new URL('../public/gestureclass/styles.css', import.meta.url)));
 assert.ok(existsSync(new URL('../public/gestureclass/app.js', import.meta.url)));
 
 const gestureClassComponent = readFileSync(new URL('../src/components/GestureClass.tsx', import.meta.url), 'utf8');
 assert.match(gestureClassComponent, /import\.meta\.env\.BASE_URL/);
+assert.match(gestureClassComponent, /projector-readable-v1/);
 assert.match(gestureClassComponent, /allow="camera; fullscreen"/);
 assert.equal(normalizeApiServer('https://example.edu.vn/'), 'https://example.edu.vn');
 assert.equal(normalizeApiServer('http://localhost:3000/'), 'http://localhost:3000');

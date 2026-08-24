@@ -22,7 +22,9 @@ async function main() {
 
   const serviceWorker = readFileSync(resolve(__dirname, "../public/service-worker.js"), "utf8");
   assert.match(serviceWorker, /pathname\.startsWith\(`\$\{APP_ROOT\}gestureclass\/`\)/);
-  assert.match(serviceWorker, /const fresh = await fetch\(request\)/);
+  assert.match(serviceWorker, /const fresh = await fetch\(request, \{ cache: 'no-store' \}\)/);
+  assert.match(serviceWorker, /\$\{CACHE_PREFIX\}v21/);
+  assert.match(serviceWorker, /projector-readable-v1/);
 
   let markup = "";
   let elements = new Map();

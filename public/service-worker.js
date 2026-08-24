@@ -1,6 +1,6 @@
 const CACHE_PREFIX = 'smartclass-platform-';
 const LEGACY_CACHE_PREFIX = 'smartclass-plicker-';
-const CACHE_NAME = `${CACHE_PREFIX}v20`;
+const CACHE_NAME = `${CACHE_PREFIX}v21`;
 const APP_ROOT = new URL('./', self.registration.scope).pathname;
 const OFFLINE_PAGE = `${APP_ROOT}offline.html`;
 const PUBLIC_METRICS = `${APP_ROOT}platform-stats.json`;
@@ -13,9 +13,9 @@ const APP_SHELL = [
   `${APP_ROOT}icons/plicker-192.png`,
   `${APP_ROOT}icons/plicker-512.png`,
   `${APP_ROOT}icons/plicker-maskable-512.png`,
-  `${APP_ROOT}gestureclass/`,
-  `${APP_ROOT}gestureclass/styles.css`,
-  `${APP_ROOT}gestureclass/app.js`,
+  `${APP_ROOT}gestureclass/?v=projector-readable-v1`,
+  `${APP_ROOT}gestureclass/styles.css?v=projector-readable-v1`,
+  `${APP_ROOT}gestureclass/app.js?v=projector-readable-v1`,
   PUBLIC_METRICS,
   OFFLINE_PAGE,
 ];
@@ -42,7 +42,7 @@ async function handleNavigation(request) {
   const cache = await caches.open(CACHE_NAME);
 
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { cache: 'no-store' });
     if (response.ok) await cache.put(request, response.clone());
     return response;
   } catch {
@@ -61,7 +61,7 @@ async function handleStaticAsset(request) {
 
   if (new URL(request.url).pathname.startsWith(`${APP_ROOT}gestureclass/`)) {
     try {
-      const fresh = await fetch(request);
+      const fresh = await fetch(request, { cache: 'no-store' });
       if (fresh.ok && fresh.type === 'basic') {
         await cache.put(request, fresh.clone());
       }
