@@ -50,6 +50,9 @@ jobs:
       - name: Verify Google Gemini and school counseling fallbacks
         run: npm run test:ai-services
 
+      - name: Verify privacy-safe homepage community statistics
+        run: npm run test:platform-metrics
+
       - name: Build project
         run: npm run build
 

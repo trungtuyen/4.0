@@ -30,6 +30,16 @@ Website: <https://trungtuyen.github.io/4.0/>
 
 Trang đăng nhập học sinh sử dụng bố cục quyển sách hai trang, tối ưu cho cả máy tính và điện thoại. Trang trái là biểu mẫu đăng nhập; trang phải tự động truy xuất các kỳ thi có trạng thái **Đang mở** từ Firestore, hiển thị lịch bắt đầu, thời lượng, số câu hỏi và trạng thái **Đang mở/Sắp diễn ra**. Kỳ thi bản nháp hoặc đã đóng không xuất hiện trong thông báo; mã đăng nhập vẫn được giáo viên cung cấp riêng cho học sinh.
 
+## Thống kê cộng đồng tại chân trang
+
+Chân trang hiển thị tám chỉ số: **lượt truy cập, trường đăng ký, giáo viên tham gia, người đang trực tuyến, lớp học, học sinh, kỳ thi và số ứng dụng giáo dục**. Số liệu lớp, học sinh và kỳ thi sử dụng truy vấn đếm của Firestore, không tải danh sách hoặc công khai hồ sơ cá nhân.
+
+- Khi quản trị viên đăng nhập, ứng dụng tổng hợp số lượng giáo viên, giáo viên đang hoạt động và số trường khác nhau. Bộ nhớ trên thiết bị và tài liệu `platform_stats/overview`, nếu Firebase đã cấp quyền phù hợp, chỉ chứa số lượng; không chứa tên, email hay danh sách trường.
+- Bộ đếm `platform_stats/traffic`, nếu được quản trị viên Firebase cấu hình riêng, sử dụng giao dịch nguyên tử; trình duyệt ghi nhận tối đa một lượt cho mỗi phiên.
+- `platform_presence/{visitorId}` lưu mã trình duyệt ngẫu nhiên và thời điểm hoạt động gần nhất; không lưu IP, email, vị trí hay thông tin thiết bị. Một phiên quá 90 giây không cập nhật sẽ không được tính đang trực tuyến.
+- Nếu Firebase chưa cấp quyền thống kê riêng hoặc mất kết nối, số lượt truy cập và trạng thái trực tuyến tự chuyển sang dữ liệu trên thiết bị; các số chưa xác minh hiển thị `—`, không tạo số liệu giả.
+- Tính năng không thay đổi quy tắc Firestore hiện có và không mở thêm quyền công khai đối với dữ liệu giáo viên, học sinh hoặc bài thi. Sau khi đăng nhập quản trị, số giáo viên và trường đã xác minh vẫn hiển thị trên chính thiết bị đó.
+
 ## GestureCore Edu — AGSA
 
 Mô-đun mới cung cấp:
@@ -113,5 +123,6 @@ npm run test:gesture
 npm run test:gestureclass
 npm run test:platform
 npm run test:ai-services
+npm run test:platform-metrics
 npm run build
 ```

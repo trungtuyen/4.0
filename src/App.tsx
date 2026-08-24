@@ -5,6 +5,7 @@ import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore'
 import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
+import PlatformFooter, { publishPlatformRegistrationMetrics } from './components/PlatformFooter';
 import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
 import { createPlickerLaunchPath, readRequestedApplication } from './lib/plickerPwa';
 
@@ -131,7 +132,13 @@ export default function App() {
     if (currentUser !== 'admin' || !auth.currentUser) return;
     return onSnapshot(
       collection(db, 'teachers'),
-      snapshot => setTeachers(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Teacher))),
+      snapshot => {
+        const profiles = snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Teacher));
+        setTeachers(profiles);
+        void publishPlatformRegistrationMetrics(profiles).catch(error => {
+          console.info('Chưa thể đồng bộ số liệu tổng hợp của giáo viên và trường học.', error);
+        });
+      },
       error => console.error('Không thể tải danh sách giáo viên:', error),
     );
   }, [currentUser]);
@@ -935,52 +942,12 @@ export default function App() {
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-slate-900 text-slate-300 py-12 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div className="col-span-1 md:col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="bg-indigo-500 p-1.5 rounded-md text-white">
-                  <BookOpen className="w-5 h-5" />
-                </div>
-                <span className="font-bold text-lg text-white">Lớp Học Thông Minh 4.0</span>
-              </div>
-              <p className="text-sm text-slate-400 max-w-sm">
-                Giải pháp công nghệ giáo dục hàng đầu, mang đến trải nghiệm học tập và giảng dạy hiện đại, hiệu quả cho kỷ nguyên số.
-              </p>
-            </div>
-            
-            <div>
-              <h4 className="text-white font-semibold mb-4">Sản phẩm</h4>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="hover:text-white transition-colors">Lớp học ảo</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Trợ giảng AI</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Thi trực tuyến</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-white font-semibold mb-4">Công ty</h4>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="hover:text-white transition-colors">Về chúng tôi</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Liên hệ</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Chính sách bảo mật</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Điều khoản sử dụng</a></li>
-              </ul>
-            </div>
-          </div>
-          
-          <div className="pt-8 border-t border-slate-800 text-sm text-slate-500 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p>© 2026 Lớp Học Thông Minh 4.0. Tất cả các quyền được bảo lưu.</p>
-            <div className="flex gap-4">
-              <a href="#" className="hover:text-white transition-colors">Facebook</a>
-              <a href="#" className="hover:text-white transition-colors">YouTube</a>
-              <a href="#" className="hover:text-white transition-colors">LinkedIn</a>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <PlatformFooter
+        onTeacherRegister={() => navigateToAuth('register')}
+        onTeacherLogin={() => navigateToAuth('login')}
+        onStudentLogin={() => setCurrentView('student_exam')}
+        onOpenProduct={launchApplication}
+      />
     </div>
   );
 }
