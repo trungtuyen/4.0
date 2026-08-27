@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Presentation, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
-import { exportQuestionBankToPptx, type QuestionBankForPptx } from '../lib/questionPptxExport';
+import { exportQuestionBankToPptx, type QuestionBankForPptx } from '../lib/questionPptxInteractiveExport';
 
 interface StoredQuestionBank extends QuestionBankForPptx {
   updatedAt?: string;
@@ -116,11 +116,11 @@ export default function QuestionStudioPptxExport() {
               <h2 className="text-sm font-bold text-slate-900">Xuất bài giảng PowerPoint</h2>
               <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-200">
                 <Sparkles className="h-3 w-3" />
-                Bấm để hiện đáp án
+                Đúng xanh • Sai đỏ
               </span>
             </div>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
-              Tự tạo file PPTX 16:9: mỗi câu có slide câu hỏi và slide đáp án, nút điều hướng tương tác, trình bày riêng theo đủ 10 dạng trắc nghiệm.
+              Tự tạo file PPTX 16:9: bấm trực tiếp vào đáp án để nhận phản hồi xanh/đỏ; vẫn có slide đáp án và nút điều hướng cho đủ 10 dạng trắc nghiệm.
             </p>
           </div>
         </div>
