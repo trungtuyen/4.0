@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { LOGIN_TEA_BANNER } from '../lib/loginTeaBanner';
 
 function applyTeaLoginBanner(): void {
   const image = document.querySelector<HTMLImageElement>('img[alt="Giáo viên giảng dạy"], img[alt="Học sinh hái chè"]');
@@ -10,10 +9,11 @@ function applyTeaLoginBanner(): void {
   const panel = contentWrapper?.parentElement as HTMLElement | null;
   if (!card || !contentWrapper || !panel) return;
 
-  // Render the teacher-provided tea photo as the panel background itself.
-  // This avoids relying on an absolutely positioned <img> after React mounts.
+  // Use a real static asset instead of a large data URI. This is more reliable
+  // on GitHub Pages and allows the browser to cache/decode the image normally.
+  const bannerUrl = `${import.meta.env.BASE_URL}login-tea-banner.jpg`;
   Object.assign(panel.style, {
-    backgroundImage: `linear-gradient(180deg, rgba(15,23,42,0.34) 0%, rgba(15,23,42,0.18) 42%, rgba(15,23,42,0.78) 100%), url("${LOGIN_TEA_BANNER}")`,
+    backgroundImage: `linear-gradient(180deg, rgba(15,23,42,0.28) 0%, rgba(15,23,42,0.12) 42%, rgba(15,23,42,0.72) 100%), url("${bannerUrl}")`,
     backgroundSize: 'cover',
     backgroundPosition: 'center center',
     backgroundRepeat: 'no-repeat',
@@ -44,7 +44,6 @@ function applyTeaLoginBanner(): void {
 
   const overlay = card.children[1] as HTMLElement | undefined;
   if (overlay) {
-    // The panel already owns the dark gradient; keep this layer transparent.
     overlay.style.background = 'transparent';
   }
 
