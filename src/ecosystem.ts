@@ -26,7 +26,7 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   {
     id: 'gesture-class',
     name: 'GestureClass',
-    description: 'Quản lý lớp, ngân hàng câu hỏi và tổ chức trắc nghiệm, lật thẻ, gọi tên bằng cử chỉ bàn tay.',
+    description: 'Quản lý lớp, ngân hàng trắc nghiệm 10 dạng, tổ chức hoạt động và tương tác bằng cử chỉ bàn tay.',
     dependency: 'browser',
     category: 'Cử chỉ',
   },
