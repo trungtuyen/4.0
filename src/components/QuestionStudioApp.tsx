@@ -4,6 +4,7 @@ import { auth } from '../firebase';
 import ExamManager from './ExamManager';
 import QuestionStudio from './QuestionStudio';
 import QuestionStudioExamActions from './QuestionStudioExamActions';
+import QuestionStudioPptxExport from './QuestionStudioPptxExport';
 
 interface QuestionStudioAppProps {
   onBack: () => void;
@@ -53,6 +54,7 @@ export default function QuestionStudioApp({ onBack, currentUser }: QuestionStudi
         </span>
       </header>
 
+      <QuestionStudioPptxExport />
       <QuestionStudioExamActions onOpenExamManager={() => setShowExamManager(true)} />
       <QuestionStudio />
     </section>
