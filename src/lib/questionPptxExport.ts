@@ -12,8 +12,6 @@ const SLIDE_H = 7.5;
 const COLORS = {
   navy: '172554',
   indigo: '4338CA',
-  blue: '2563EB',
-  cyan: '0891B2',
   slate: '334155',
   muted: '64748B',
   line: 'CBD5E1',
@@ -29,7 +27,6 @@ const COLORS = {
 };
 
 type Slide = ReturnType<PptxGenJS['addSlide']>;
-
 type Box = { x: number; y: number; w: number; h: number };
 
 function safeFileName(value: string): string {
@@ -654,10 +651,13 @@ export async function exportQuestionBankToPptx(bank: QuestionBankForPptx): Promi
   pptx.company = 'Lớp Học Thông Minh 4.0';
   pptx.subject = 'Bài giảng trắc nghiệm tương tác 10 dạng';
   pptx.title = bank.title;
-  pptx.lang = 'vi-VN';
+  pptx.theme = {
+    headFontFace: 'Aptos Display',
+    bodyFontFace: 'Aptos',
+    lang: 'vi-VN',
+  };
 
   const coverSlide = 1;
-  const guideSlide = 2;
   const firstQuestionSlide = 3;
   const endSlide = firstQuestionSlide + bank.questions.length * 2;
 
