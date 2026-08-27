@@ -100,7 +100,8 @@ verify(!JSON.stringify(privateRoster).includes('Trần'), 'No classmate names ar
 const dashboard = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
 const classroom = readFileSync(new URL('../src/components/PlickerClassroom.tsx', import.meta.url), 'utf8');
 const learningWall = readFileSync(new URL('../src/components/LearningWall.tsx', import.meta.url), 'utf8');
-const examManager = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
+const legacyExamManager = readFileSync(new URL('../src/components/ExamManagerLegacy.tsx', import.meta.url), 'utf8');
+const studentRunner = readFileSync(new URL('../src/components/UnifiedStudentExamRunner.tsx', import.meta.url), 'utf8');
 const omr = readFileSync(new URL('../src/components/OMRScanner.tsx', import.meta.url), 'utf8');
 const gestureClass = readFileSync(new URL('../public/gestureclass/app.js', import.meta.url), 'utf8');
 const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -109,12 +110,12 @@ verify(dashboard.includes("where('authorId', '==', accessScope.ownerUid)"), 'Das
 verify(dashboard.includes("accessScope.role === 'administrator'"), 'Dashboard keeps global administrator queries.');
 verify(dashboard.includes('synchronizedReports={synchronizedPlickerReports}'), 'Administrator and teacher report views receive owner-filtered cloud reports.');
 verify(learningWall.includes("where('authorId', '==', accessScope.ownerUid)"), 'Learning wall requests only its teacher-owned categories and posts.');
-verify(examManager.includes("where('teacherId', '==', accessScope.ownerUid)"), 'Exams, classes, students, results and exam sessions are teacher-scoped.');
-verify(!examManager.includes("query(collection(db, 'results'), where('studentId'"), 'Students cannot enumerate the private results collection.');
-verify(examManager.includes('createPrivateStudentRosterDirectory'), 'Publishing an exam creates anonymous, owner-specific roster lookup keys.');
-verify(examManager.includes('createStudentRosterLookupKey(teacherOwnerUid, exam.id, normalizedStudentName)'), 'Student login checks a private matching key instead of reading all classmates.');
-verify(!examManager.includes('getDocs(studentsQuery)'), 'The public student portal never downloads a teacher’s student list.');
-verify(examManager.includes('id: `${currentStudent.id}_${activeExam.id}`'), 'A student receives at most one protected result document per exam.');
+verify(legacyExamManager.includes("where('teacherId', '==', accessScope.ownerUid)"), 'Teacher exam, class, student, result and session queries remain owner-scoped.');
+verify(!studentRunner.includes("query(collection(db, 'results'), where('studentId'"), 'Students cannot enumerate the private results collection.');
+verify(legacyExamManager.includes('createPrivateStudentRosterDirectory'), 'Publishing a teacher-managed exam creates anonymous, owner-specific roster lookup keys.');
+verify(studentRunner.includes('createStudentRosterLookupKey(exam.teacherId, exam.id, normalizedName)'), 'Student login checks a private matching key instead of reading all classmates.');
+verify(!studentRunner.includes('getDocs('), 'The public student portal never downloads a teacher’s student list.');
+verify(studentRunner.includes('const resultId = `${currentStudent.id}_${activeExam.id}`'), 'A student receives at most one protected result document per exam.');
 verify(omr.includes("where('teacherId', '==', examOwnerUid)"), 'OMR result exports cannot include another teacher’s scores, including when an administrator scans them.');
 verify(classroom.includes("kind: 'plicker_report'"), 'Plicker summaries are synchronized for administrator oversight.');
 verify(classroom.includes('createPlickerReportDocumentId(ownerUid, report.id)'), 'Each Plicker cloud report includes its teacher ownership.');
