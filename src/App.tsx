@@ -1,5 +1,5 @@
 import React, { lazy, useState, useEffect } from 'react';
-import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react';
+import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, ListChecks, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
 import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
@@ -19,6 +19,7 @@ const DragDropGame = lazy(() => import('./components/DragDropGame'));
 const SecretBoxGame = lazy(() => import('./components/SecretBoxGame'));
 const LearningWall = lazy(() => import('./components/LearningWall'));
 const GestureClass = lazy(() => import('./components/GestureClass'));
+const QuestionStudioApp = lazy(() => import('./components/QuestionStudioApp'));
 const ExcelMerger = lazy(() => import('./components/ExcelMerger'));
 const PdfMerger = lazy(() => import('./components/PdfMerger'));
 
@@ -26,6 +27,7 @@ const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase(
 
 const PRODUCT_ICONS: Record<EcosystemApplicationId, LucideIcon> = {
   'gesture-class': MonitorPlay,
+  'question-studio': ListChecks,
   'lucky-draw': Target,
   'lucky-draw-cards': Layers,
   plicker: QrCode,
@@ -75,7 +77,7 @@ function describeAuthError(error: unknown): string {
 
 export default function App() {
   const requestedApplication = readRequestedApplication(window.location.search);
-  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-class' | 'excel-merger' | 'pdf-merger'>(() => {
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-class' | 'question-studio' | 'excel-merger' | 'pdf-merger'>(() => {
     if (requestedApplication === 'plicker') return 'admin';
     const saved = sessionStorage.getItem('currentView');
     try {
@@ -402,6 +404,10 @@ export default function App() {
 
   if (currentView === 'gesture-class') {
     return <GestureClass onBack={() => setCurrentView('landing')} />;
+  }
+
+  if (currentView === 'question-studio') {
+    return <QuestionStudioApp onBack={() => setCurrentView('landing')} />;
   }
 
   if (currentView === 'excel-merger') {
