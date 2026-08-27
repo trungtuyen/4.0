@@ -2,6 +2,7 @@ export type EcosystemDependency = 'browser' | 'firebase' | 'ai-cloud' | 'ai-serv
 
 export type EcosystemApplicationId =
   | 'gesture-class'
+  | 'question-studio'
   | 'lucky-draw'
   | 'lucky-draw-cards'
   | 'plicker'
@@ -29,6 +30,13 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
     description: 'Quản lý lớp, ngân hàng trắc nghiệm 10 dạng, tổ chức hoạt động và tương tác bằng cử chỉ bàn tay.',
     dependency: 'browser',
     category: 'Cử chỉ',
+  },
+  {
+    id: 'question-studio',
+    name: 'Trắc nghiệm 10 dạng',
+    description: 'Tạo ngân hàng câu hỏi với 10 dạng trắc nghiệm cơ bản, chấm điểm theo một Question Engine dùng chung và tách dữ liệu theo tài khoản giáo viên.',
+    dependency: 'browser',
+    category: 'Đánh giá',
   },
   {
     id: 'lucky-draw',
