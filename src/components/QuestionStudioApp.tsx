@@ -7,9 +7,10 @@ import QuestionStudioExamActions from './QuestionStudioExamActions';
 
 interface QuestionStudioAppProps {
   onBack: () => void;
+  currentUser?: any;
 }
 
-export default function QuestionStudioApp({ onBack }: QuestionStudioAppProps) {
+export default function QuestionStudioApp({ onBack, currentUser }: QuestionStudioAppProps) {
   const [showExamManager, setShowExamManager] = useState(false);
 
   if (showExamManager) {
@@ -18,7 +19,7 @@ export default function QuestionStudioApp({ onBack }: QuestionStudioAppProps) {
       <section className="flex h-dvh min-h-screen w-full flex-col overflow-hidden bg-slate-50">
         <ExamManager
           initialMode="teacher"
-          currentUser={uid ? { id: uid } : null}
+          currentUser={currentUser || (uid ? { id: uid } : null)}
           onBack={() => setShowExamManager(false)}
         />
       </section>
