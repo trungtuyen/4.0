@@ -78,7 +78,8 @@ verify(exporter.includes("lang: 'vi-VN'"), 'PowerPoint theme declares Vietnamese
 verify(exporter.includes('pptx.writeFile({ fileName, compression: true })'), 'Export downloads a compressed PPTX in the browser.');
 verify(sequentialPatch.includes('guide.hidden = true'), 'Sequential playback hides the guide from normal advance.');
 verify(sequentialPatch.includes("hyperlink: { slide: 3"), 'The cover starts directly at Question 1.');
-verify(main.includes("import './lib/questionPptxSequentialPatch';"), 'The sequential PowerPoint patch is enabled in the production app.');
+verify(app.includes("import '../lib/questionPptxSequentialPatch';"), 'The sequential PowerPoint patch is enabled when Question Studio is loaded.');
+verify(!main.includes("import './lib/questionPptxSequentialPatch';"), 'The PowerPoint patch is not eagerly loaded by the ecosystem homepage.');
 verify(controls.includes("from '../lib/questionPptxInteractiveExport'"), 'Question Studio uses the interactive green-red PowerPoint exporter.');
 verify(controls.includes('Xuất PowerPoint'), 'Question Studio exposes a visible PowerPoint export action.');
 verify(controls.includes('Đúng xanh • Sai đỏ'), 'The UI explains green/red answer feedback.');
