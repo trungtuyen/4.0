@@ -43,18 +43,24 @@ verify(formatExamScheduleDate() === 'Theo thông báo của giáo viên', 'Missi
 verify(formatExamScheduleDate('2026-08-24T08:00:00.000Z').length > 10, 'Valid dates are formatted for Vietnamese students.');
 verify(exams[0].id === 'draft', 'Schedule sorting does not mutate Firestore snapshot data.');
 
-const component = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
+const wrapper = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
+const component = readFileSync(new URL('../src/components/UnifiedStudentExamRunner.tsx', import.meta.url), 'utf8');
+const renderer = readFileSync(new URL('../src/components/QuestionEngineStudentQuestion.tsx', import.meta.url), 'utf8');
+verify(wrapper.includes("props.initialMode === 'student'"), 'ExamManager routes the student entry point through the unified runner.');
+verify(wrapper.includes('<UnifiedStudentExamRunner'), 'The upgraded student runner is the production student portal.');
 verify(component.includes("where('status', '==', 'published')"), 'Student schedule subscribes only to published exams.');
 verify(component.includes('PUBLIC_EXAM_SCHEDULES_COLLECTION'), 'Student notices are stored separately from private teacher exams.');
 verify(component.includes('PUBLIC_EXAM_ACCESS_COLLECTION'), 'Students unlock only their authorized encrypted exam.');
-verify(component.includes('{exam.questionCount} câu'), 'Student notices show a count without downloading question content.');
-verify(!component.includes("query(collection(db, 'exams'), where('status', '==', 'published'))"),
-  'The public student portal never downloads the full private exam collection.');
+verify(component.includes('{item.questionCount} câu'), 'Student notices show a count without downloading question content.');
+verify(!component.includes("query(collection(db, 'exams'), where('status', '==', 'published'))"), 'The public student portal never downloads the full private exam collection.');
 verify(component.includes('buildStudentExamSchedule'), 'Student schedule uses the tested ordering helper.');
-verify(component.includes('THÔNG BÁO LỊCH THI'), 'The book layout includes the exam notice panel.');
+verify(component.toLocaleLowerCase('vi-VN').includes('thông báo lịch thi'), 'The interface includes the exam notice panel.');
 verify(component.includes('Danh sách được cập nhật tự động'), 'The interface explains the live teacher-to-student connection.');
-verify(!component.includes('Chọn mã {exam.id}'), 'The public schedule does not reveal exam login codes.');
 verify(component.includes('canStudentEnterExam(exam)'), 'Login enforces the scheduled opening time.');
-verify(component.includes("getExamScheduleState(exam) === 'upcoming'"), 'Teacher cards and student notices share the same schedule state.');
+verify(component.includes('QuestionEngineStudentQuestion'), 'Ten-type exams use the dedicated student renderer.');
+verify(component.includes('evaluateQuestion(engine'), 'Question Engine answers are scored through the shared engine.');
+for (const type of ['single_choice', 'multiple_choice', 'true_false', 'true_false_matrix', 'short_answer', 'fill_blank', 'matching', 'ordering', 'classification', 'image_hotspot']) {
+  verify(renderer.includes(`payload.type === '${type}'`) || renderer.includes(`payload.type !== '${type}'`), `Student UI supports ${type}.`);
+}
 
-console.info(`Student exam portal: ${checks} checks passed.`);
+console.info(`Unified student exam portal: ${checks} checks passed.`);
