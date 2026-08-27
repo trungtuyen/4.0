@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, ListChecks, ShieldCheck } from 'lucide-react';
 import { auth } from '../firebase';
+import '../lib/questionPptxSequentialPatch';
 import ExamManager from './ExamManager';
 import QuestionStudio from './QuestionStudio';
 import QuestionStudioExamActions from './QuestionStudioExamActions';
