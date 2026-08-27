@@ -1,6 +1,6 @@
 import {StrictMode, Suspense} from 'react';
 import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
+import ProductTrialController from './components/ProductTrialController';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
 import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
@@ -58,7 +58,7 @@ console.log = (...args) => {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang tải ứng dụng...</div>}>
-      <App />
+      <ProductTrialController />
     </Suspense>
   </StrictMode>,
 );
