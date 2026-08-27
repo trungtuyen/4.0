@@ -1,4 +1,4 @@
-import PptxGenJS from 'pptxgenjs';
+import PptxGenJSImport from 'pptxgenjs';
 import { QUESTION_TYPE_LABELS, type QuestionDefinition } from './questionEngine';
 
 export interface QuestionBankForPptx {
@@ -25,6 +25,11 @@ const COLORS = {
   white: 'FFFFFF',
   black: '0F172A',
 };
+
+// `tsx`/Node can wrap the package ESM default in another `default` layer,
+// while Vite/browser receives the constructor directly. Normalize both shapes.
+type PptxGenJS = InstanceType<typeof PptxGenJSImport>;
+const PptxGenJS = (((PptxGenJSImport as any)?.default ?? PptxGenJSImport) as typeof PptxGenJSImport);
 
 type Slide = ReturnType<PptxGenJS['addSlide']>;
 type Box = { x: number; y: number; w: number; h: number };
