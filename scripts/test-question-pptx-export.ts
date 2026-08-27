@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
+import '../src/lib/questionPptxSequentialPatch.ts';
 import { QUESTION_TYPES, createQuestionTemplate } from '../src/lib/questionEngine.ts';
 import { exportQuestionBankToPptx } from '../src/lib/questionPptxExport.ts';
 
@@ -32,6 +34,12 @@ try {
   verify(generatedFileName.endsWith('.pptx'), 'Export returns a PowerPoint filename.');
   verify(existsSync(generatedPath), 'PptxGenJS writes a real PowerPoint file in the CI runner.');
   verify(statSync(generatedPath).size > 10_000, 'The generated PowerPoint contains a non-trivial slide package.');
+
+  const guideSlideXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide2.xml'], { encoding: 'utf8' });
+  const coverSlideXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide1.xml'], { encoding: 'utf8' });
+  verify(guideSlideXml.includes('show="0"'), 'The instruction slide is hidden from normal slideshow advance.');
+  verify(coverSlideXml.includes('BẮT ĐẦU CÂU 1'), 'The cover contains a direct start control for Question 1.');
+  verify(coverSlideXml.includes('TRÌNH CHIẾU TUẦN TỰ'), 'The cover explains the sequential classroom flow.');
 } finally {
   if (generatedFileName && existsSync(resolve(generatedFileName))) {
     unlinkSync(resolve(generatedFileName));
@@ -39,8 +47,10 @@ try {
 }
 
 const exporter = readFileSync(new URL('../src/lib/questionPptxExport.ts', import.meta.url), 'utf8');
+const sequentialPatch = readFileSync(new URL('../src/lib/questionPptxSequentialPatch.ts', import.meta.url), 'utf8');
 const controls = readFileSync(new URL('../src/components/QuestionStudioPptxExport.tsx', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/components/QuestionStudioApp.tsx', import.meta.url), 'utf8');
+const main = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
   dependencies: Record<string, string>;
   scripts: Record<string, string>;
@@ -55,6 +65,9 @@ verify(exporter.includes("'CÂU TIẾP THEO  →'"), 'Answer slides include next
 verify(exporter.includes("pptx.layout = 'LAYOUT_WIDE'"), 'PowerPoint export uses 16:9 widescreen layout.');
 verify(exporter.includes("lang: 'vi-VN'"), 'PowerPoint theme declares Vietnamese language metadata.');
 verify(exporter.includes('pptx.writeFile({ fileName, compression: true })'), 'Export downloads a compressed PPTX in the browser.');
+verify(sequentialPatch.includes('guide.hidden = true'), 'Sequential playback hides the guide from normal advance.');
+verify(sequentialPatch.includes("hyperlink: { slide: 3"), 'The cover starts directly at Question 1.');
+verify(main.includes("import './lib/questionPptxSequentialPatch';"), 'The sequential PowerPoint patch is enabled in the production app.');
 verify(controls.includes('Xuất PowerPoint'), 'Question Studio exposes a visible PowerPoint export action.');
 verify(controls.includes('Bấm để hiện đáp án'), 'The UI explains the click-to-reveal presentation behavior.');
 verify(controls.includes('Xóa bộ câu hỏi đang chọn'), 'Question Studio exposes a delete control for the selected question bank.');
@@ -65,4 +78,4 @@ verify(app.includes('<QuestionStudioPptxExport />'), 'PowerPoint export is mount
 verify(packageJson.dependencies.pptxgenjs === '^4.0.1', 'The browser build pins the supported PptxGenJS release.');
 verify(packageJson.scripts['test:question-pptx'].includes('test-question-pptx-export.ts'), 'The PowerPoint regression test is available to CI.');
 
-console.info(`Question Studio PowerPoint export and bank deletion: ${checks} checks passed.`);
+console.info(`Question Studio PowerPoint sequential export and bank deletion: ${checks} checks passed.`);
