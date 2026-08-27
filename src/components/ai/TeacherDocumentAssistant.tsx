@@ -26,6 +26,14 @@ const INTEGRATION_MODES: Array<{ id: TeacherIntegrationMode; label: string; desc
   { id: 'ai-lesson-plan', label: 'Chuyên đề AI', description: 'Xác định bài có thể phát triển thành hoạt động AI.' },
 ];
 
+export interface TeacherDocumentAssistantProps {
+  initialMode?: TeacherIntegrationMode;
+  lockedMode?: boolean;
+  heading?: string;
+  description?: string;
+  initialDocumentType?: string;
+}
+
 function readGuestTrialCount(): number {
   try {
     return Math.max(0, Number(localStorage.getItem(TRIAL_STORAGE_KEY) || 0) || 0);
@@ -47,12 +55,18 @@ function navigateToRegistration(): void {
   window.location.reload();
 }
 
-export default function TeacherDocumentAssistant() {
-  const [mode, setMode] = useState<TeacherIntegrationMode>('digital-competency');
+export default function TeacherDocumentAssistant({
+  initialMode = 'digital-competency',
+  lockedMode = false,
+  heading = 'AI tích hợp hồ sơ chuyên môn',
+  description = 'Chọn loại tích hợp → tải DOCX → AI phân tích → giáo viên duyệt → tải lại file Word. Tệp gốc được xử lý trên trình duyệt; phần văn bản cần phân tích mới được gửi tới AI.',
+  initialDocumentType = 'KHGD / Phụ lục III',
+}: TeacherDocumentAssistantProps) {
+  const [mode, setMode] = useState<TeacherIntegrationMode>(initialMode);
   const [book, setBook] = useState('Kết nối tri thức với cuộc sống');
   const [subject, setSubject] = useState('Toán');
   const [grade, setGrade] = useState('8');
-  const [documentType, setDocumentType] = useState('KHGD / Phụ lục III');
+  const [documentType, setDocumentType] = useState(initialDocumentType);
   const [referenceFramework, setReferenceFramework] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [documentAnalysis, setDocumentAnalysis] = useState<TeacherDocumentAnalysis | null>(null);
@@ -180,28 +194,28 @@ export default function TeacherDocumentAssistant() {
         <div className="mb-5">
           <h2 className="flex items-center gap-2 text-xl font-bold text-slate-900">
             <Sparkles className="h-5 w-5 text-indigo-600" />
-            AI tích hợp hồ sơ chuyên môn
+            {heading}
           </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Chọn loại tích hợp → tải DOCX → AI phân tích → giáo viên duyệt → tải lại file Word. Tệp gốc được xử lý trên trình duyệt; phần văn bản cần phân tích mới được gửi tới AI.
-          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          {INTEGRATION_MODES.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => { setMode(item.id); setSuggestions([]); }}
-              className={`rounded-2xl border p-4 text-left transition ${mode === item.id ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-100' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'}`}
-            >
-              <p className="font-bold text-slate-900">{item.label}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">{item.description}</p>
-            </button>
-          ))}
-        </div>
+        {!lockedMode && (
+          <div className="grid gap-3 md:grid-cols-3">
+            {INTEGRATION_MODES.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => { setMode(item.id); setSuggestions([]); }}
+                className={`rounded-2xl border p-4 text-left transition ${mode === item.id ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-100' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'}`}
+              >
+                <p className="font-bold text-slate-900">{item.label}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">{item.description}</p>
+              </button>
+            ))}
+          </div>
+        )}
 
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={`${lockedMode ? '' : 'mt-5 '}grid gap-4 sm:grid-cols-2 lg:grid-cols-4`}>
           <label className="text-sm font-medium text-slate-700">Bộ sách
             <select value={book} onChange={event => setBook(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-indigo-500">
               <option>Kết nối tri thức với cuộc sống</option><option>Cánh Diều</option><option>Chân trời sáng tạo</option><option>Khác</option>
