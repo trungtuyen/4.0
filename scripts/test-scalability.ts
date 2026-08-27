@@ -16,7 +16,8 @@ function check(condition: unknown, description: string): void {
 const firebase = readFileSync(new URL('../src/firebase.ts', import.meta.url), 'utf8');
 const footer = readFileSync(new URL('../src/components/PlatformFooter.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
-const manager = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
+const legacyManager = readFileSync(new URL('../src/components/ExamManagerLegacy.tsx', import.meta.url), 'utf8');
+const studentRunner = readFileSync(new URL('../src/components/UnifiedStudentExamRunner.tsx', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../public/service-worker.js', import.meta.url), 'utf8');
 const vite = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
 const headers = readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
@@ -54,10 +55,11 @@ for (const application of [
   check(dashboard.includes(`lazy(() => import('./${application}'))`), `${application} loads only when the teacher opens it.`);
 }
 
-check(manager.includes("if (teacherTab !== 'exams')"), 'The default exam list does not subscribe to student and classroom rosters.');
-check(manager.includes("if (teacherTab === 'results')"), 'Exam-result streams are opened only on the results screen.');
-check(manager.includes("if (teacherTab === 'monitoring')"), 'Live exam sessions are monitored only when the teacher opens monitoring.');
-check(manager.includes('EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000'), 'Student heartbeat writes are halved without removing exam monitoring.');
+check(legacyManager.includes("if (teacherTab !== 'exams')"), 'The default exam list does not subscribe to student and classroom rosters.');
+check(legacyManager.includes("if (teacherTab === 'results')"), 'Exam-result streams are opened only on the results screen.');
+check(legacyManager.includes("if (teacherTab === 'monitoring')"), 'Live exam sessions are monitored only when the teacher opens monitoring.');
+check(legacyManager.includes('EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000'), 'Legacy student heartbeat behavior remains bounded for backward compatibility.');
+check(studentRunner.includes('const HEARTBEAT_MS = 60_000'), 'The unified ten-type student runner also limits session heartbeats to once per minute.');
 
 check(worker.includes('smartclass.webmanifest'), 'The offline shell includes the complete educational ecosystem.');
 check(worker.includes('plicker.webmanifest'), 'The existing dedicated Plicker installation remains available.');
