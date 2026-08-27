@@ -51,6 +51,9 @@ jobs:
       - name: Verify all 10 Question Engine scoring modes
         run: npm run test:question-engine
 
+      - name: Verify Question Studio PowerPoint export for all 10 types
+        run: npm run test:question-pptx
+
       - name: Verify Question Studio can create and assign student exams
         run: npm run test:question-exam-bridge
 
