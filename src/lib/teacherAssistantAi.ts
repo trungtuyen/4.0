@@ -34,15 +34,19 @@ const MODE_LABELS: Record<TeacherIntegrationMode, string> = {
 };
 
 function stripCodeFence(value: string): string {
-  return value
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+  return value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
 function lessonTitle(row: TeacherDocumentRow): string {
   const useful = row.cells.find(cell => /bài|chủ đề|tiết|hoạt động|ôn tập|kiểm tra/i.test(cell));
   return (useful || row.cells.slice(0, 2).join(' – ') || `Hàng ${row.rowIndex + 1}`).slice(0, 180);
+}
+
+function requirementFromRow(row: TeacherDocumentRow, lesson: string): string {
+  const candidates = row.cells
+    .map(cell => cell.trim())
+    .filter(cell => cell.length >= 20 && !lesson.includes(cell));
+  return (candidates.sort((a, b) => b.length - a.length)[0] || '').slice(0, 700);
 }
 
 function isCodeVerified(code: string, framework: string): boolean {
@@ -68,15 +72,18 @@ function normalizeSuggestions(
       const row = rowMap.get(rowIndex);
       const content = String(data.content || '').trim();
       if (!row || !content) return null;
+      const lesson = String(data.lesson || '').trim().slice(0, 180) || lessonTitle(row);
       const proposedCode = String(data.code || '').trim();
       const confidenceValue = String(data.confidence || '').toLowerCase();
       const confidence: TeacherIntegrationSuggestion['confidence'] =
         confidenceValue === 'high' || confidenceValue === 'low' ? confidenceValue : 'medium';
+      const proposedRequirement = String(data.requirement || '').trim().slice(0, 700);
 
       return {
         id: `ai-${rowIndex}-${index}`,
         rowIndex,
-        lesson: String(data.lesson || '').trim().slice(0, 180) || lessonTitle(row),
+        lesson,
+        requirement: proposedRequirement || requirementFromRow(row, lesson),
         code: isCodeVerified(proposedCode, referenceFramework) ? proposedCode : '',
         content: content.slice(0, 1000),
         reason: String(data.reason || '').trim().slice(0, 700),
@@ -104,11 +111,12 @@ THÔNG TIN:
 NGUYÊN TẮC BẮT BUỘC:
 1. Chỉ đề xuất ở những hàng thực sự phù hợp; không tích hợp gượng ép.
 2. rowIndex phải giữ nguyên đúng số được cung cấp.
-3. Nội dung phải ngắn gọn, có thể chèn trực tiếp vào ô cuối của hàng trong bảng Word.
+3. Nội dung phải ngắn gọn, có thể chèn trực tiếp vào đúng cột tích hợp của hàng trong bảng Word.
 4. KHÔNG tự tạo hoặc đoán mã năng lực. Chỉ điền trường code khi mã đó xuất hiện nguyên văn trong KHUNG THAM CHIẾU bên dưới. Nếu không có căn cứ chắc chắn, để code là chuỗi rỗng.
 5. Không thay đổi số tiết, tên bài, yêu cầu cần đạt của tài liệu gốc.
-6. Trả về JSON thuần, không markdown, không giải thích ngoài JSON.
-7. Tối đa 30 đề xuất tốt nhất.
+6. Trường requirement chỉ được trích hoặc diễn đạt rất sát YÊU CẦU CẦN ĐẠT/NỘI DUNG đang có trong chính hàng nguồn; tuyệt đối không bịa thêm yêu cầu mới.
+7. Trả về JSON thuần, không markdown, không giải thích ngoài JSON.
+8. Tối đa 30 đề xuất tốt nhất.
 
 KHUNG THAM CHIẾU ĐƯỢC PHÉP DÙNG MÃ:
 ${framework || '[Chưa cung cấp — bắt buộc để code = ""]'}
@@ -121,6 +129,7 @@ Trả về mảng JSON theo mẫu:
   {
     "rowIndex": 12,
     "lesson": "Bài ...",
+    "requirement": "Yêu cầu cần đạt lấy từ hàng nguồn",
     "code": "",
     "content": "Nội dung tích hợp ngắn gọn",
     "reason": "Lý do bài này phù hợp",
@@ -152,16 +161,20 @@ function localFallback(request: TeacherAssistantRequest): TeacherIntegrationSugg
   return request.rows
     .filter(row => modeKeywords[request.mode].test(row.text))
     .slice(0, 15)
-    .map((row, index) => ({
-      id: `local-${row.rowIndex}-${index}`,
-      rowIndex: row.rowIndex,
-      lesson: lessonTitle(row),
-      code: '',
-      content: genericContent[request.mode],
-      reason: 'Hàng này có nội dung/hoạt động phù hợp với nhóm tiêu chí đã chọn; cần giáo viên duyệt trước khi chèn.',
-      confidence: 'medium' as const,
-      approved: true,
-    }));
+    .map((row, index) => {
+      const lesson = lessonTitle(row);
+      return {
+        id: `local-${row.rowIndex}-${index}`,
+        rowIndex: row.rowIndex,
+        lesson,
+        requirement: requirementFromRow(row, lesson),
+        code: '',
+        content: genericContent[request.mode],
+        reason: 'Hàng này có nội dung/hoạt động phù hợp với nhóm tiêu chí đã chọn; cần giáo viên duyệt trước khi chèn.',
+        confidence: 'medium' as const,
+        approved: true,
+      };
+    });
 }
 
 export async function analyzeTeacherDocument(request: TeacherAssistantRequest): Promise<TeacherAssistantResult> {
@@ -171,21 +184,16 @@ export async function analyzeTeacherDocument(request: TeacherAssistantRequest): 
     const ai = getAI(app, { backend: new GoogleAIBackend() });
     const model = getGenerativeModel(ai, {
       model: MODEL,
-      systemInstruction: 'Ưu tiên tính chính xác chuyên môn, không bịa mã năng lực hoặc căn cứ pháp lý. Luôn trả JSON đúng yêu cầu.',
-      generationConfig: { maxOutputTokens: 8192, temperature: 0.2 },
+      systemInstruction: 'Ưu tiên tính chính xác chuyên môn, không bịa mã năng lực, yêu cầu cần đạt hoặc căn cứ pháp lý. Luôn trả JSON đúng yêu cầu.',
+      generationConfig: { maxOutputTokens: 8192 },
     });
     const result = await model.generateContent(buildPrompt(request));
     const text = stripCodeFence(result.response.text());
     const suggestions = normalizeSuggestions(JSON.parse(text), request.rows, referenceFramework);
-    if (suggestions.length > 0) {
-      return { suggestions, source: 'google-gemini', model: MODEL };
-    }
+    if (suggestions.length > 0) return { suggestions, source: 'google-gemini', model: MODEL };
   } catch (error) {
     console.info('AI giáo viên chưa phản hồi; chuyển sang phân tích cục bộ an toàn.', error);
   }
 
-  return {
-    suggestions: localFallback(request),
-    source: 'local-analysis',
-  };
+  return { suggestions: localFallback(request), source: 'local-analysis' };
 }
