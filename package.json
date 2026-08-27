@@ -14,6 +14,7 @@
     "deploy:firestore": "npx --yes firebase-tools@^15.17.0 deploy --only firestore:rules --project gen-lang-client-0870957273 --non-interactive",
     "test:gestureclass": "node scripts/test-gestureclass.cjs",
     "test:catalog": "node --import tsx scripts/test-application-catalog.ts",
+    "test:question-engine": "node --import tsx scripts/test-question-engine.ts",
     "test:platform": "node --import tsx scripts/test-platform.ts",
     "test:head-shake": "node --import tsx scripts/test-head-shake-questions.ts",
     "test:student-portal": "node --import tsx scripts/test-exam-student-portal.ts",
