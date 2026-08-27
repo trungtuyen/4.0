@@ -3,9 +3,11 @@ import {createRoot} from 'react-dom/client';
 import ProductTrialController from './components/ProductTrialController';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
+import { initializeHeadShakeReporting } from './lib/headShakeReportController';
 import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
 
 initializePwaInstallation();
+initializeHeadShakeReporting();
 
 if (import.meta.env.PROD) {
   registerClassroomServiceWorker(import.meta.env.BASE_URL);
