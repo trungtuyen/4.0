@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Presentation, RefreshCw, Sparkles } from 'lucide-react';
+import { Download, Presentation, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { exportQuestionBankToPptx, type QuestionBankForPptx } from '../lib/questionPptxExport';
@@ -55,6 +55,29 @@ export default function QuestionStudioPptxExport() {
 
   const selectedBank = useMemo(() => banks.find(bank => bank.id === selectedBankId) || banks[0], [banks, selectedBankId]);
 
+  const handleDeleteBank = () => {
+    const latestBanks = readBanks(ownerUid);
+    const bankToDelete = latestBanks.find(bank => bank.id === selectedBankId) || latestBanks[0];
+    if (!bankToDelete) {
+      setMessage('Chưa có bộ câu hỏi để xóa.');
+      return;
+    }
+
+    const questionCount = bankToDelete.questions.length;
+    const confirmed = window.confirm(
+      `Xóa bộ câu hỏi “${bankToDelete.title}” (${questionCount} câu)?\n\nThao tác này không thể hoàn tác.`,
+    );
+    if (!confirmed) return;
+
+    const remaining = latestBanks.filter(bank => bank.id !== bankToDelete.id);
+    localStorage.setItem(storageKey(ownerUid), JSON.stringify(remaining));
+    setBanks(remaining);
+    setSelectedBankId(remaining[0]?.id || '');
+    setMessage(`Đã xóa bộ câu hỏi “${bankToDelete.title}”. Đang cập nhật giao diện...`);
+
+    window.setTimeout(() => window.location.reload(), 250);
+  };
+
   const handleExport = async () => {
     refreshBanks();
     const latestBanks = readBanks(ownerUid);
@@ -108,7 +131,7 @@ export default function QuestionStudioPptxExport() {
               value={selectedBank?.id || ''}
               onChange={event => setSelectedBankId(event.target.value)}
               className="min-w-0 flex-1 rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 sm:w-72"
-              aria-label="Chọn bộ câu hỏi để xuất PowerPoint"
+              aria-label="Chọn bộ câu hỏi để xuất PowerPoint hoặc xóa"
             >
               {!banks.length && <option value="">Chưa có bộ câu hỏi</option>}
               {banks.map(bank => (
@@ -122,6 +145,16 @@ export default function QuestionStudioPptxExport() {
               title="Làm mới danh sách bộ câu hỏi"
             >
               <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteBank}
+              disabled={!selectedBank || isExporting}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-white text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Xóa bộ câu hỏi đang chọn"
+              aria-label="Xóa bộ câu hỏi đang chọn"
+            >
+              <Trash2 className="h-4 w-4" />
             </button>
           </div>
 
@@ -138,7 +171,7 @@ export default function QuestionStudioPptxExport() {
       </div>
 
       {message && (
-        <div className={`mx-auto mt-2 max-w-7xl rounded-lg px-3 py-2 text-xs font-medium ${message.startsWith('Đã xuất') ? 'bg-emerald-50 text-emerald-700' : message.startsWith('Đang') ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'}`} role="status">
+        <div className={`mx-auto mt-2 max-w-7xl rounded-lg px-3 py-2 text-xs font-medium ${message.startsWith('Đã') ? 'bg-emerald-50 text-emerald-700' : message.startsWith('Đang') ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'}`} role="status">
           {message}
         </div>
       )}
