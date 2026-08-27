@@ -6,6 +6,7 @@ import './index.css';
 import { resolveApiUrl } from './lib/api';
 import { initializeHeadShakeReporting } from './lib/headShakeReportController';
 import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
+import './lib/questionPptxSequentialPatch';
 
 initializePwaInstallation();
 initializeHeadShakeReporting();
