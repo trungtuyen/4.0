@@ -75,7 +75,7 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   },
   {
     id: 'chatbot',
-    name: 'AI Trợ lý giáo viên',
+    name: 'AI Giáo viên',
     description: 'Phân tích KHGD/PPCT/giáo án DOCX để tích hợp Năng lực số, Năng lực AI, giáo dục hòa nhập và nội dung tổng hợp; giáo viên duyệt trước khi xuất lại Word.',
     dependency: 'ai-cloud',
     category: 'AI giáo dục',

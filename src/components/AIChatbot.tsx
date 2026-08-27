@@ -156,7 +156,7 @@ export default function AIChatbot() {
         <div className="flex items-start gap-3">
           <div className="rounded-2xl bg-white/15 p-3"><Brain className="h-7 w-7" /></div>
           <div>
-            <h1 className="text-2xl font-extrabold">AI Trợ lý giáo viên</h1>
+            <h1 className="text-2xl font-extrabold">AI Giáo viên</h1>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-indigo-100">
               Bộ AI giáo dục chuyên biệt cho công việc giáo viên Việt Nam. Kiến trúc dùng gì tải nấy: mô-đun, Document Engine và Gemini chỉ tải khi thực sự sử dụng.
             </p>
