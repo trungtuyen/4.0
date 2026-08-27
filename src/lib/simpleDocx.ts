@@ -12,16 +12,16 @@ function escapeXml(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function runXml(text: string, bold = false, size = 24): string {
+function runXml(text: string, bold = false, size = 24, breakBefore = false): string {
   const runProperties = `<w:rPr>${bold ? '<w:b/>' : ''}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr>`;
-  return `<w:r>${runProperties}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
+  return `<w:r>${runProperties}${breakBefore ? '<w:br/>' : ''}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
 }
 
 function paragraphXml(text: string, options?: { bold?: boolean; center?: boolean; size?: number; after?: number }): string {
   const lines = text.split(/\r?\n/);
   const alignment = options?.center ? '<w:jc w:val="center"/>' : '';
   const spacing = `<w:spacing w:after="${options?.after ?? 120}" w:line="360" w:lineRule="auto"/>`;
-  const runs = lines.map((line, index) => `${index > 0 ? '<w:br/>' : ''}${runXml(line || ' ', options?.bold, options?.size)}`).join('');
+  const runs = lines.map((line, index) => runXml(line || ' ', options?.bold, options?.size, index > 0)).join('');
   return `<w:p><w:pPr>${alignment}${spacing}</w:pPr>${runs}</w:p>`;
 }
 
