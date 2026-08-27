@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import '../src/lib/questionPptxSequentialPatch.ts';
 import { QUESTION_TYPES, createQuestionTemplate } from '../src/lib/questionEngine.ts';
-import { exportQuestionBankToPptx } from '../src/lib/questionPptxExport.ts';
+import { exportQuestionBankToPptx } from '../src/lib/questionPptxInteractiveExport.ts';
 
 let checks = 0;
 const verify = (condition: unknown, description: string) => {
@@ -37,16 +37,18 @@ try {
 
   const guideSlideXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide2.xml'], { encoding: 'utf8' });
   const coverSlideXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide1.xml'], { encoding: 'utf8' });
+  const wrongFeedbackXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide4.xml'], { encoding: 'utf8' });
   verify(guideSlideXml.includes('show="0"'), 'The instruction slide is hidden from normal slideshow advance.');
   verify(coverSlideXml.includes('BẮT ĐẦU CÂU 1'), 'The cover contains a direct start control for Question 1.');
   verify(coverSlideXml.includes('TRÌNH CHIẾU TUẦN TỰ'), 'The cover explains the sequential classroom flow.');
+  verify(wrongFeedbackXml.includes('show="0"'), 'Answer-feedback branch slides are hidden from normal sequential advance.');
 } finally {
   if (generatedFileName && existsSync(resolve(generatedFileName))) {
     unlinkSync(resolve(generatedFileName));
   }
 }
 
-const exporter = readFileSync(new URL('../src/lib/questionPptxExport.ts', import.meta.url), 'utf8');
+const exporter = readFileSync(new URL('../src/lib/questionPptxInteractiveExport.ts', import.meta.url), 'utf8');
 const sequentialPatch = readFileSync(new URL('../src/lib/questionPptxSequentialPatch.ts', import.meta.url), 'utf8');
 const controls = readFileSync(new URL('../src/components/QuestionStudioPptxExport.tsx', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/components/QuestionStudioApp.tsx', import.meta.url), 'utf8');
@@ -59,17 +61,23 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 for (const type of QUESTION_TYPES) {
   verify(exporter.includes(`case '${type}'`) || exporter.includes(`payload.type !== '${type}'`) || exporter.includes(`payload.type === '${type}'`), `PowerPoint renderer handles ${type}.`);
 }
-verify(exporter.includes("hyperlink: { slide: targetSlide }"), 'Slides use internal hyperlinks for click-to-reveal interaction.');
-verify(exporter.includes("'HIỆN ĐÁP ÁN  →'"), 'Question slides include a reveal-answer control.');
-verify(exporter.includes("'CÂU TIẾP THEO  →'"), 'Answer slides include next-question navigation.');
+verify(exporter.includes("hyperlink: { slide: targetSlide }"), 'Slides use internal hyperlinks for click interaction.');
+verify(exporter.includes("'HIỆN ĐÁP ÁN  →'"), 'Question slides retain a reveal-answer control.');
+verify(exporter.includes("'CÂU TIẾP THEO  →'"), 'Answer and correct-feedback slides include next-question navigation.');
+verify(exporter.includes("redSoft: 'FEF2F2'"), 'Wrong-answer feedback uses a red visual state.');
+verify(exporter.includes("greenSoft: 'ECFDF5'"), 'Correct-answer feedback uses a green visual state.');
+verify(exporter.includes("'↺  THỬ LẠI'"), 'Wrong-answer feedback provides a retry control.');
+verify(exporter.includes('(slide as any).hidden = true'), 'Feedback branch slides are hidden from normal sequential playback.');
+verify(exporter.includes('targetSlide: !reveal && selectedIndex === null ? targets[optionIndex] : undefined'), 'Choice options link to their own feedback branch slides.');
 verify(exporter.includes("pptx.layout = 'LAYOUT_WIDE'"), 'PowerPoint export uses 16:9 widescreen layout.');
 verify(exporter.includes("lang: 'vi-VN'"), 'PowerPoint theme declares Vietnamese language metadata.');
 verify(exporter.includes('pptx.writeFile({ fileName, compression: true })'), 'Export downloads a compressed PPTX in the browser.');
 verify(sequentialPatch.includes('guide.hidden = true'), 'Sequential playback hides the guide from normal advance.');
 verify(sequentialPatch.includes("hyperlink: { slide: 3"), 'The cover starts directly at Question 1.');
 verify(main.includes("import './lib/questionPptxSequentialPatch';"), 'The sequential PowerPoint patch is enabled in the production app.');
+verify(controls.includes("from '../lib/questionPptxInteractiveExport'"), 'Question Studio uses the interactive green-red PowerPoint exporter.');
 verify(controls.includes('Xuất PowerPoint'), 'Question Studio exposes a visible PowerPoint export action.');
-verify(controls.includes('Bấm để hiện đáp án'), 'The UI explains the click-to-reveal presentation behavior.');
+verify(controls.includes('Đúng xanh • Sai đỏ'), 'The UI explains green/red answer feedback.');
 verify(controls.includes('Xóa bộ câu hỏi đang chọn'), 'Question Studio exposes a delete control for the selected question bank.');
 verify(controls.includes('window.confirm('), 'Deleting a question bank requires explicit confirmation.');
 verify(controls.includes('localStorage.setItem(storageKey(ownerUid), JSON.stringify(remaining))'), 'Deleting a bank persists the remaining owner-scoped banks.');
@@ -78,4 +86,4 @@ verify(app.includes('<QuestionStudioPptxExport />'), 'PowerPoint export is mount
 verify(packageJson.dependencies.pptxgenjs === '^4.0.1', 'The browser build pins the supported PptxGenJS release.');
 verify(packageJson.scripts['test:question-pptx'].includes('test-question-pptx-export.ts'), 'The PowerPoint regression test is available to CI.');
 
-console.info(`Question Studio PowerPoint sequential export and bank deletion: ${checks} checks passed.`);
+console.info(`Question Studio PowerPoint interactive green-red feedback: ${checks} checks passed.`);
