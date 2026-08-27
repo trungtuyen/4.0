@@ -37,11 +37,15 @@ try {
 
   const guideSlideXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide2.xml'], { encoding: 'utf8' });
   const coverSlideXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide1.xml'], { encoding: 'utf8' });
-  const wrongFeedbackXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide4.xml'], { encoding: 'utf8' });
+  const correctFeedbackXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide5.xml'], { encoding: 'utf8' });
+  const wrongFeedbackXml = execFileSync('unzip', ['-p', generatedPath, 'ppt/slides/slide6.xml'], { encoding: 'utf8' });
   verify(guideSlideXml.includes('show="0"'), 'The instruction slide is hidden from normal slideshow advance.');
   verify(coverSlideXml.includes('BẮT ĐẦU CÂU 1'), 'The cover contains a direct start control for Question 1.');
   verify(coverSlideXml.includes('TRÌNH CHIẾU TUẦN TỰ'), 'The cover explains the sequential classroom flow.');
-  verify(wrongFeedbackXml.includes('show="0"'), 'Answer-feedback branch slides are hidden from normal sequential advance.');
+  verify(correctFeedbackXml.includes('show="0"'), 'Correct-answer feedback slide is hidden from normal sequential advance.');
+  verify(wrongFeedbackXml.includes('show="0"'), 'Wrong-answer feedback slide is hidden from normal sequential advance.');
+  verify(correctFeedbackXml.includes('ECFDF5') || correctFeedbackXml.includes('059669'), 'Correct-answer feedback contains the green visual state.');
+  verify(wrongFeedbackXml.includes('FEF2F2') || wrongFeedbackXml.includes('DC2626'), 'Wrong-answer feedback contains the red visual state.');
 } finally {
   if (generatedFileName && existsSync(resolve(generatedFileName))) {
     unlinkSync(resolve(generatedFileName));
