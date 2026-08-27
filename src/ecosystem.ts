@@ -20,7 +20,7 @@ export interface EcosystemApplication {
   name: string;
   description: string;
   dependency: EcosystemDependency;
-  category: 'Cử chỉ' | 'Trò chơi' | 'Đánh giá' | 'Quản lý' | 'Công cụ';
+  category: 'Cử chỉ' | 'Trò chơi' | 'Đánh giá' | 'Quản lý' | 'Công cụ' | 'AI giáo dục';
 }
 
 export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
@@ -75,10 +75,10 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   },
   {
     id: 'chatbot',
-    name: 'Tư vấn học đường AI',
-    description: 'Tư vấn tình huống học đường bằng Google Gemini, tự động dự phòng khi mất kết nối.',
+    name: 'AI Trợ lý giáo viên',
+    description: 'Phân tích KHGD/PPCT/giáo án DOCX để tích hợp Năng lực số, Năng lực AI, giáo dục hòa nhập và nội dung tổng hợp; giáo viên duyệt trước khi xuất lại Word.',
     dependency: 'ai-cloud',
-    category: 'Công cụ',
+    category: 'AI giáo dục',
   },
   {
     id: 'exam-manager',
