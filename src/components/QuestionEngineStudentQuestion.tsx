@@ -14,11 +14,7 @@ interface QuestionEngineStudentQuestionProps {
 
 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 
-export default function QuestionEngineStudentQuestion({
-  question,
-  answer,
-  onChange,
-}: QuestionEngineStudentQuestionProps) {
+export default function QuestionEngineStudentQuestion({ question, answer, onChange }: QuestionEngineStudentQuestionProps) {
   const payload = question.payload;
 
   if (payload.type === 'single_choice') {
@@ -77,7 +73,8 @@ export default function QuestionEngineStudentQuestion({
   }
 
   if (payload.type === 'true_false_matrix') {
-    const values = Array.isArray(answer) ? answer as boolean[] : [];
+    const previous = Array.isArray(answer) ? answer as unknown[] : [];
+    const values = payload.statements.map((_, index) => typeof previous[index] === 'boolean' ? previous[index] as boolean : null);
     return (
       <div className="space-y-3">
         {payload.statements.map((statement, index) => (
@@ -91,7 +88,7 @@ export default function QuestionEngineStudentQuestion({
                   onClick={() => {
                     const next = [...values];
                     next[index] = value;
-                    onChange(next);
+                    onChange(next as boolean[]);
                   }}
                   className={`rounded-lg border px-4 py-2 text-sm font-semibold ${values[index] === value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'}`}
                 >
@@ -110,7 +107,8 @@ export default function QuestionEngineStudentQuestion({
   }
 
   if (payload.type === 'fill_blank') {
-    const values = Array.isArray(answer) ? answer.map(String) : [];
+    const previous = Array.isArray(answer) ? answer : [];
+    const values = payload.answers.map((_, index) => previous[index] === undefined || previous[index] === null ? '' : String(previous[index]));
     return (
       <div className="space-y-3">
         {payload.answers.map((_, index) => (
@@ -118,7 +116,7 @@ export default function QuestionEngineStudentQuestion({
             <span className="mb-1.5 block text-xs font-semibold text-slate-500">Chỗ trống {index + 1}</span>
             <input
               className={inputClass}
-              value={values[index] || ''}
+              value={values[index]}
               onChange={event => {
                 const next = [...values];
                 next[index] = event.target.value;
@@ -136,7 +134,7 @@ export default function QuestionEngineStudentQuestion({
     const values = answer && typeof answer === 'object' && !Array.isArray(answer) && !('x' in answer)
       ? answer as Record<string, string>
       : {};
-    const rightOptions = useMemo(() => [...payload.pairs].reverse(), [payload.pairs]);
+    const rightOptions = [...payload.pairs].reverse();
     return (
       <div className="space-y-3">
         {payload.pairs.map((pair, index) => (
