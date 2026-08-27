@@ -48,6 +48,9 @@ jobs:
       - name: Verify all 10 Question Engine scoring modes
         run: npm run test:question-engine
 
+      - name: Verify Question Studio can create and assign student exams
+        run: npm run test:question-exam-bridge
+
       - name: Verify head-tilt question generation
         run: npm run test:head-shake
 
