@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 
+const TEA_BANNER_URL = 'https://raw.githubusercontent.com/trungtuyen/4.0/78b8537ab57f7258a7169d3b299547d5bf19cf87/public/login-tea-banner.jpg';
+
 function applyTeaLoginBanner(): void {
   const image = document.querySelector<HTMLImageElement>('img[alt="Giáo viên giảng dạy"], img[alt="Học sinh hái chè"]');
   if (!image) return;
@@ -9,19 +11,10 @@ function applyTeaLoginBanner(): void {
   const panel = contentWrapper?.parentElement as HTMLElement | null;
   if (!card || !contentWrapper || !panel) return;
 
-  // Use a real static asset instead of a large data URI. This is more reliable
-  // on GitHub Pages and allows the browser to cache/decode the image normally.
-  const bannerUrl = `${import.meta.env.BASE_URL}login-tea-banner.jpg`;
   Object.assign(panel.style, {
-    backgroundImage: `linear-gradient(180deg, rgba(15,23,42,0.28) 0%, rgba(15,23,42,0.12) 42%, rgba(15,23,42,0.72) 100%), url("${bannerUrl}")`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center center',
-    backgroundRepeat: 'no-repeat',
+    backgroundImage: 'none',
     backgroundColor: '#0f172a',
   });
-
-  image.alt = 'Học sinh hái chè';
-  image.style.display = 'none';
 
   Object.assign(contentWrapper.style, {
     position: 'absolute',
@@ -29,31 +22,59 @@ function applyTeaLoginBanner(): void {
     marginTop: '0',
     width: '100%',
     height: '100%',
-    zIndex: '1',
+    zIndex: '0',
   });
 
   Object.assign(card.style, {
+    position: 'absolute',
+    inset: '0',
     width: '100%',
     height: '100%',
     maxWidth: 'none',
     aspectRatio: 'auto',
     borderRadius: '0',
     boxShadow: 'none',
-    background: 'transparent',
+    overflow: 'hidden',
+  });
+
+  image.src = TEA_BANNER_URL;
+  image.alt = 'Học sinh hái chè';
+  image.referrerPolicy = 'no-referrer';
+  Object.assign(image.style, {
+    display: 'block',
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    objectPosition: 'center center',
+    zIndex: '0',
   });
 
   const overlay = card.children[1] as HTMLElement | undefined;
   if (overlay) {
-    overlay.style.background = 'transparent';
+    Object.assign(overlay.style, {
+      position: 'absolute',
+      inset: '0',
+      zIndex: '1',
+      background: 'linear-gradient(180deg, rgba(15,23,42,0.22) 0%, rgba(15,23,42,0.08) 44%, rgba(15,23,42,0.72) 100%)',
+    });
   }
 
   const caption = card.children[2] as HTMLElement | undefined;
   if (caption) {
-    caption.style.padding = '3rem';
-    caption.style.paddingBottom = '4.5rem';
+    Object.assign(caption.style, {
+      position: 'absolute',
+      left: '0',
+      right: '0',
+      bottom: '0',
+      zIndex: '2',
+      padding: '3rem',
+      paddingBottom: '4.5rem',
+    });
   }
 
-  panel.dataset.teaLoginBanner = 'ready';
+  panel.dataset.teaLoginBanner = 'ready-image';
 }
 
 export default function AuthBannerCustomizer() {
