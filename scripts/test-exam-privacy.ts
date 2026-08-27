@@ -122,15 +122,17 @@ verify(rules.includes('allow list: if isAdmin();'), 'Only the administrator can 
 verify(rules.includes('publicScheduleIsSafe(scheduleId)'), 'Firestore rejects unexpected public schedule fields.');
 verify(rules.includes('encryptedExamAccessIsSafe(accessId)'), 'Firestore rejects plaintext or malformed public exam payloads.');
 
-const examManager = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
+const legacyExamManager = readFileSync(new URL('../src/components/ExamManagerLegacy.tsx', import.meta.url), 'utf8');
+const studentRunner = readFileSync(new URL('../src/components/UnifiedStudentExamRunner.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
 const application = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-verify(examManager.includes('collection(db, PUBLIC_EXAM_SCHEDULES_COLLECTION)'),
+verify(studentRunner.includes('collection(db, PUBLIC_EXAM_SCHEDULES_COLLECTION)'),
   'The public student schedule reads only safe notices.');
-verify(examManager.includes('getDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId))'),
+verify(studentRunner.includes('getDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId))'),
   'Students request exactly one encrypted exam by its authorization code.');
-verify(!examManager.includes("query(collection(db, 'exams'), where('status', '==', 'published'))"),
+verify(!studentRunner.includes("query(collection(db, 'exams'), where('status', '==', 'published'))"),
   'The student portal never enumerates teachers’ private exam documents.');
+verify(legacyExamManager.includes('protectExamForAccess'), 'Teacher publishing still encrypts legacy and Question Engine exam payloads.');
 verify(dashboard.includes('administratorCloudStudents'), 'The administrator can inspect synchronized rosters for all teachers.');
 verify(dashboard.includes('administratorQuestionSets'), 'The administrator can inspect synchronized question libraries for all teachers.');
 verify(application.includes('key={auth.currentUser.uid}'), 'Switching teachers remounts and clears the previous private workspace.');
