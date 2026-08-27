@@ -42,7 +42,7 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Verify the 12-application ecosystem and preserve GestureClass
+      - name: Verify the 13-application ecosystem with standalone Question Studio
         run: npm run test:catalog
 
       - name: Verify head-tilt question generation
