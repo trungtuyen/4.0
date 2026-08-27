@@ -366,7 +366,7 @@ export default function App() {
           </button>
           <h1 className="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
             <MessageSquare className="w-6 h-6 text-indigo-600" />
-            AI Phân tích tâm lý học đường
+            AI Giáo viên
           </h1>
         </header>
         <div className="flex-1 overflow-hidden p-4 md:p-8">
@@ -543,7 +543,7 @@ export default function App() {
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z" />
                     </svg>
                   </div>
                   <input name="email" type="email" required className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm" placeholder="Email" />
