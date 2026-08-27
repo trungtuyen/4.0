@@ -22,7 +22,7 @@ const chatbot = ECOSYSTEM_APPLICATIONS.find(application => application.id === 'c
 
 verify(plicker?.dependency === 'firebase', 'Plicker camera scanning does not require an AI server.');
 verify(plicker?.description.includes('ngay trên thiết bị'), 'Plicker explains on-device camera recognition.');
-verify(chatbot?.dependency === 'ai-cloud', 'School counseling is backed by Google-hosted AI.');
+verify(chatbot?.dependency === 'ai-cloud', 'Teacher AI assistant is backed by Google-hosted AI.');
 verify(ECOSYSTEM_DEPENDENCY_LABELS['ai-cloud'] === 'AI Google Gemini', 'The homepage identifies the selected AI provider.');
 verify(!ECOSYSTEM_APPLICATIONS.some(application => application.dependency === 'ai-server'), 'No application incorrectly claims that a private AI server is required.');
 verify(ECOSYSTEM_APPLICATIONS.length === 13, 'All 13 educational applications remain available.');
@@ -136,7 +136,9 @@ try {
 }
 
 const service = readFileSync(new URL('../src/lib/aiService.ts', import.meta.url), 'utf8');
-const chatbotComponent = readFileSync(new URL('../src/components/AIChatbot.tsx', import.meta.url), 'utf8');
+const chatbotShell = readFileSync(new URL('../src/components/AIChatbot.tsx', import.meta.url), 'utf8');
+const counselingModule = readFileSync(new URL('../src/components/ai/SchoolCounselingAssistant.tsx', import.meta.url), 'utf8');
+const teacherModule = readFileSync(new URL('../src/components/ai/TeacherDocumentAssistant.tsx', import.meta.url), 'utf8');
 const firebase = readFileSync(new URL('../src/firebase.ts', import.meta.url), 'utf8');
 const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const workflow = readFileSync(new URL('../.github/workflows/main.yml', import.meta.url), 'utf8');
@@ -149,9 +151,18 @@ verify(service.includes('CLOUD_RETRY_DELAY_MS'), 'Unavailable cloud services are
 verify(service.includes('requiresImmediateSchoolSafetySupport(cleanMessage)'), 'High-risk scenarios are handled before cloud requests.');
 verify(service.includes('tryBrowserSchoolCounseling'), 'On-device AI remains an automatic fallback.');
 verify(service.includes('buildOfflineSchoolCounselingReply'), 'A deterministic local counselor is always available.');
-verify(chatbotComponent.includes('requestSchoolCounseling(userMessage, messages)'), 'The chat interface uses the resilient AI service.');
-verify(chatbotComponent.includes('COUNSELING_SOURCE_LABELS'), 'Users can see the actual response source.');
-verify(chatbotComponent.includes('Google Gemini · tự động tối ưu'), 'The interface no longer requires manual server configuration.');
+
+verify(chatbotShell.includes("lazy(() => import('./ai/TeacherDocumentAssistant'))"), 'Teacher document AI is a lazy-loaded module.');
+verify(chatbotShell.includes("lazy(() => import('./ai/SchoolCounselingAssistant'))"), 'School counseling is a separate lazy-loaded module.');
+verify(!chatbotShell.includes("../lib/teacherDocument"), 'AI shell does not eagerly load the DOCX engine.');
+verify(!chatbotShell.includes("../lib/aiService"), 'AI shell does not eagerly load Firebase AI.');
+verify(counselingModule.includes("await import('../../lib/aiService')"), 'Counseling AI service loads only when a message is sent.');
+verify(counselingModule.includes('requestSchoolCounseling(userMessage, messages)'), 'The counseling interface uses the resilient AI service.');
+verify(counselingModule.includes('COUNSELING_SOURCE_LABELS'), 'Users can see the actual counseling response source.');
+verify(counselingModule.includes('Google Gemini · tự động tối ưu'), 'The interface no longer requires manual server configuration.');
+verify(teacherModule.includes("await import('../../lib/teacherDocument')"), 'Document Engine loads on demand for DOCX work.');
+verify(teacherModule.includes("await import('../../lib/teacherAssistantAi')"), 'Teacher Gemini analysis loads only when analysis starts.');
+
 verify(firebase.includes('ReCaptchaEnterpriseProvider'), 'Firebase AI can be protected with App Check attestation.');
 verify(firebase.includes('VITE_FIREBASE_APP_CHECK_SITE_KEY'), 'Only the public App Check site key can be built into the website.');
 verify(!service.includes('GEMINI_API_KEY'), 'No Gemini secret is present in the browser AI integration.');
@@ -161,4 +172,4 @@ verify(!server.includes('gemini-1.5-flash'), 'Retired Gemini 1.5 models have bee
 verify(workflow.includes('npm run test:ai-services'), 'Deployment validates AI integration before building.');
 verify(workflow.includes('VITE_FIREBASE_APP_CHECK_SITE_KEY'), 'GitHub Pages can receive the public App Check site key.');
 
-console.info(`Google Gemini and school counseling: ${checks} checks passed.`);
+console.info(`Google Gemini, modular teacher AI and school counseling: ${checks} checks passed.`);
