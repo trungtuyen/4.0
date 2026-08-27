@@ -1,11 +1,30 @@
+import { useState } from 'react';
 import { ArrowLeft, ListChecks, ShieldCheck } from 'lucide-react';
+import { auth } from '../firebase';
+import ExamManager from './ExamManager';
 import QuestionStudio from './QuestionStudio';
+import QuestionStudioExamActions from './QuestionStudioExamActions';
 
 interface QuestionStudioAppProps {
   onBack: () => void;
 }
 
 export default function QuestionStudioApp({ onBack }: QuestionStudioAppProps) {
+  const [showExamManager, setShowExamManager] = useState(false);
+
+  if (showExamManager) {
+    const uid = auth.currentUser?.uid || '';
+    return (
+      <section className="flex h-dvh min-h-screen w-full flex-col overflow-hidden bg-slate-50">
+        <ExamManager
+          initialMode="teacher"
+          currentUser={uid ? { id: uid } : null}
+          onBack={() => setShowExamManager(false)}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="flex h-dvh min-h-screen w-full flex-col overflow-hidden bg-slate-50">
       <header className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 sm:px-5">
@@ -33,6 +52,7 @@ export default function QuestionStudioApp({ onBack }: QuestionStudioAppProps) {
         </span>
       </header>
 
+      <QuestionStudioExamActions onOpenExamManager={() => setShowExamManager(true)} />
       <QuestionStudio />
     </section>
   );
