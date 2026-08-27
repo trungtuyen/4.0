@@ -47,7 +47,7 @@ const EDUCATION_MODULES: EducationModuleDefinition[] = [
   {
     id: 'digital-competency',
     title: 'Tích hợp Năng lực số',
-    description: 'Chọn sách → môn → lớp → tải KHGD/PPCT → AI phân tích → duyệt → xuất Word.',
+    description: 'Chọn sách → môn → lớp → tải KHGD/PPCT/giáo án hiện có → AI phân tích → duyệt → tích hợp đúng cột → tải Word.',
     badge: 'NLS',
     icon: MonitorCog,
     documentMode: 'digital-competency',
@@ -55,7 +55,7 @@ const EDUCATION_MODULES: EducationModuleDefinition[] = [
   {
     id: 'ai-competency',
     title: 'Tích hợp Năng lực AI',
-    description: 'Đề xuất nội dung phát triển năng lực AI đúng vị trí trong hồ sơ hiện có.',
+    description: 'Phân tích hồ sơ hiện có, đề xuất NL AI đúng bài và chèn vào cột phù hợp sau khi giáo viên duyệt.',
     badge: 'NL AI',
     icon: Brain,
     documentMode: 'ai-competency',
@@ -94,7 +94,7 @@ const EDUCATION_MODULES: EducationModuleDefinition[] = [
   {
     id: 'ai-competency-table',
     title: 'Bảng tích hợp NL AI vào KHGD',
-    description: 'Phân tích KHGD hiện có và tạo nội dung NL AI để giáo viên duyệt rồi chèn vào Word.',
+    description: 'Tải KHGD → AI chọn bài phù hợp → giáo viên duyệt → xuất bảng Word riêng gồm Bài/chủ đề, YCCĐ, mã NL AI và nội dung tích hợp.',
     badge: 'Bảng NL AI',
     icon: FileSpreadsheet,
     documentMode: 'ai-competency',
@@ -128,12 +128,8 @@ export default function AIChatbot() {
   const renderEducationModule = () => {
     if (!module) return null;
 
-    if (module.id === 'ai-lesson-plan') {
-      return <StructuredDraftAssistant key={module.id} kind="ai-lesson-plan" />;
-    }
-    if (module.id === 'skkn') {
-      return <StructuredDraftAssistant key={module.id} kind="skkn" />;
-    }
+    if (module.id === 'ai-lesson-plan') return <StructuredDraftAssistant key={module.id} kind="ai-lesson-plan" />;
+    if (module.id === 'skkn') return <StructuredDraftAssistant key={module.id} kind="skkn" />;
 
     const isCompetencyTable = module.id === 'ai-competency-table';
     return (
@@ -142,9 +138,10 @@ export default function AIChatbot() {
         initialMode={module.documentMode || 'digital-competency'}
         lockedMode
         heading={module.title}
-        initialDocumentType={isCompetencyTable ? 'KHGD / Phụ lục III' : 'KHGD / Phụ lục III'}
+        initialDocumentType="KHGD / Phụ lục III"
+        exportMode={isCompetencyTable ? 'competency-table' : 'integrated-document'}
         description={isCompetencyTable
-          ? 'Tải KHGD/PPCT dạng DOCX → AI xác định các bài phù hợp → giáo viên duyệt mã và nội dung NL AI → tạo lại file Word từ bản gốc.'
+          ? 'Chọn sách → môn → lớp → tải KHGD dạng DOCX → AI phân tích → giáo viên duyệt mã/YCCĐ/nội dung → xuất Bảng NL AI Word riêng.'
           : `${module.description} AI chỉ đề xuất; giáo viên quyết định nội dung cuối cùng.`}
       />
     );
