@@ -1,6 +1,7 @@
 import {StrictMode, Suspense} from 'react';
 import {createRoot} from 'react-dom/client';
 import ProductTrialController from './components/ProductTrialController';
+import QuestionStudioLibraryPortal from './components/QuestionStudioLibraryPortal';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
 import { initializeHeadShakeReporting } from './lib/headShakeReportController';
@@ -61,6 +62,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang tải ứng dụng...</div>}>
       <ProductTrialController />
+      <QuestionStudioLibraryPortal />
     </Suspense>
   </StrictMode>,
 );

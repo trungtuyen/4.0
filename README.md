@@ -8,11 +8,12 @@ Nền tảng trò chơi và công cụ giáo dục tương tác dành cho giáo 
 
 Website: <https://trungtuyen.github.io/4.0/>
 
-## Danh mục 12 ứng dụng
+## Danh mục 13 ứng dụng
 
 | Ứng dụng | Mục đích | Điều kiện hoạt động |
 | --- | --- | --- |
 | GestureClass | Quản lý lớp, ngân hàng câu hỏi, trắc nghiệm cử chỉ, lật thẻ và gọi tên | Trình duyệt, camera |
+| Trắc nghiệm 10 dạng | Tạo ngân hàng câu hỏi với 10 dạng trắc nghiệm cơ bản bằng Question Engine dùng chung | Trình duyệt; dữ liệu dùng thử lưu trên thiết bị và tách theo tài khoản giáo viên |
 | Vòng quay may mắn | Chọn học sinh hoặc phần thưởng ngẫu nhiên | Trình duyệt |
 | Bốc thẻ tương tác | Bốc và lật thẻ trong hoạt động trên lớp | Trình duyệt |
 | Tương tác thẻ Plicker | Quản lý câu hỏi, lớp học và nhận diện thẻ đáp án | Firebase; nhận diện camera trực tiếp trên thiết bị |
@@ -70,6 +71,15 @@ GestureClass là ứng dụng độc lập trong danh mục chung và thư việ
 - Trắc nghiệm bằng 1–4 ngón tay, chuột hoặc bàn phím.
 - Lật thẻ ôn tập và gọi học sinh ngẫu nhiên.
 - Đường dẫn trực tiếp: <https://trungtuyen.github.io/4.0/gestureclass/>.
+
+## Trắc nghiệm 10 dạng — Question Studio
+
+Question Studio là ứng dụng độc lập trong hệ sinh thái, đồng thời vẫn có thể mở từ GestureClass. Ứng dụng dùng một Question Engine chung cho 10 dạng: một đáp án đúng, nhiều đáp án đúng, Đúng/Sai, Đúng/Sai nhiều ý, trả lời ngắn, điền khuyết, ghép đôi, sắp xếp thứ tự, phân loại/kéo thả và chọn vị trí trên hình.
+
+- Giáo viên có thể tạo nhiều bộ câu hỏi, đặt điểm, sửa, nhân bản và xóa câu hỏi.
+- Dữ liệu trình duyệt được đặt tên theo UID Firebase của giáo viên; khi phiên xác thực được khôi phục sau tải lại trang, ứng dụng chuyển sang đúng ngân hàng của tài khoản đó.
+- Khách chưa đăng nhập có vùng dữ liệu dùng thử riêng trên thiết bị.
+- Lõi Question Engine tách khỏi giao diện để có thể dùng tiếp cho Quản lý kỳ thi, Plicker, trò chơi và AI tạo đề.
 
 ## Chạy tại máy tính
 

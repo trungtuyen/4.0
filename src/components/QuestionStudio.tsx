@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Copy, Image, ListChecks, Plus, Save, Trash2, X } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import {
   QUESTION_TYPES,
@@ -24,8 +25,8 @@ interface QuestionBank {
 
 const createId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-function storageKey(): string {
-  return `question_studio_v1:${auth.currentUser?.uid || 'guest'}`;
+function storageKey(ownerUid: string): string {
+  return `question_studio_v1:${ownerUid || 'guest'}`;
 }
 
 function createBank(): QuestionBank {
@@ -37,9 +38,9 @@ function createBank(): QuestionBank {
   };
 }
 
-function readBanks(): QuestionBank[] {
+function readBanks(ownerUid: string): QuestionBank[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(storageKey()) || '[]');
+    const parsed = JSON.parse(localStorage.getItem(storageKey(ownerUid)) || '[]');
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -63,8 +64,9 @@ function ActionButton({ children, onClick, danger = false }: { children: React.R
 }
 
 export default function QuestionStudio() {
+  const [ownerUid, setOwnerUid] = useState(() => auth.currentUser?.uid || 'guest');
   const [banks, setBanks] = useState<QuestionBank[]>(() => {
-    const saved = readBanks();
+    const saved = readBanks(ownerUid);
     return saved.length ? saved : [createBank()];
   });
   const [activeBankId, setActiveBankId] = useState(() => banks[0]?.id || '');
@@ -74,9 +76,22 @@ export default function QuestionStudio() {
 
   const activeBank = useMemo(() => banks.find(bank => bank.id === activeBankId) || banks[0], [banks, activeBankId]);
 
+  useEffect(() => onAuthStateChanged(auth, user => {
+    const nextOwnerUid = user?.uid || 'guest';
+    if (nextOwnerUid === ownerUid) return;
+    const saved = readBanks(nextOwnerUid);
+    const nextBanks = saved.length ? saved : [createBank()];
+    setOwnerUid(nextOwnerUid);
+    setBanks(nextBanks);
+    setActiveBankId(nextBanks[0]?.id || '');
+    setEditingId(null);
+    setDraft(createQuestionTemplate('single_choice'));
+    setMessage(user ? 'Đã mở ngân hàng câu hỏi của tài khoản giáo viên.' : 'Đang sử dụng dữ liệu dùng thử trên thiết bị này.');
+  }), [ownerUid]);
+
   useEffect(() => {
-    localStorage.setItem(storageKey(), JSON.stringify(banks));
-  }, [banks]);
+    localStorage.setItem(storageKey(ownerUid), JSON.stringify(banks));
+  }, [banks, ownerUid]);
 
   const updateDraft = (next: QuestionDefinition) => {
     setDraft(next);
