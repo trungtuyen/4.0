@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import PptxGenJS from 'pptxgenjs';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { QUESTION_TYPES, createQuestionTemplate } from '../src/lib/questionEngine.ts';
 import { exportQuestionBankToPptx } from '../src/lib/questionPptxExport.ts';
 
@@ -21,23 +21,21 @@ const questions = QUESTION_TYPES.map(type => {
 
 verify(questions.length === 10, 'The PowerPoint sample includes all ten Question Engine types.');
 
-let capturedFileName = '';
-const originalWriteFile = PptxGenJS.prototype.writeFile;
-PptxGenJS.prototype.writeFile = async function mockedWriteFile(props?: any) {
-  capturedFileName = typeof props === 'object' && props?.fileName ? String(props.fileName) : 'Presentation.pptx';
-  return capturedFileName;
-};
-
+let generatedFileName = '';
 try {
-  const fileName = await exportQuestionBankToPptx({
+  generatedFileName = await exportQuestionBankToPptx({
     id: 'bank-pptx-test',
     title: 'Bài giảng kiểm thử 10 dạng',
     questions,
   });
-  verify(fileName.endsWith('.pptx'), 'Export returns a PowerPoint filename.');
-  verify(capturedFileName === fileName, 'The browser download uses the generated PowerPoint filename.');
+  const generatedPath = resolve(generatedFileName);
+  verify(generatedFileName.endsWith('.pptx'), 'Export returns a PowerPoint filename.');
+  verify(existsSync(generatedPath), 'PptxGenJS writes a real PowerPoint file in the CI runner.');
+  verify(statSync(generatedPath).size > 10_000, 'The generated PowerPoint contains a non-trivial slide package.');
 } finally {
-  PptxGenJS.prototype.writeFile = originalWriteFile;
+  if (generatedFileName && existsSync(resolve(generatedFileName))) {
+    unlinkSync(resolve(generatedFileName));
+  }
 }
 
 const exporter = readFileSync(new URL('../src/lib/questionPptxExport.ts', import.meta.url), 'utf8');
@@ -55,6 +53,7 @@ verify(exporter.includes("hyperlink: { slide: targetSlide }"), 'Slides use inter
 verify(exporter.includes("'HIỆN ĐÁP ÁN  →'"), 'Question slides include a reveal-answer control.');
 verify(exporter.includes("'CÂU TIẾP THEO  →'"), 'Answer slides include next-question navigation.');
 verify(exporter.includes("pptx.layout = 'LAYOUT_WIDE'"), 'PowerPoint export uses 16:9 widescreen layout.');
+verify(exporter.includes("lang: 'vi-VN'"), 'PowerPoint theme declares Vietnamese language metadata.');
 verify(exporter.includes('pptx.writeFile({ fileName, compression: true })'), 'Export downloads a compressed PPTX in the browser.');
 verify(controls.includes('Xuất PowerPoint'), 'Question Studio exposes a visible PowerPoint export action.');
 verify(controls.includes('Bấm để hiện đáp án'), 'The UI explains the click-to-reveal presentation behavior.');
