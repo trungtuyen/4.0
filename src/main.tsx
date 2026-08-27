@@ -1,7 +1,6 @@
-import {StrictMode, Suspense} from 'react';
-import {createRoot} from 'react-dom/client';
-import ProductTrialController from './components/ProductTrialController';
-import QuestionStudioLibraryPortal from './components/QuestionStudioLibraryPortal';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import PlatformBootstrap from './components/PlatformBootstrap';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
 import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
@@ -38,7 +37,7 @@ if (import.meta.env.PROD) {
     }
     return nativeFetch(input, init);
   };
-  
+
   try {
     const descriptor = Object.getOwnPropertyDescriptor(window, 'fetch');
     if (descriptor && descriptor.configurable) {
@@ -47,36 +46,28 @@ if (import.meta.env.PROD) {
         set: () => {
           console.warn('Attempt to overwrite window.fetch blocked.');
         },
-        configurable: false
+        configurable: false,
       });
     }
-  } catch (e) {
-    // Already locked or restricted
+  } catch {
+    // Already locked or restricted.
   }
 })();
 
-// Suppress TensorFlow Lite XNNPACK delegate info log
 const originalInfo = console.info;
 console.info = (...args) => {
-  if (typeof args[0] === 'string' && args[0].includes('Created TensorFlow Lite XNNPACK delegate for CPU')) {
-    return;
-  }
+  if (typeof args[0] === 'string' && args[0].includes('Created TensorFlow Lite XNNPACK delegate for CPU')) return;
   originalInfo(...args);
 };
 
 const originalLog = console.log;
 console.log = (...args) => {
-  if (typeof args[0] === 'string' && args[0].includes('Created TensorFlow Lite XNNPACK delegate for CPU')) {
-    return;
-  }
+  if (typeof args[0] === 'string' && args[0].includes('Created TensorFlow Lite XNNPACK delegate for CPU')) return;
   originalLog(...args);
 };
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang tải ứng dụng...</div>}>
-      <ProductTrialController />
-      <QuestionStudioLibraryPortal />
-    </Suspense>
+    <PlatformBootstrap />
   </StrictMode>,
 );
