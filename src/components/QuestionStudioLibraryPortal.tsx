@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ListChecks } from 'lucide-react';
 
 interface QuestionStudioLibraryPortalProps {
-  onOpen: () => void;
+  onOpen?: () => void;
 }
 
 function findLibraryGrid(): HTMLElement | null {
@@ -19,7 +19,12 @@ function findLibraryGrid(): HTMLElement | null {
   return grid instanceof HTMLElement ? grid : null;
 }
 
-export default function QuestionStudioLibraryPortal({ onOpen }: QuestionStudioLibraryPortalProps) {
+function openQuestionStudio(): void {
+  sessionStorage.setItem('currentView', JSON.stringify('question-studio'));
+  window.location.reload();
+}
+
+export default function QuestionStudioLibraryPortal({ onOpen = openQuestionStudio }: QuestionStudioLibraryPortalProps) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
