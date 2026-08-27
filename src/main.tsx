@@ -4,12 +4,25 @@ import ProductTrialController from './components/ProductTrialController';
 import QuestionStudioLibraryPortal from './components/QuestionStudioLibraryPortal';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
-import { initializeHeadShakeReporting } from './lib/headShakeReportController';
 import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
-import './lib/questionPptxSequentialPatch';
 
 initializePwaInstallation();
-initializeHeadShakeReporting();
+
+function deferHeadShakeReporting(): void {
+  const loadReporting = () => {
+    void import('./lib/headShakeReportController')
+      .then(module => module.initializeHeadShakeReporting())
+      .catch(error => console.info('Chưa thể khởi tạo báo cáo trò chơi lắc đầu.', error));
+  };
+
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(loadReporting, { timeout: 5000 });
+  } else {
+    window.setTimeout(loadReporting, 2500);
+  }
+}
+
+deferHeadShakeReporting();
 
 if (import.meta.env.PROD) {
   registerClassroomServiceWorker(import.meta.env.BASE_URL);
