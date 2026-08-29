@@ -14,13 +14,11 @@ import {
   Lock,
   Plus,
   RefreshCcw,
-  School,
   ShieldAlert,
   Sparkles,
   Trash2,
   Unlock,
   Upload,
-  UserRound,
   Users,
   WandSparkles,
 } from 'lucide-react';
@@ -62,6 +60,12 @@ interface PersistedWorkspace {
   scenario: TimetableScenario;
   solution: TimetableSolution | null;
   versions: TimetableSolution[];
+}
+
+interface TimetableWorkerResponse {
+  ok: boolean;
+  solution?: TimetableSolution;
+  error?: string;
 }
 
 function normalizeSolution(solution: TimetableSolution | null | undefined): TimetableSolution | null {
@@ -158,6 +162,7 @@ export default function SmartTimetable({ onBack, storageKey, trialMode = false }
 
   const excelInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
+  const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     try {
@@ -166,6 +171,11 @@ export default function SmartTimetable({ onBack, storageKey, trialMode = false }
       // Workspace stays usable without browser storage.
     }
   }, [scenario, solution, storageKey, versions]);
+
+  useEffect(() => () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+  }, []);
 
   const days = activeTimetableDays(scenario);
   const totalRequiredPeriods = useMemo(() => scenario.assignments.reduce((sum, item) => sum + item.periodsPerWeek, 0), [scenario.assignments]);
@@ -199,16 +209,54 @@ export default function SmartTimetable({ onBack, storageKey, trialMode = false }
     setMessage('Dữ liệu đã thay đổi. Hãy xếp lại để cập nhật phương án.');
   };
 
+  const acceptSolution = (next: TimetableSolution) => {
+    setSolution(next);
+    setVersions(previous => [next, ...previous].slice(0, 8));
+    setBusy(false);
+    setActiveTab(next.diagnostics.hardConflicts.length || next.diagnostics.unscheduled.length ? 'diagnostics' : 'schedule');
+  };
+
   const runOptimizer = () => {
     setBusy(true);
     setMessage('');
-    window.setTimeout(() => {
-      const next = optimizeTimetable(scenario, lockedEntries, trialMode ? 80 : 320);
-      setSolution(next);
-      setVersions(previous => [next, ...previous].slice(0, 8));
-      setBusy(false);
-      setActiveTab(next.diagnostics.hardConflicts.length || next.diagnostics.unscheduled.length ? 'diagnostics' : 'schedule');
-    }, 25);
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    const iterations = trialMode ? 80 : 320;
+
+    if (typeof Worker === 'undefined') {
+      window.setTimeout(() => acceptSolution(optimizeTimetable(scenario, lockedEntries, trialMode ? 60 : 140)), 20);
+      return;
+    }
+
+    try {
+      const worker = new Worker(new URL('../workers/timetable.worker.ts', import.meta.url), { type: 'module' });
+      workerRef.current = worker;
+      let settled = false;
+      const fallback = (reason: string) => {
+        if (settled) return;
+        settled = true;
+        worker.terminate();
+        workerRef.current = null;
+        setMessage(`${reason} Hệ thống đã chuyển sang bộ tối ưu dự phòng.`);
+        window.setTimeout(() => acceptSolution(optimizeTimetable(scenario, lockedEntries, trialMode ? 60 : 140)), 20);
+      };
+
+      worker.onmessage = (event: MessageEvent<TimetableWorkerResponse>) => {
+        if (settled) return;
+        if (!event.data.ok || !event.data.solution) {
+          fallback(event.data.error || 'Web Worker không trả về phương án hợp lệ.');
+          return;
+        }
+        settled = true;
+        worker.terminate();
+        workerRef.current = null;
+        acceptSolution(event.data.solution);
+      };
+      worker.onerror = () => fallback('Không thể chạy bộ tối ưu nền trên thiết bị này.');
+      worker.postMessage({ scenario, lockedEntries, iterations });
+    } catch {
+      window.setTimeout(() => acceptSolution(optimizeTimetable(scenario, lockedEntries, trialMode ? 60 : 140)), 20);
+    }
   };
 
   const toggleEntryLock = (entry: ScheduleEntry) => {
@@ -302,6 +350,9 @@ export default function SmartTimetable({ onBack, storageKey, trialMode = false }
   };
 
   const resetWorkspace = () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setBusy(false);
     const next = createDefaultTimetableScenario();
     setScenario(next);
     setSolution(null);
