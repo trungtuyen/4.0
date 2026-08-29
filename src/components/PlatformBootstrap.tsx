@@ -4,6 +4,9 @@ import FastLandingPage from './FastLandingPage';
 
 const ProductTrialController = lazy(() => import('./ProductTrialController'));
 const QuestionStudioLibraryPortal = lazy(() => import('./QuestionStudioLibraryPortal'));
+const SmartTimetableEntry = lazy(() => import('./SmartTimetableEntry'));
+const SmartTimetableLibraryPortal = lazy(() => import('./SmartTimetableLibraryPortal'));
+const SmartTimetablePublicPortal = lazy(() => import('./SmartTimetablePublicPortal'));
 
 const LEGACY_AI_LABELS: Record<string, string> = {
   'AI Phân tích tâm lý': 'AI Giáo viên',
@@ -133,14 +136,27 @@ export default function PlatformBootstrap() {
     activate('landing');
   };
 
+  if (runtimeActive && readStoredView() === 'smart-timetable') {
+    return (
+      <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang mở bộ xếp thời khóa biểu...</div>}>
+        <SmartTimetableEntry />
+      </Suspense>
+    );
+  }
+
   if (!runtimeActive) {
     return (
-      <FastLandingPage
-        onTeacherLogin={() => openAuth('login')}
-        onTeacherRegister={() => openAuth('register')}
-        onStudentLogin={() => activate('student_exam')}
-        onOpenProduct={openProduct}
-      />
+      <>
+        <FastLandingPage
+          onTeacherLogin={() => openAuth('login')}
+          onTeacherRegister={() => openAuth('register')}
+          onStudentLogin={() => activate('student_exam')}
+          onOpenProduct={openProduct}
+        />
+        <Suspense fallback={null}>
+          <SmartTimetablePublicPortal />
+        </Suspense>
+      </>
     );
   }
 
@@ -148,6 +164,7 @@ export default function PlatformBootstrap() {
     <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">Đang mở chức năng...</div>}>
       <ProductTrialController />
       <QuestionStudioLibraryPortal />
+      <SmartTimetableLibraryPortal />
     </Suspense>
   );
 }
