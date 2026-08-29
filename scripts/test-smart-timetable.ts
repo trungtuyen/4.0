@@ -80,11 +80,16 @@ const imported = scenarioFromAssignmentRows([
     'Cấp': 'THCS', 'Lớp': '6A', 'Môn': 'Sinh hoạt lớp', 'Giáo viên': 'Cô Hương', 'GVCN': 'Có',
     'Tiết/tuần': 1, 'Tiết cố định': 'T6-5',
   },
+  {
+    'Cấp': 'THCS', 'Lớp': '7A', 'Môn': 'Hoạt động trải nghiệm', 'Giáo viên': 'Thầy Nam',
+    'Tiết/tuần': 1, 'Tiết cố định': 'T2-1;T3-1;T4-1',
+  },
 ]);
-assert.equal(imported.classes.length, 2, 'Excel rows create two classes.');
-assert.equal(imported.teachers.length, 2, 'Excel rows create two teachers.');
+assert.equal(imported.classes.length, 3, 'Excel rows create three classes.');
+assert.equal(imported.teachers.length, 3, 'Excel rows create three teachers.');
 assert.equal(imported.assignments[0].blockSize, 2, 'Excel boolean block column becomes a double period.');
 assert.deepEqual(imported.assignments[1].fixedStartSlots, ['4:5'], 'Vietnamese fixed-slot notation is parsed.');
+assert.equal(imported.assignments[2].fixedStartSlots?.length, 1, 'Surplus fixed slots are trimmed to the declared weekly period total.');
 assert.equal(imported.classes.find(item => item.name === '6A')?.homeroomTeacherId, imported.teachers.find(item => item.name === 'Cô Hương')?.id, 'GVCN import links class and homeroom teacher.');
 
 console.info(`Smart timetable v2: ${first.entries.length} periods scheduled, score ${first.score}, ${first.diagnostics.quality.teacherGaps} teacher gaps.`);
