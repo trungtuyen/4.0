@@ -67,6 +67,19 @@ service cloud.firestore {
       return !('ownerUid' in incoming()) || incoming().ownerUid == incoming().authorId;
     }
 
+    function timetableWorkspaceIsSafe(teacherId) {
+      return incoming().keys().hasAll(['teacherId', 'workspace', 'updatedAt']) &&
+        incoming().keys().hasOnly(['teacherId', 'workspace', 'updatedAt']) &&
+        incoming().teacherId == teacherId && isValidId(teacherId) &&
+        incoming().workspace is map &&
+        incoming().workspace.keys().hasAll(['scenario', 'solution', 'versions']) &&
+        incoming().workspace.keys().hasOnly(['scenario', 'solution', 'versions']) &&
+        incoming().workspace.scenario is map &&
+        incoming().workspace.versions is list &&
+        incoming().workspace.versions.size() <= 2 &&
+        incoming().updatedAt is timestamp;
+    }
+
     function isProtectedExamIdentifier(identifier) {
       return identifier is string && identifier.matches('^[a-f0-9]{64}$');
     }
@@ -207,6 +220,16 @@ service cloud.firestore {
         !('password' in incoming())
       );
       allow update, delete: if isAdmin();
+    }
+
+    match /timetable_workspaces/{teacherId} {
+      allow get: if isAdmin() || (isActiveTeacher() && isOwner(teacherId));
+      allow list: if isAdmin();
+      allow create: if (isAdmin() || (isActiveTeacher() && isOwner(teacherId))) &&
+        timetableWorkspaceIsSafe(teacherId);
+      allow update: if (isAdmin() || (isActiveTeacher() && isOwner(teacherId))) &&
+        ownerRemainsUnchanged('teacherId') && timetableWorkspaceIsSafe(teacherId);
+      allow delete: if isAdmin() || (isActiveTeacher() && isOwner(teacherId));
     }
 
     match /categories/{categoryId} {
