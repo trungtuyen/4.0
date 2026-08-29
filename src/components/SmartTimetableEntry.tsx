@@ -30,13 +30,14 @@ function navigateToAuth(mode: 'login' | 'register'): void {
 
 function cloudSafeWorkspace(raw: string): { scenario: unknown; solution: unknown; versions: unknown[] } | null {
   try {
-    const parsed = JSON.parse(raw) as { scenario?: unknown; solution?: unknown; versions?: unknown[] };
+    const parsed = JSON.parse(raw) as { scenario?: unknown; solution?: unknown };
     if (!parsed.scenario || typeof parsed.scenario !== 'object') return null;
     return {
       scenario: parsed.scenario,
       solution: parsed.solution ?? null,
-      // Keep cloud payload well below Firestore's document-size ceiling. Full history remains local and exportable as JSON.
-      versions: Array.isArray(parsed.versions) ? parsed.versions.slice(0, 2) : [],
+      // Cloud keeps only the working scenario + current solution. Full version history stays local/JSON,
+      // avoiding Firestore's per-document size ceiling when a school has many classes and teachers.
+      versions: [],
     };
   } catch {
     return null;
