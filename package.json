@@ -37,7 +37,8 @@
     "test:plicker-editor": "node --import tsx scripts/test-plicker-question-editor.ts",
     "test:plicker-fraction": "node --import tsx scripts/test-plicker-fraction.ts",
     "test:plicker-student-sync": "node --import tsx scripts/test-plicker-student-sync.ts",
-    "test:plicker-reports": "node --import tsx scripts/test-plicker-reports.ts"
+    "test:plicker-reports": "node --import tsx scripts/test-plicker-reports.ts",
+    "test:smart-timetable": "node --import tsx scripts/test-smart-timetable.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",
