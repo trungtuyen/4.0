@@ -9,6 +9,14 @@ function findProductGrid(): HTMLElement | null {
   return grid instanceof HTMLElement ? grid : null;
 }
 
+function findApplicationCount(): HTMLElement | null {
+  const label = Array.from(document.querySelectorAll('div')).find(element =>
+    element.textContent?.trim() === 'Ứng dụng giáo dục',
+  );
+  const value = label?.previousElementSibling;
+  return value instanceof HTMLElement ? value : null;
+}
+
 function openSmartTimetable(): void {
   sessionStorage.setItem('currentView', JSON.stringify('smart-timetable'));
   window.location.reload();
@@ -19,19 +27,33 @@ export default function SmartTimetablePublicPortal() {
 
   useEffect(() => {
     let frame = 0;
+    let countElement: HTMLElement | null = null;
+    let originalCount = '';
+
     const refresh = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const nextTarget = findProductGrid();
         setTarget(previous => previous === nextTarget ? previous : nextTarget);
+
+        if (!countElement) {
+          countElement = findApplicationCount();
+          if (countElement) {
+            originalCount = countElement.textContent || '';
+            const numericCount = Number(originalCount);
+            if (Number.isFinite(numericCount)) countElement.textContent = String(numericCount + 1);
+          }
+        }
       });
     };
+
     refresh();
     const observer = new MutationObserver(refresh);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      if (countElement && originalCount) countElement.textContent = originalCount;
     };
   }, []);
 
