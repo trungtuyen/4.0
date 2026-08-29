@@ -155,6 +155,12 @@ export function scenarioFromAssignmentRows(rows: TimetableImportRow[], base?: Ti
     const blockRaw = findColumn(row, ['Tiết đôi', 'Tiet doi', 'Block', 'Block size']);
     const blockSize = booleanValue(blockRaw) ? 2 : Math.max(1, Math.min(3, Math.round(numberValue(blockRaw, 1)))) as 1 | 2 | 3;
     const maxPerDay = Math.max(blockSize, Math.round(numberValue(findColumn(row, ['Tối đa/ngày', 'Toi da/ngay', 'Max/day']), blockSize > 1 ? blockSize : 1)));
+    const importedFixedSlots = parseImportedSlots(findColumn(row, ['Tiết cố định', 'Tiet co dinh', 'Ô cố định', 'O co dinh', 'Fixed slots']));
+    // A fixed start consumes one full block. Ignore surplus fixed starts instead of allowing imported data
+    // to place more periods than the assignment's declared weekly total.
+    const maxFixedStarts = Math.floor(periods / blockSize);
+    const fixedStartSlots = importedFixedSlots.slice(0, maxFixedStarts);
+
     assignments.push({
       id: `asg-import-${index + 1}-${classroom.id}-${subject.id}`,
       classId: classroom.id,
@@ -166,7 +172,7 @@ export function scenarioFromAssignmentRows(rows: TimetableImportRow[], base?: Ti
       blockSize,
       session: parseSession(findColumn(row, ['Buổi', 'Buoi', 'Session'])),
       avoidLastPeriod: booleanValue(findColumn(row, ['Tránh tiết cuối', 'Tranh tiet cuoi', 'Avoid last period'])),
-      fixedStartSlots: parseImportedSlots(findColumn(row, ['Tiết cố định', 'Tiet co dinh', 'Ô cố định', 'O co dinh', 'Fixed slots'])),
+      fixedStartSlots,
       forbiddenSlots: parseImportedSlots(findColumn(row, ['Tiết cấm', 'Tiet cam', 'Ô cấm', 'O cam', 'Forbidden slots'])),
       preferredSlots: parseImportedSlots(findColumn(row, ['Tiết ưu tiên', 'Tiet uu tien', 'Ô ưu tiên', 'O uu tien', 'Preferred slots'])),
     });
