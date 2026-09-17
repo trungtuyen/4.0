@@ -278,11 +278,17 @@ service cloud.firestore {
         data.enabled is bool && data.permission in ['read', 'write'] && data.updatedAt == request.time;
     }
 
-    function sharedWallPostIsSafe() {
+    function sharedWallCategoryIsSafe(shareId, categoryId) {
+      return isValidId(categoryId) && categoryId in sharedWall(shareId).sectionIds &&
+        get(/databases/$(database)/documents/categories/$(categoryId)).data.authorId == sharedWall(shareId).authorId &&
+        (categoryId == sharedWall(shareId).sectionIds[0] || get(/databases/$(database)/documents/categories/$(categoryId)).data.parentId == sharedWall(shareId).sectionIds[0]);
+    }
+
+    function sharedWallPostIsSafe(shareId) {
       let data = incoming();
       return data.keys().hasAll(['categoryId', 'title', 'text', 'studentName', 'imageSrc', 'attachments', 'createdAt', 'color', 'pinned']) &&
         data.keys().hasOnly(['categoryId', 'title', 'text', 'studentName', 'imageSrc', 'attachments', 'createdAt', 'color', 'pinned', 'location', 'position']) &&
-        isValidId(data.categoryId) && data.title is string && data.title.size() <= 200 &&
+        sharedWallCategoryIsSafe(shareId, data.categoryId) && data.title is string && data.title.size() <= 200 &&
         data.text is string && data.text.size() <= 12000 &&
         data.studentName is string && data.studentName.size() <= 120 &&
         data.imageSrc is string && data.imageSrc.size() < 650000 &&
@@ -297,7 +303,7 @@ service cloud.firestore {
         data.keys().hasOnly(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
         data.title is string && data.title.size() <= 200 && data.text is string && data.text.size() <= 12000 &&
         data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120 &&
-        isValidId(data.categoryId) && data.categoryId in sharedWall(shareId).sectionIds &&
+        sharedWallCategoryIsSafe(shareId, data.categoryId) &&
         data.imageSrc is string && data.imageSrc.size() < 500000 &&
         (data.imageSrc == '' || data.imageSrc.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$')) &&
         data.link is string && data.link.size() <= 2048 && (data.link == '' || data.link.matches('^https?://[^\\s]+$')) &&
@@ -315,7 +321,7 @@ service cloud.firestore {
 
       match /posts/{postId} {
         allow read: if mayAccess(sharedWall(shareId), 'authorId') || sharedWall(shareId).enabled == true;
-        allow create, update: if mayAccess(sharedWall(shareId), 'authorId') && sharedWallPostIsSafe();
+        allow create, update: if mayAccess(sharedWall(shareId), 'authorId') && sharedWallPostIsSafe(shareId);
         allow delete: if mayAccess(sharedWall(shareId), 'authorId');
       }
       match /submissions/{submissionId} {

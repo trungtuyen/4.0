@@ -20,7 +20,7 @@ function useOnline() {
   return online;
 }
 function sharedSettings(board: WallCategory, categories: WallCategory[], permission: 'read' | 'write', enabled: boolean): SharedWall {
-  const sections = [{ id: board.id, title: 'Bài chung' }, ...categories.filter(item => item.parentId === board.id).map(item => ({ id: item.id, title: item.title }))];
+  const sections = [{ id: board.id, title: 'Bài chung' }, ...categories.filter(item => item.parentId === board.id && item.authorId === board.authorId && (!item.ownerUid || item.ownerUid === board.authorId)).map(item => ({ id: item.id, title: item.title }))];
   if (sections.length > 40) throw new Error('Một bảng chia sẻ hỗ trợ tối đa 39 cột và mục Bài chung.');
   return { authorId: board.authorId!, title: board.title, description: board.wallDescription || '', icon: board.wallIcon || '📚', layout: wallLayout(board.wallLayout), background: wallBackground(board.wallBackground).id, sections, sectionIds: sections.map(item => item.id), enabled, permission };
 }
