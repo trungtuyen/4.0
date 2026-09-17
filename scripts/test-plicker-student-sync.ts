@@ -29,7 +29,9 @@ assert.equal(classifyPlickerSyncError({ code: 'unavailable' }, false).kind, 'net
 assert.equal(classifyPlickerSyncError(new Error('Failed to fetch'), true).kind, 'network-error');
 assert.equal(classifyPlickerSyncError({ code: 'unauthenticated' }, true).kind, 'unauthenticated');
 assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');
-checks += 10;
+assert.equal(classifyPlickerSyncError({ code: 'resource-exhausted' }, true).kind, 'retryable');
+assert.match(describePlickerSyncError({ code: 'resource-exhausted' }, true), /60 giây/u);
+checks += 12;
 
 const orphanedStudents: PlickerLiveStudent[] = Array.from({ length: 89 }, (_, index) => ({
   id: `orphan-${index + 1}`,

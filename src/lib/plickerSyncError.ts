@@ -102,9 +102,15 @@ export function classifyPlickerSyncError(
         retryable: true,
         message: 'Firebase phản hồi quá chậm (deadline-exceeded). Hãy kiểm tra chất lượng đường truyền và thử lại.',
       };
+    case 'resource-exhausted':
+      return {
+        kind: 'retryable',
+        code,
+        retryable: true,
+        message: 'Firestore đã chạm hạn mức hoặc tạm hết năng lực xử lý (resource-exhausted). Plicker đã tự giảm tần suất ghi và tạm ngừng ghi trong 60 giây để tránh quá tải. Nếu lỗi kéo dài, hãy kiểm tra Firestore Usage/Quota của dự án.',
+      };
     case 'aborted':
     case 'cancelled':
-    case 'resource-exhausted':
       return {
         kind: 'retryable',
         code,

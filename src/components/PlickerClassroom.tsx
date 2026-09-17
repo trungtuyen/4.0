@@ -431,6 +431,9 @@ export default function PlickerClassroom({
   categoryIdsRef.current = new Set(categories.map(category => category.id));
   const onSyncStudentsRef = useRef(onSyncStudents);
   onSyncStudentsRef.current = onSyncStudents;
+  const syncWriteCooldownUntilRef = useRef(0);
+  const pendingAnswerFieldsRef = useRef<Record<string, unknown>>({});
+  const pendingAnswerFlushTimerRef = useRef<number | null>(null);
 
   const liveRoomReference = useMemo(() =>
     ownerUid ? doc(db, 'categories', createPlickerLiveRoomId(ownerUid)) : null,
@@ -482,17 +485,24 @@ export default function PlickerClassroom({
     const code = getPlickerSyncErrorCode(error);
     const message = describePlickerSyncError(error, online);
 
+    if (code === 'resource-exhausted') {
+      syncWriteCooldownUntilRef.current = Math.max(syncWriteCooldownUntilRef.current, Date.now() + 60_000);
+    }
+
     console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', {
       code: code || 'unknown',
       online,
       message,
+      cooldownUntil: syncWriteCooldownUntilRef.current || undefined,
       error,
     });
     setSyncError(message);
   }, []);
 
+  const canWriteToFirestore = useCallback(() => Date.now() >= syncWriteCooldownUntilRef.current, []);
+
   const saveRoomFields = useCallback(async (fields: Record<string, unknown>) => {
-    if (!liveRoomReference || !ownerUid) return;
+    if (!liveRoomReference || !ownerUid || !canWriteToFirestore()) return;
     try {
       await setDoc(liveRoomReference, {
         kind: 'plicker_live_session',
@@ -505,10 +515,10 @@ export default function PlickerClassroom({
     } catch (error) {
       reportSynchronizationError(error);
     }
-  }, [liveRoomReference, ownerUid, reportSynchronizationError]);
+  }, [canWriteToFirestore, liveRoomReference, ownerUid, reportSynchronizationError]);
 
   const updateLiveSessionFields = useCallback(async (fields: Record<string, unknown>) => {
-    if (!liveRoomReference || !currentRoomRef.current?.activeSession) return;
+    if (!liveRoomReference || !currentRoomRef.current?.activeSession || !canWriteToFirestore()) return;
     try {
       await updateDoc(liveRoomReference, {
         ...fields,
@@ -519,7 +529,37 @@ export default function PlickerClassroom({
     } catch (error) {
       reportSynchronizationError(error);
     }
-  }, [liveRoomReference, reportSynchronizationError]);
+  }, [canWriteToFirestore, liveRoomReference, reportSynchronizationError]);
+
+  const flushPendingAnswerFields = useCallback(() => {
+    if (pendingAnswerFlushTimerRef.current !== null) {
+      window.clearTimeout(pendingAnswerFlushTimerRef.current);
+      pendingAnswerFlushTimerRef.current = null;
+    }
+    const fields = pendingAnswerFieldsRef.current;
+    pendingAnswerFieldsRef.current = {};
+    if (!Object.keys(fields).length) return;
+    if (!canWriteToFirestore()) {
+      pendingAnswerFieldsRef.current = { ...fields, ...pendingAnswerFieldsRef.current };
+      return;
+    }
+    void updateLiveSessionFields(fields);
+  }, [canWriteToFirestore, updateLiveSessionFields]);
+
+  const queueLiveAnswerFields = useCallback((fields: Record<string, unknown>) => {
+    pendingAnswerFieldsRef.current = { ...pendingAnswerFieldsRef.current, ...fields };
+    if (pendingAnswerFlushTimerRef.current !== null) return;
+    pendingAnswerFlushTimerRef.current = window.setTimeout(() => {
+      pendingAnswerFlushTimerRef.current = null;
+      flushPendingAnswerFields();
+    }, 700);
+  }, [flushPendingAnswerFields]);
+
+  useEffect(() => () => {
+    if (pendingAnswerFlushTimerRef.current !== null) {
+      window.clearTimeout(pendingAnswerFlushTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     const markOnline = () => setIsOnline(true);
@@ -655,6 +695,7 @@ export default function PlickerClassroom({
   useEffect(() => {
     if (!syncReady || !ownerUid) return;
     const announceDevice = () => {
+      if (document.hidden || !canWriteToFirestore()) return;
       void saveRoomFields({
         devices: {
           [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },
@@ -663,9 +704,16 @@ export default function PlickerClassroom({
     };
 
     announceDevice();
-    const heartbeat = window.setInterval(announceDevice, 45_000);
-    return () => window.clearInterval(heartbeat);
-  }, [deviceRole, ownerUid, saveRoomFields, syncReady]);
+    const heartbeat = window.setInterval(announceDevice, 300_000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) announceDevice();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [canWriteToFirestore, deviceRole, ownerUid, saveRoomFields, syncReady]);
 
   useEffect(() => {
     if (!syncReady || !ownerUid || (!sets.length && !Object.keys(deletedQuestionSetIds).length)) return;
@@ -688,7 +736,7 @@ export default function PlickerClassroom({
         librarySets: combined.map(sanitizePlickerQuestionSet),
         deletedQuestionSetIds,
       });
-    }, 200);
+    }, 1_200);
     return () => window.clearTimeout(timer);
   }, [deletedQuestionSetIds, ownerUid, saveRoomFields, sets, syncReady]);
 
@@ -730,7 +778,7 @@ export default function PlickerClassroom({
         ...(Object.keys(changed).length ? { rosters: changed } : {}),
         deletedClassIds: mergedDeletedClasses,
       });
-    }, 200);
+    }, 1_200);
     return () => window.clearTimeout(timer);
   }, [categories, categoriesReady, deletedClassIds, isAdministrator, ownerUid, registeredStudents, saveRoomFields, syncReady]);
 
@@ -893,11 +941,11 @@ export default function PlickerClassroom({
 
     const activeSession = currentRoomRef.current?.activeSession;
     if (activeSession && activeSession.sessionId === sessionIdRef.current && /^[a-zA-Z0-9_-]+$/.test(student.id)) {
-      void updateLiveSessionFields({
+      queueLiveAnswerFields({
         [`activeSession.answersByQuestion.${questionKey}.${student.id}`]: response,
       });
     }
-  }, [currentQuestion, questionKey, updateLiveSessionFields]);
+  }, [currentQuestion, questionKey, queueLiveAnswerFields]);
 
   useEffect(() => {
     if (!scanning || view !== 'session' || !currentQuestion || classStudents.length === 0) return;
@@ -1048,6 +1096,7 @@ export default function PlickerClassroom({
     currentRoomRef.current = room;
     setLiveRoom(room);
 
+    if (!canWriteToFirestore()) return;
     try {
       await setDoc(liveRoomReference, room);
       setSyncError('');
