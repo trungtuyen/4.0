@@ -78,6 +78,7 @@ function describeAuthError(error: unknown): string {
 export default function App() {
   const requestedApplication = readRequestedApplication(window.location.search);
   const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'admin' | 'student_exam' | 'chatbot' | 'head-shake-game' | 'lucky-draw' | 'lucky-draw-cards' | 'drag-drop-game' | 'secret-box' | 'learning-wall' | 'gesture-class' | 'question-studio' | 'excel-merger' | 'pdf-merger'>(() => {
+    if (new URLSearchParams(window.location.search).get('app') === 'learning-wall') return 'learning-wall';
     if (requestedApplication === 'plicker') return 'admin';
     const saved = sessionStorage.getItem('currentView');
     try {
@@ -399,7 +400,7 @@ export default function App() {
   }
 
   if (currentView === 'learning-wall') {
-    return <LearningWall currentUser={currentUser} onBack={() => setCurrentView('landing')} />;
+    return <LearningWall currentUser={currentUser} onBack={() => setCurrentView('landing')} onLogin={() => navigateToAuth('login')} />;
   }
 
   if (currentView === 'gesture-class') {

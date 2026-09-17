@@ -242,6 +242,13 @@ export default function ProductTrialController() {
     return () => window.clearInterval(timer);
   }, [activeApplication, signedIn]);
 
+  // A teacher-issued wall invitation is not a product trial. Ignore stale trial
+  // state so pupils can follow their class link without the subscription gate.
+  if (new URLSearchParams(window.location.search).get('app') === 'learning-wall' &&
+      /^#wall=[a-f0-9]{48}$/.test(window.location.hash)) {
+    return <App />;
+  }
+
   if (!signedIn && activeApplication === 'plicker') {
     return (
       <TrialAccessGate

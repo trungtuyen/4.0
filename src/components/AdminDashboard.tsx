@@ -27,6 +27,7 @@ const DragDropGame = lazy(() => import('./DragDropGame'));
 const ExcelMerger = lazy(() => import('./ExcelMerger'));
 const PdfMerger = lazy(() => import('./PdfMerger'));
 const GestureClass = lazy(() => import('./GestureClass'));
+const LearningWall = lazy(() => import('./LearningWall'));
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;
@@ -997,6 +998,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               </div>
             </div>
           </>
+        ) : activeLibraryView === 'learning-wall' ? (
+          <div className="flex-1 min-h-0 overflow-auto"><LearningWall key={accessScope.ownerUid} currentUser={currentUser} onBack={() => setActiveLibraryView('main')} /></div>
         ) : activeLibraryView === 'gesture-class' ? (
           <GestureClass onBack={() => setActiveLibraryView('main')} />
         ) : activeLibraryView === 'create-exam' ? (

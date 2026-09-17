@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+import { doc, setDoc, updateDoc, getDoc, getDocs, collection, serverTimestamp, deleteDoc } from 'firebase/firestore';
+
+if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Start the local demo emulator and set FIRESTORE_EMULATOR_HOST=127.0.0.1:8088. Production is never used.');
+const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
+const environment = await initializeTestEnvironment({ projectId: 'demo-learning-wall', firestore: { host, port: Number(port), rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
+const token = 'a'.repeat(48);
+const wallPath = `shared_learning_walls/${token}`;
+let checks = 0;
+async function allowed(promise) { await assertSucceeds(promise); checks++; }
+async function denied(promise) { await assertFails(promise); checks++; }
+try {
+  await environment.clearFirestore();
+  await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'teachers/teacher-one'), { id: 'teacher-one', status: 'active' });
+    await setDoc(doc(db, 'teachers/teacher-two'), { id: 'teacher-two', status: 'active' });
+    await setDoc(doc(db, 'teachers/inactive'), { id: 'inactive', status: 'inactive' });
+    await setDoc(doc(db, 'categories/class-one'), { title: 'Lớp 8A', authorId: 'teacher-one' });
+    await setDoc(doc(db, 'wall_posts/private'), { categoryId: 'class-one', authorId: 'teacher-one', teacherId: 'teacher-one', score: 0, comments: [{ text: 'private' }] });
+  });
+  const first = environment.authenticatedContext('teacher-one').firestore();
+  const second = environment.authenticatedContext('teacher-two').firestore();
+  const admin = environment.authenticatedContext('administrator', { admin: true }).firestore();
+  const guest = environment.unauthenticatedContext().firestore();
+  const locked = environment.authenticatedContext('inactive').firestore();
+  const wall = { authorId: 'teacher-one', title: 'Lớp 8A', description: '', icon: '📚', layout: 'wall', background: 'sage', sections: [{ id: 'class-one', title: 'Bài chung' }], sectionIds: ['class-one'], enabled: true, permission: 'write', updatedAt: serverTimestamp() };
+  const post = { categoryId: 'class-one', title: 'Đa thức', text: 'Bài học', studentName: 'An', imageSrc: '', attachments: [], createdAt: 123, color: '#ffffff', pinned: false };
+  const submission = { title: 'Bài làm', text: 'Nội dung', studentName: 'An', categoryId: 'class-one', imageSrc: '', link: '', createdAt: serverTimestamp() };
+  await allowed(setDoc(doc(first, wallPath), wall));
+  await denied(setDoc(doc(second, wallPath), wall));
+  await denied(setDoc(doc(guest, wallPath), wall));
+  await denied(getDoc(doc(second, 'wall_posts/private')));
+  await denied(getDoc(doc(guest, 'categories/class-one')));
+  await denied(getDoc(doc(guest, 'wall_posts/private')));
+  await allowed(getDoc(doc(admin, 'wall_posts/private')));
+  await denied(getDocs(collection(guest, 'shared_learning_walls')));
+  await denied(getDocs(collection(second, 'shared_learning_walls')));
+  await allowed(getDoc(doc(guest, wallPath)));
+  await allowed(setDoc(doc(first, `${wallPath}/posts/p1`), post));
+  await allowed(getDocs(collection(guest, `${wallPath}/posts`)));
+  await denied(setDoc(doc(guest, `${wallPath}/posts/forged`), post));
+  await denied(setDoc(doc(second, `${wallPath}/posts/forged`), post));
+  await denied(updateDoc(doc(second, wallPath), { permission: 'write', updatedAt: serverTimestamp() }));
+  await denied(updateDoc(doc(first, wallPath), { authorId: 'teacher-two', updatedAt: serverTimestamp() }));
+  await denied(setDoc(doc(first, `${wallPath}/posts/leak`), { ...post, score: 7 }));
+  await denied(setDoc(doc(first, `${wallPath}/posts/leak`), { ...post, comments: [] }));
+  await allowed(setDoc(doc(guest, `${wallPath}/submissions/student1`), submission));
+  await denied(getDoc(doc(guest, `${wallPath}/submissions/student1`)));
+  await denied(getDocs(collection(guest, `${wallPath}/submissions`)));
+  await denied(getDoc(doc(second, `${wallPath}/submissions/student1`)));
+  await allowed(getDoc(doc(first, `${wallPath}/submissions/student1`)));
+  await denied(updateDoc(doc(guest, `${wallPath}/submissions/student1`), { text: 'overwrite' }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, categoryId: 'other-class' }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, score: 10 }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, link: 'javascript:alert(1)' }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, imageSrc: 'data:image/svg+xml;base64,YQ==' }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, text: 'a'.repeat(12001) }));
+  await allowed(updateDoc(doc(first, wallPath), { permission: 'read', updatedAt: serverTimestamp() }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), submission));
+  await allowed(updateDoc(doc(first, wallPath), { enabled: false, updatedAt: serverTimestamp() }));
+  await denied(getDoc(doc(guest, wallPath)));
+  await denied(getDoc(doc(guest, `${wallPath}/posts/p1`)));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), submission));
+  await allowed(getDoc(doc(first, `${wallPath}/submissions/student1`)));
+  await denied(getDoc(doc(locked, 'wall_posts/private')));
+  await allowed(deleteDoc(doc(first, `${wallPath}/submissions/student1`)));
+  assert.equal((await getDoc(doc(first, 'wall_posts/private'))).data().score, 0);
+  console.info(`Learning Wall Firestore emulator: ${checks} permission checks passed; private legacy data preserved.`);
+} finally { await environment.cleanup(); }

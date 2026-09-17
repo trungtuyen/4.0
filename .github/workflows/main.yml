@@ -81,6 +81,9 @@ jobs:
       - name: Verify shared-device, OMR, wall and guest-write hardening
         run: npm run test:hardening
 
+      - name: Verify Padlet-style learning wall compatibility and redaction
+        run: npm run test:learning-wall
+
       - name: Verify owner-scoped Plicker class and student synchronization
         run: npm run test:plicker-student-sync
 
