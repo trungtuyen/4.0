@@ -1,0 +1,305 @@
+name: One-time Plicker Firebase sync diagnostics
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-time-plicker-sync-error.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Integrate structured Plicker sync errors
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          component_path = Path('src/components/PlickerClassroom.tsx')
+          component = component_path.read_text(encoding='utf-8')
+
+          import_anchor = """} from '../lib/plickerLive';
+          import {
+            parsePlickerQuestionText,
+          """
+          import_replacement = """} from '../lib/plickerLive';
+          import { describePlickerSyncError, getPlickerSyncErrorCode } from '../lib/plickerSyncError';
+          import {
+            parsePlickerQuestionText,
+          """
+          if component.count(import_anchor) != 1:
+              raise SystemExit('Could not locate the Plicker live import anchor exactly once.')
+          component = component.replace(import_anchor, import_replacement, 1)
+
+          old_reporter = """  const reportSynchronizationError = useCallback((error: unknown) => {
+              console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', error);
+              setSyncError('Không thể đồng bộ Firebase. Hãy kiểm tra kết nối mạng và đăng nhập cùng một tài khoản trên hai thiết bị.');
+            }, []);
+          """
+          new_reporter = """  const reportSynchronizationError = useCallback((error: unknown) => {
+              const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+              const code = getPlickerSyncErrorCode(error);
+              const message = describePlickerSyncError(error, online);
+
+              console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', {
+                code: code || 'unknown',
+                online,
+                message,
+                error,
+              });
+              setSyncError(message);
+            }, []);
+          """
+          if component.count(old_reporter) != 1:
+              raise SystemExit('Could not locate the generic Plicker synchronization reporter exactly once.')
+          component = component.replace(old_reporter, new_reporter, 1)
+
+          old_connectivity = """  useEffect(() => {
+              const markOnline = () => setIsOnline(true);
+              const markOffline = () => setIsOnline(false);
+              window.addEventListener('online', markOnline);
+              window.addEventListener('offline', markOffline);
+          """
+          new_connectivity = """  useEffect(() => {
+              const markOnline = () => setIsOnline(true);
+              const markOffline = () => {
+                setIsOnline(false);
+                setSyncError(describePlickerSyncError(new Error('Browser offline'), false));
+              };
+              window.addEventListener('online', markOnline);
+              window.addEventListener('offline', markOffline);
+          """
+          if component.count(old_connectivity) != 1:
+              raise SystemExit('Could not locate the Plicker online/offline listener exactly once.')
+          component = component.replace(old_connectivity, new_connectivity, 1)
+          component_path.write_text(component, encoding='utf-8')
+
+          helper_path = Path('src/lib/plickerSyncError.ts')
+          if helper_path.exists():
+              raise SystemExit('src/lib/plickerSyncError.ts already exists; refusing to overwrite it.')
+          helper_path.write_text("""export type PlickerSyncErrorKind =
+            | 'network-offline'
+            | 'network-error'
+            | 'permission-denied'
+            | 'failed-precondition'
+            | 'service-unavailable'
+            | 'unauthenticated'
+            | 'timeout'
+            | 'retryable'
+            | 'unknown';
+
+          export interface PlickerSyncErrorInfo {
+            kind: PlickerSyncErrorKind;
+            code: string;
+            retryable: boolean;
+            message: string;
+          }
+
+          function readStringField(value: unknown, field: 'code' | 'message'): string {
+            if (typeof value !== 'object' || value === null || !(field in value)) return '';
+            const fieldValue = (value as Record<string, unknown>)[field];
+            return typeof fieldValue === 'string' ? fieldValue : '';
+          }
+
+          export function getPlickerSyncErrorCode(error: unknown): string {
+            const rawCode = readStringField(error, 'code').trim().toLowerCase();
+            if (!rawCode) return '';
+            return rawCode
+              .replace(/^firebase\//u, '')
+              .replace(/^firestore\//u, '');
+          }
+
+          function getPlickerSyncErrorMessage(error: unknown): string {
+            if (error instanceof Error) return error.message;
+            return readStringField(error, 'message');
+          }
+
+          function hasNetworkSignature(message: string): boolean {
+            const normalized = message.toLowerCase();
+            return [
+              'network request failed',
+              'failed to fetch',
+              'networkerror',
+              'network error',
+              'err_internet_disconnected',
+              'connection reset',
+              'connection refused',
+              'load failed',
+              'browser offline',
+            ].some(signature => normalized.includes(signature));
+          }
+
+          export function classifyPlickerSyncError(
+            error: unknown,
+            online = typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+          ): PlickerSyncErrorInfo {
+            const code = getPlickerSyncErrorCode(error);
+            const rawMessage = getPlickerSyncErrorMessage(error);
+
+            if (!online) {
+              return {
+                kind: 'network-offline',
+                code: code || 'network-offline',
+                retryable: true,
+                message: 'Thiết bị đang mất kết nối Internet. Hãy kiểm tra Wi-Fi hoặc dữ liệu di động; Plicker sẽ đồng bộ lại sau khi kết nối được khôi phục.',
+              };
+            }
+
+            switch (code) {
+              case 'permission-denied':
+                return {
+                  kind: 'permission-denied',
+                  code,
+                  retryable: false,
+                  message: 'Firebase từ chối quyền truy cập (permission-denied). Hãy kiểm tra Firestore Security Rules của đúng cơ sở dữ liệu và trạng thái tài khoản giáo viên.',
+                };
+              case 'failed-precondition':
+                return {
+                  kind: 'failed-precondition',
+                  code,
+                  retryable: false,
+                  message: 'Firestore chưa đáp ứng điều kiện đồng bộ (failed-precondition). Hãy kiểm tra cấu hình cơ sở dữ liệu, chỉ mục hoặc trạng thái phiên Plicker.',
+                };
+              case 'unavailable':
+                return {
+                  kind: 'service-unavailable',
+                  code,
+                  retryable: true,
+                  message: 'Dịch vụ Firestore tạm thời không khả dụng (unavailable). Thiết bị vẫn báo có Internet; hãy giữ trang mở và thử đồng bộ lại sau ít giây.',
+                };
+              case 'unauthenticated':
+                return {
+                  kind: 'unauthenticated',
+                  code,
+                  retryable: false,
+                  message: 'Phiên đăng nhập Firebase không còn hợp lệ (unauthenticated). Hãy đăng nhập lại và dùng cùng một tài khoản trên điện thoại và màn hình trình chiếu.',
+                };
+              case 'deadline-exceeded':
+                return {
+                  kind: 'timeout',
+                  code,
+                  retryable: true,
+                  message: 'Firebase phản hồi quá chậm (deadline-exceeded). Hãy kiểm tra chất lượng đường truyền và thử lại.',
+                };
+              case 'aborted':
+              case 'cancelled':
+              case 'resource-exhausted':
+                return {
+                  kind: 'retryable',
+                  code,
+                  retryable: true,
+                  message: `Firebase tạm thời chưa hoàn tất yêu cầu (${code}). Hãy thử đồng bộ lại.`,
+                };
+              default:
+                break;
+            }
+
+            if (hasNetworkSignature(rawMessage)) {
+              return {
+                kind: 'network-error',
+                code: code || 'network-error',
+                retryable: true,
+                message: 'Trình duyệt đang có mạng nhưng kết nối tới Firebase bị gián đoạn. Hãy kiểm tra Wi-Fi/4G, DNS, tường lửa hoặc thử tải lại trang.',
+              };
+            }
+
+            return {
+              kind: 'unknown',
+              code: code || 'unknown',
+              retryable: false,
+              message: code
+                ? `Không thể đồng bộ Firebase (${code}). Hãy thử lại; nếu lỗi tiếp tục, kiểm tra nhật ký trình duyệt.`
+                : 'Không thể đồng bộ Firebase do lỗi chưa xác định. Hãy thử lại; nếu lỗi tiếp tục, kiểm tra nhật ký trình duyệt.',
+            };
+          }
+
+          export function describePlickerSyncError(
+            error: unknown,
+            online = typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+          ): string {
+            return classifyPlickerSyncError(error, online).message;
+          }
+          """, encoding='utf-8')
+
+          test_path = Path('scripts/test-plicker-student-sync.ts')
+          test = test_path.read_text(encoding='utf-8')
+          test_import_anchor = """} from '../src/lib/plickerStudents';
+
+          let checks = 0;
+          """
+          test_import_replacement = """} from '../src/lib/plickerStudents';
+          import {
+            classifyPlickerSyncError,
+            describePlickerSyncError,
+            getPlickerSyncErrorCode,
+          } from '../src/lib/plickerSyncError';
+
+          let checks = 0;
+          """
+          if test.count(test_import_anchor) != 1:
+              raise SystemExit('Could not locate the Plicker student-sync test import anchor exactly once.')
+          test = test.replace(test_import_anchor, test_import_replacement, 1)
+
+          test_anchor = """let checks = 0;
+
+          const orphanedStudents: PlickerLiveStudent[] = Array.from({ length: 89 }, (_, index) => ({
+          """
+          test_replacement = """let checks = 0;
+
+          assert.equal(getPlickerSyncErrorCode({ code: 'firestore/permission-denied' }), 'permission-denied');
+          assert.equal(getPlickerSyncErrorCode({ code: 'permission-denied' }), 'permission-denied');
+          assert.equal(classifyPlickerSyncError({ code: 'permission-denied' }, true).kind, 'permission-denied');
+          assert.match(describePlickerSyncError({ code: 'permission-denied' }, true), /permission-denied/u);
+          assert.equal(classifyPlickerSyncError({ code: 'failed-precondition' }, true).kind, 'failed-precondition');
+          assert.equal(classifyPlickerSyncError({ code: 'unavailable' }, true).kind, 'service-unavailable');
+          assert.equal(classifyPlickerSyncError({ code: 'unavailable' }, false).kind, 'network-offline');
+          assert.equal(classifyPlickerSyncError(new Error('Failed to fetch'), true).kind, 'network-error');
+          assert.equal(classifyPlickerSyncError({ code: 'unauthenticated' }, true).kind, 'unauthenticated');
+          assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');
+          checks += 10;
+
+          const orphanedStudents: PlickerLiveStudent[] = Array.from({ length: 89 }, (_, index) => ({
+          """
+          if test.count(test_anchor) != 1:
+              raise SystemExit('Could not locate the Plicker student-sync test body anchor exactly once.')
+          test = test.replace(test_anchor, test_replacement, 1)
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Verify Plicker synchronization diagnostics
+        run: npm run test:plicker-student-sync
+
+      - name: Type-check ecosystem
+        run: npm run lint
+
+      - name: Build static ecosystem
+        run: npm run build:static
+
+      - name: Commit integrated diagnostics
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/PlickerClassroom.tsx src/lib/plickerSyncError.ts scripts/test-plicker-student-sync.ts
+          git commit -m "fix: classify Plicker Firebase synchronization errors"
+          git pull --rebase origin main
+          git push origin HEAD:main
