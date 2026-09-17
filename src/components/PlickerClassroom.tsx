@@ -69,6 +69,7 @@ import {
   type PlickerLiveRoom,
   type PlickerLiveSession,
 } from '../lib/plickerLive';
+import { describePlickerSyncError, getPlickerSyncErrorCode } from '../lib/plickerSyncError';
 import {
   parsePlickerQuestionText,
   PLICKER_IMPORT_QUESTION_LIMIT,
@@ -477,8 +478,17 @@ export default function PlickerClassroom({
   const questionImportPreview = useMemo(() => parsePlickerQuestionText(questionImportText), [questionImportText]);
 
   const reportSynchronizationError = useCallback((error: unknown) => {
-    console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', error);
-    setSyncError('Không thể đồng bộ Firebase. Hãy kiểm tra kết nối mạng và đăng nhập cùng một tài khoản trên hai thiết bị.');
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+    const code = getPlickerSyncErrorCode(error);
+    const message = describePlickerSyncError(error, online);
+
+    console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', {
+      code: code || 'unknown',
+      online,
+      message,
+      error,
+    });
+    setSyncError(message);
   }, []);
 
   const saveRoomFields = useCallback(async (fields: Record<string, unknown>) => {
@@ -513,7 +523,10 @@ export default function PlickerClassroom({
 
   useEffect(() => {
     const markOnline = () => setIsOnline(true);
-    const markOffline = () => setIsOnline(false);
+    const markOffline = () => {
+      setIsOnline(false);
+      setSyncError(describePlickerSyncError(new Error('Browser offline'), false));
+    };
     window.addEventListener('online', markOnline);
     window.addEventListener('offline', markOffline);
     return () => {

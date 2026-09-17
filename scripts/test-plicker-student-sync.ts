@@ -11,8 +11,25 @@ import {
   removePlickerStudent,
   renamePlickerStudent,
 } from '../src/lib/plickerStudents';
+import {
+  classifyPlickerSyncError,
+  describePlickerSyncError,
+  getPlickerSyncErrorCode,
+} from '../src/lib/plickerSyncError';
 
 let checks = 0;
+
+assert.equal(getPlickerSyncErrorCode({ code: 'firestore/permission-denied' }), 'permission-denied');
+assert.equal(getPlickerSyncErrorCode({ code: 'permission-denied' }), 'permission-denied');
+assert.equal(classifyPlickerSyncError({ code: 'permission-denied' }, true).kind, 'permission-denied');
+assert.match(describePlickerSyncError({ code: 'permission-denied' }, true), /permission-denied/u);
+assert.equal(classifyPlickerSyncError({ code: 'failed-precondition' }, true).kind, 'failed-precondition');
+assert.equal(classifyPlickerSyncError({ code: 'unavailable' }, true).kind, 'service-unavailable');
+assert.equal(classifyPlickerSyncError({ code: 'unavailable' }, false).kind, 'network-offline');
+assert.equal(classifyPlickerSyncError(new Error('Failed to fetch'), true).kind, 'network-error');
+assert.equal(classifyPlickerSyncError({ code: 'unauthenticated' }, true).kind, 'unauthenticated');
+assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');
+checks += 10;
 
 const orphanedStudents: PlickerLiveStudent[] = Array.from({ length: 89 }, (_, index) => ({
   id: `orphan-${index + 1}`,
