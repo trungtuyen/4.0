@@ -1,0 +1,113 @@
+name: One-time Plicker Firestore quota hardening
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-time-plicker-quota-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Reduce Plicker Firestore write pressure
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/PlickerClassroom.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          old_refs = """  const onSyncStudentsRef = useRef(onSyncStudents);\n  onSyncStudentsRef.current = onSyncStudents;\n\n  const liveRoomReference = useMemo(() =>\n"""
+          new_refs = """  const onSyncStudentsRef = useRef(onSyncStudents);\n  onSyncStudentsRef.current = onSyncStudents;\n  const syncWriteCooldownUntilRef = useRef(0);\n  const pendingAnswerFieldsRef = useRef<Record<string, unknown>>({});\n  const pendingAnswerFlushTimerRef = useRef<number | null>(null);\n\n  const liveRoomReference = useMemo(() =>\n"""
+          if text.count(old_refs) != 1:
+              raise SystemExit('Could not locate synchronization refs anchor.')
+          text = text.replace(old_refs, new_refs, 1)
+
+          old_report = """  const reportSynchronizationError = useCallback((error: unknown) => {\n    const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;\n    const code = getPlickerSyncErrorCode(error);\n    const message = describePlickerSyncError(error, online);\n\n    console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', {\n      code: code || 'unknown',\n      online,\n      message,\n      error,\n    });\n    setSyncError(message);\n  }, []);\n\n  const saveRoomFields = useCallback(async (fields: Record<string, unknown>) => {\n    if (!liveRoomReference || !ownerUid) return;\n    try {\n      await setDoc(liveRoomReference, {\n        kind: 'plicker_live_session',\n        ownerUid,\n        authorId: ownerUid,\n        ...fields,\n        updatedAt: Date.now(),\n      }, { merge: true });\n      setSyncError('');\n    } catch (error) {\n      reportSynchronizationError(error);\n    }\n  }, [liveRoomReference, ownerUid, reportSynchronizationError]);\n\n  const updateLiveSessionFields = useCallback(async (fields: Record<string, unknown>) => {\n    if (!liveRoomReference || !currentRoomRef.current?.activeSession) return;\n    try {\n      await updateDoc(liveRoomReference, {\n        ...fields,\n        'activeSession.updatedAt': Date.now(),\n        updatedAt: Date.now(),\n      });\n      setSyncError('');\n    } catch (error) {\n      reportSynchronizationError(error);\n    }\n  }, [liveRoomReference, reportSynchronizationError]);\n"""
+          new_report = """  const reportSynchronizationError = useCallback((error: unknown) => {\n    const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;\n    const code = getPlickerSyncErrorCode(error);\n    const message = describePlickerSyncError(error, online);\n\n    if (code === 'resource-exhausted') {\n      syncWriteCooldownUntilRef.current = Math.max(syncWriteCooldownUntilRef.current, Date.now() + 60_000);\n    }\n\n    console.error('Không thể đồng bộ buổi học giữa điện thoại và máy tính:', {\n      code: code || 'unknown',\n      online,\n      message,\n      cooldownUntil: syncWriteCooldownUntilRef.current || undefined,\n      error,\n    });\n    setSyncError(message);\n  }, []);\n\n  const canWriteToFirestore = useCallback(() => Date.now() >= syncWriteCooldownUntilRef.current, []);\n\n  const saveRoomFields = useCallback(async (fields: Record<string, unknown>) => {\n    if (!liveRoomReference || !ownerUid || !canWriteToFirestore()) return;\n    try {\n      await setDoc(liveRoomReference, {\n        kind: 'plicker_live_session',\n        ownerUid,\n        authorId: ownerUid,\n        ...fields,\n        updatedAt: Date.now(),\n      }, { merge: true });\n      setSyncError('');\n    } catch (error) {\n      reportSynchronizationError(error);\n    }\n  }, [canWriteToFirestore, liveRoomReference, ownerUid, reportSynchronizationError]);\n\n  const updateLiveSessionFields = useCallback(async (fields: Record<string, unknown>) => {\n    if (!liveRoomReference || !currentRoomRef.current?.activeSession || !canWriteToFirestore()) return;\n    try {\n      await updateDoc(liveRoomReference, {\n        ...fields,\n        'activeSession.updatedAt': Date.now(),\n        updatedAt: Date.now(),\n      });\n      setSyncError('');\n    } catch (error) {\n      reportSynchronizationError(error);\n    }\n  }, [canWriteToFirestore, liveRoomReference, reportSynchronizationError]);\n\n  const flushPendingAnswerFields = useCallback(() => {\n    if (pendingAnswerFlushTimerRef.current !== null) {\n      window.clearTimeout(pendingAnswerFlushTimerRef.current);\n      pendingAnswerFlushTimerRef.current = null;\n    }\n    const fields = pendingAnswerFieldsRef.current;\n    pendingAnswerFieldsRef.current = {};\n    if (!Object.keys(fields).length) return;\n    if (!canWriteToFirestore()) {\n      pendingAnswerFieldsRef.current = { ...fields, ...pendingAnswerFieldsRef.current };\n      return;\n    }\n    void updateLiveSessionFields(fields);\n  }, [canWriteToFirestore, updateLiveSessionFields]);\n\n  const queueLiveAnswerFields = useCallback((fields: Record<string, unknown>) => {\n    pendingAnswerFieldsRef.current = { ...pendingAnswerFieldsRef.current, ...fields };\n    if (pendingAnswerFlushTimerRef.current !== null) return;\n    pendingAnswerFlushTimerRef.current = window.setTimeout(() => {\n      pendingAnswerFlushTimerRef.current = null;\n      flushPendingAnswerFields();\n    }, 700);\n  }, [flushPendingAnswerFields]);\n\n  useEffect(() => () => {\n    if (pendingAnswerFlushTimerRef.current !== null) {\n      window.clearTimeout(pendingAnswerFlushTimerRef.current);\n    }\n  }, []);\n"""
+          if text.count(old_report) != 1:
+              raise SystemExit('Could not locate synchronization write functions anchor.')
+          text = text.replace(old_report, new_report, 1)
+
+          old_heartbeat = """  useEffect(() => {\n    if (!syncReady || !ownerUid) return;\n    const announceDevice = () => {\n      void saveRoomFields({\n        devices: {\n          [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },\n        },\n      });\n    };\n\n    announceDevice();\n    const heartbeat = window.setInterval(announceDevice, 45_000);\n    return () => window.clearInterval(heartbeat);\n  }, [deviceRole, ownerUid, saveRoomFields, syncReady]);\n"""
+          new_heartbeat = """  useEffect(() => {\n    if (!syncReady || !ownerUid) return;\n    const announceDevice = () => {\n      if (document.hidden || !canWriteToFirestore()) return;\n      void saveRoomFields({\n        devices: {\n          [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },\n        },\n      });\n    };\n\n    announceDevice();\n    const heartbeat = window.setInterval(announceDevice, 300_000);\n    const onVisibilityChange = () => {\n      if (!document.hidden) announceDevice();\n    };\n    document.addEventListener('visibilitychange', onVisibilityChange);\n    return () => {\n      window.clearInterval(heartbeat);\n      document.removeEventListener('visibilitychange', onVisibilityChange);\n    };\n  }, [canWriteToFirestore, deviceRole, ownerUid, saveRoomFields, syncReady]);\n"""
+          if text.count(old_heartbeat) != 1:
+              raise SystemExit('Could not locate heartbeat effect anchor.')
+          text = text.replace(old_heartbeat, new_heartbeat, 1)
+
+          text = text.replace("    }, 200);\n    return () => window.clearTimeout(timer);\n  }, [deletedQuestionSetIds, ownerUid, saveRoomFields, sets, syncReady]);", "    }, 1_200);\n    return () => window.clearTimeout(timer);\n  }, [deletedQuestionSetIds, ownerUid, saveRoomFields, sets, syncReady]);", 1)
+          text = text.replace("    }, 200);\n    return () => window.clearTimeout(timer);\n  }, [categories, categoriesReady, deletedClassIds, isAdministrator, ownerUid, registeredStudents, saveRoomFields, syncReady]);", "    }, 1_200);\n    return () => window.clearTimeout(timer);\n  }, [categories, categoriesReady, deletedClassIds, isAdministrator, ownerUid, registeredStudents, saveRoomFields, syncReady]);", 1)
+
+          old_answer_write = """      void updateLiveSessionFields({\n        [`activeSession.answersByQuestion.${questionKey}.${student.id}`]: response,\n      });\n    }\n  }, [currentQuestion, questionKey, updateLiveSessionFields]);\n"""
+          new_answer_write = """      queueLiveAnswerFields({\n        [`activeSession.answersByQuestion.${questionKey}.${student.id}`]: response,\n      });\n    }\n  }, [currentQuestion, questionKey, queueLiveAnswerFields]);\n"""
+          if text.count(old_answer_write) != 1:
+              raise SystemExit('Could not locate per-student Firestore answer write.')
+          text = text.replace(old_answer_write, new_answer_write, 1)
+
+          old_publish = """    try {\n      await setDoc(liveRoomReference, room);\n      setSyncError('');\n    } catch (error) {\n      reportSynchronizationError(error);\n    }\n  };\n"""
+          new_publish = """    if (!canWriteToFirestore()) return;\n    try {\n      await setDoc(liveRoomReference, room);\n      setSyncError('');\n    } catch (error) {\n      reportSynchronizationError(error);\n    }\n  };\n"""
+          if text.count(old_publish) < 1:
+              raise SystemExit('Could not locate publishLiveSession write.')
+          text = text.replace(old_publish, new_publish, 1)
+
+          path.write_text(text, encoding='utf-8')
+
+          error_path = Path('src/lib/plickerSyncError.ts')
+          error_text = error_path.read_text(encoding='utf-8')
+          old_resource = """    case 'aborted':\n    case 'cancelled':\n    case 'resource-exhausted':\n      return {\n        kind: 'retryable',\n        code,\n        retryable: true,\n        message: `Firebase tạm thời chưa hoàn tất yêu cầu (${code}). Hãy thử đồng bộ lại.`,\n      };\n"""
+          new_resource = """    case 'resource-exhausted':\n      return {\n        kind: 'retryable',\n        code,\n        retryable: true,\n        message: 'Firestore đã chạm hạn mức hoặc tạm hết năng lực xử lý (resource-exhausted). Plicker đã tự giảm tần suất ghi và tạm ngừng ghi trong 60 giây để tránh quá tải. Nếu lỗi kéo dài, hãy kiểm tra Firestore Usage/Quota của dự án.',\n      };\n    case 'aborted':\n    case 'cancelled':\n      return {\n        kind: 'retryable',\n        code,\n        retryable: true,\n        message: `Firebase tạm thời chưa hoàn tất yêu cầu (${code}). Hãy thử đồng bộ lại.`,\n      };\n"""
+          if error_text.count(old_resource) != 1:
+              raise SystemExit('Could not locate resource-exhausted classifier.')
+          error_path.write_text(error_text.replace(old_resource, new_resource, 1), encoding='utf-8')
+
+          test_path = Path('scripts/test-plicker-student-sync.ts')
+          test = test_path.read_text(encoding='utf-8')
+          anchor = """assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');\nchecks += 10;\n"""
+          replacement = """assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');\nassert.equal(classifyPlickerSyncError({ code: 'resource-exhausted' }, true).kind, 'retryable');\nassert.match(describePlickerSyncError({ code: 'resource-exhausted' }, true), /60 giây/u);\nchecks += 12;\n"""
+          if test.count(anchor) != 1:
+              raise SystemExit('Could not locate Plicker sync error tests anchor.')
+          test_path.write_text(test.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Verify Plicker quota safeguards
+        shell: bash
+        run: |
+          npm run test:plicker-student-sync
+          grep -q "300_000" src/components/PlickerClassroom.tsx
+          grep -q "queueLiveAnswerFields" src/components/PlickerClassroom.tsx
+          grep -q "syncWriteCooldownUntilRef" src/components/PlickerClassroom.tsx
+          grep -q "1_200" src/components/PlickerClassroom.tsx
+
+      - name: Build static ecosystem
+        run: npm run build:static
+
+      - name: Commit quota hardening and remove one-time workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/one-time-plicker-quota-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/PlickerClassroom.tsx src/lib/plickerSyncError.ts scripts/test-plicker-student-sync.ts .github/workflows/one-time-plicker-quota-hardening.yml
+          git commit -m "fix: reduce Plicker Firestore quota pressure"
+          git pull --rebase origin main
+          git push origin HEAD:main
