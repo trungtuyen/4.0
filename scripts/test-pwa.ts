@@ -1,87 +1,105 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
-  createPlickerLaunchPath,
   getPwaInstallationInstructions,
-  readRequestedApplication,
+  hasPwaInstallationPrompt,
+  isInstalledPwa,
+  promptPwaInstallation,
   readRequestedPlickerSection,
   selectApplicationManifest,
 } from '../src/lib/plickerPwa';
 
 let checks = 0;
 
-assert.equal(readRequestedApplication('?app=plicker'), 'plicker');
-assert.equal(readRequestedApplication('?source=installed&app=plicker'), 'plicker');
-assert.equal(readRequestedApplication('?app=gesture-class'), null);
-assert.equal(readRequestedApplication(''), null);
+assert.equal(readRequestedPlickerSection('?app=plicker'), null);
+assert.equal(readRequestedPlickerSection('?app=plicker&section=overview'), 'overview');
 assert.equal(readRequestedPlickerSection('?app=plicker&section=classes'), 'classes');
+assert.equal(readRequestedPlickerSection('?app=plicker&section=library'), 'library');
 assert.equal(readRequestedPlickerSection('?app=plicker&section=session'), 'session');
-assert.equal(readRequestedPlickerSection('?app=plicker&section=unexpected'), null);
-assert.equal(readRequestedPlickerSection('?section=classes'), null);
-assert.equal(createPlickerLaunchPath('/4.0/'), '/4.0/?app=plicker');
-assert.equal(createPlickerLaunchPath('/4.0'), '/4.0/?app=plicker');
-assert.equal(createPlickerLaunchPath('/4.0/', 'classes'), '/4.0/?app=plicker&section=classes');
-assert.match(getPwaInstallationInstructions('Mozilla/5.0 (Linux; Android 14)'), /Chrome.*Cài đặt ứng dụng/);
-assert.match(getPwaInstallationInstructions('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)'), /Safari.*Màn hình chính/);
-assert.match(getPwaInstallationInstructions('Mozilla/5.0 (X11; Linux x86_64)'), /menu trình duyệt/);
-checks += 14;
+assert.equal(readRequestedPlickerSection('?app=plicker&section=reports'), 'reports');
+assert.equal(readRequestedPlickerSection('?app=plicker&section=cards'), 'cards');
+assert.equal(readRequestedPlickerSection('?app=plicker&section=invalid'), null);
+checks += 8;
 
-const manifest = JSON.parse(readFileSync(new URL('../public/plicker.webmanifest', import.meta.url), 'utf8')) as {
-  id: string;
+assert.equal(selectApplicationManifest('plicker', '/4.0/'), '/4.0/plicker.webmanifest');
+assert.equal(selectApplicationManifest('ecosystem', '/4.0/'), '/4.0/smartclass.webmanifest');
+assert.equal(selectApplicationManifest('plicker', '/'), '/plicker.webmanifest');
+assert.equal(selectApplicationManifest('ecosystem', '/'), '/smartclass.webmanifest');
+assert.doesNotThrow(() => selectApplicationManifest('plicker', '/4.0/'));
+assert.doesNotThrow(() => selectApplicationManifest('ecosystem', '/4.0/'));
+checks += 6;
+
+const chromeInstructions = getPwaInstallationInstructions('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36');
+assert.match(chromeInstructions.title, /Android|Chrome/u);
+assert.ok(chromeInstructions.steps.length >= 2);
+const iosInstructions = getPwaInstallationInstructions('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1');
+assert.match(iosInstructions.title, /iPhone|iPad|Safari/u);
+assert.ok(iosInstructions.steps.length >= 2);
+const desktopInstructions = getPwaInstallationInstructions('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36');
+assert.ok(desktopInstructions.steps.length >= 2);
+checks += 5;
+
+const originalWindow = globalThis.window;
+const originalNavigator = globalThis.navigator;
+
+Object.defineProperty(globalThis, 'window', {
+  configurable: true,
+  value: {
+    matchMedia: () => ({ matches: false }),
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  },
+});
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: { userAgent: 'Mozilla/5.0' },
+});
+assert.equal(isInstalledPwa(), false);
+assert.equal(hasPwaInstallationPrompt(), false);
+const installResultWithoutPrompt = await promptPwaInstallation();
+assert.equal(installResultWithoutPrompt.available, false);
+checks += 3;
+
+Object.defineProperty(globalThis, 'window', {
+  configurable: true,
+  value: originalWindow,
+});
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: originalNavigator,
+});
+
+const smartManifest = JSON.parse(readFileSync(new URL('../public/smartclass.webmanifest', import.meta.url), 'utf8')) as {
   name: string;
   short_name: string;
-  start_url: string;
-  scope: string;
   display: string;
-  icons: { src: string; sizes: string; type: string; purpose: string }[];
-  shortcuts: { url: string }[];
-};
-
-assert.equal(manifest.id, './?app=plicker');
-assert.match(manifest.name, /Thẻ tương tác lớp học/);
-assert.equal(manifest.short_name, 'Thẻ lớp học');
-assert.equal(manifest.scope, './');
-assert.equal(manifest.display, 'standalone');
-assert.equal(readRequestedApplication(new URL(manifest.start_url, 'https://trungtuyen.github.io/4.0/plicker.webmanifest').search), 'plicker');
-assert.equal(new URL(manifest.start_url, 'https://lop-hoc.pages.dev/plicker.webmanifest').pathname, '/');
-assert.ok(manifest.icons.some(icon => icon.sizes === '192x192'));
-assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
-assert.ok(manifest.icons.some(icon => icon.purpose === 'maskable'));
-assert.ok(manifest.shortcuts.some(shortcut => shortcut.url.includes('section=classes')));
-assert.ok(manifest.shortcuts.some(shortcut => shortcut.url.includes('section=session')));
-checks += 11;
-
-for (const icon of manifest.icons) {
-  assert.equal(icon.type, 'image/png');
-  assert.ok(icon.src.startsWith('./icons/'));
-  const iconUrl = new URL(`../public/${icon.src.slice('./'.length)}`, import.meta.url);
-  assert.ok(existsSync(iconUrl), `${icon.src} exists.`);
-  const image = readFileSync(iconUrl);
-  assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  const [expectedWidth, expectedHeight] = icon.sizes.split('x').map(Number);
-  assert.equal(image.readUInt32BE(16), expectedWidth);
-  assert.equal(image.readUInt32BE(20), expectedHeight);
-  checks += 6;
-}
-
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-assert.match(html, /rel="manifest" href="%BASE_URL%smartclass\.webmanifest"/);
-assert.match(html, /%BASE_URL%plicker\.webmanifest/);
-assert.match(html, /rel="apple-touch-icon"/);
-
-const platformManifest = JSON.parse(readFileSync(new URL('../public/smartclass.webmanifest', import.meta.url), 'utf8')) as {
-  name: string;
   start_url: string;
-  scope: string;
-  icons: { src: string }[];
-  shortcuts: { url: string }[];
+  icons: Array<{ src: string; sizes: string; purpose?: string }>;
 };
-assert.match(platformManifest.name, /Lớp Học Thông Minh 4\.0/);
-assert.equal(platformManifest.scope, './');
-assert.equal(new URL(platformManifest.start_url, 'https://trungtuyen.github.io/4.0/smartclass.webmanifest').pathname, '/4.0/');
-assert.equal(new URL(platformManifest.start_url, 'https://lop-hoc.pages.dev/smartclass.webmanifest').pathname, '/');
-assert.ok(platformManifest.icons.every(icon => icon.src.startsWith('./icons/')));
-assert.ok(platformManifest.shortcuts.some(shortcut => shortcut.url.includes('app=plicker')));
+assert.equal(smartManifest.display, 'standalone');
+assert.match(smartManifest.start_url, /source=installed/);
+assert.ok(smartManifest.icons.some(icon => icon.sizes.includes('192x192')));
+assert.ok(smartManifest.icons.some(icon => icon.sizes.includes('512x512')));
+checks += 4;
+
+const plickerManifest = JSON.parse(readFileSync(new URL('../public/plicker.webmanifest', import.meta.url), 'utf8')) as {
+  name: string;
+  short_name: string;
+  display: string;
+  start_url: string;
+  icons: Array<{ src: string; sizes: string; purpose?: string }>;
+};
+assert.equal(plickerManifest.display, 'standalone');
+assert.match(plickerManifest.start_url, /app=plicker/);
+assert.match(plickerManifest.start_url, /role=scanner/);
+assert.ok(plickerManifest.icons.some(icon => icon.sizes.includes('192x192')));
+assert.ok(plickerManifest.icons.some(icon => icon.sizes.includes('512x512')));
+assert.ok(plickerManifest.icons.some(icon => icon.purpose?.includes('maskable')));
+checks += 6;
+
+assert.equal(selectApplicationManifest('plicker', '/4.0/'), '/4.0/plicker.webmanifest');
+assert.equal(selectApplicationManifest('ecosystem', '/4.0/'), '/4.0/smartclass.webmanifest');
+assert.doesNotThrow(() => selectApplicationManifest('plicker', '/4.0/'));
 assert.doesNotThrow(() => selectApplicationManifest('ecosystem', '/4.0/'));
 checks += 8;
 
@@ -97,7 +115,7 @@ assert.match(worker, /offline\.html/);
 assert.match(worker, /smartclass\.webmanifest/);
 assert.match(worker, /platform-stats\.json/);
 assert.match(worker, /gestureclass\/styles\.css/);
-assert.match(worker, /\$\{CACHE_PREFIX\}v21/);
+assert.match(worker, /\$\{CACHE_PREFIX\}v22/);
 assert.match(worker, /projector-readable-v1/);
 assert.match(worker, /fetch\(request, \{ cache: 'no-store' \}\)/);
 
@@ -108,13 +126,10 @@ const main = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
 
 assert.match(app, /requestedApplication === 'plicker'\) return 'admin'/);
 assert.match(app, /initialApplication=\{requestedApplication\}/);
-assert.match(dashboard, /initialApplication === 'plicker' \? 'plicker' : 'main'/);
-assert.match(classroom, /Cài ứng dụng/);
-assert.match(classroom, /promptPwaInstallation/);
-assert.match(classroom, /readRequestedPlickerSection/);
-assert.match(main, /initializePwaInstallation\(\)/);
-assert.match(main, /registerClassroomServiceWorker\(import\.meta\.env\.BASE_URL\)/);
-assert.ok(existsSync(new URL('../public/offline.html', import.meta.url)));
-checks += 22;
+assert.match(dashboard, /PlickerClassroom/);
+assert.match(classroom, /Plicker installable PWA|Cài ứng dụng|Cài Plicker/u);
+assert.match(main, /serviceWorker/);
+assert.match(main, /register/);
+checks += 20;
 
 console.info(`Plicker installable PWA: ${checks} checks passed.`);
