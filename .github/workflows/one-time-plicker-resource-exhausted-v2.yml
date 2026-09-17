@@ -1,0 +1,233 @@
+name: One-time Plicker Firestore load protection v2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-time-plicker-resource-exhausted-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply Firestore write batching and backoff
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/components/PlickerClassroom.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          old_import = "import { describePlickerSyncError, getPlickerSyncErrorCode } from '../lib/plickerSyncError';"
+          new_import = "import { classifyPlickerSyncError, describePlickerSyncError, getPlickerSyncErrorCode } from '../lib/plickerSyncError';"
+          if text.count(old_import) != 1:
+              raise SystemExit('sync error import anchor not found')
+          text = text.replace(old_import, new_import, 1)
+
+          ref_anchor = "  const currentRoomRef = useRef<PlickerLiveRoom | null>(null);\n"
+          refs = """  const currentRoomRef = useRef<PlickerLiveRoom | null>(null);
+          const pendingLiveFieldsRef = useRef<Record<string, unknown>>({});
+          const liveWriteTimerRef = useRef<number | null>(null);
+          const liveWriteInFlightRef = useRef(false);
+          const liveWriteAttemptRef = useRef(0);
+          const flushLiveSessionFieldsRef = useRef<() => void>(() => undefined);
+          """
+          if text.count(ref_anchor) != 1:
+              raise SystemExit('currentRoomRef anchor not found')
+          text = text.replace(ref_anchor, refs, 1)
+
+          pattern = re.compile(
+              r"  const updateLiveSessionFields = useCallback\(async \(fields: Record<string, unknown>\) => \{\n.*?\n  \}, \[liveRoomReference, reportSynchronizationError\]\);\n",
+              re.S,
+          )
+          replacement = """  const scheduleLiveSessionFlush = useCallback((delayMs = 320) => {
+            if (liveWriteTimerRef.current !== null) return;
+            liveWriteTimerRef.current = window.setTimeout(() => {
+              liveWriteTimerRef.current = null;
+              flushLiveSessionFieldsRef.current();
+            }, delayMs);
+          }, []);
+
+          const flushLiveSessionFields = useCallback(async () => {
+            if (!liveRoomReference || !currentRoomRef.current?.activeSession || liveWriteInFlightRef.current) return;
+            const fields = pendingLiveFieldsRef.current;
+            if (Object.keys(fields).length === 0) return;
+
+            pendingLiveFieldsRef.current = {};
+            liveWriteInFlightRef.current = true;
+            try {
+              await updateDoc(liveRoomReference, {
+                ...fields,
+                'activeSession.updatedAt': Date.now(),
+                updatedAt: Date.now(),
+              });
+              liveWriteAttemptRef.current = 0;
+              setSyncError('');
+            } catch (error) {
+              const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+              const info = classifyPlickerSyncError(error, online);
+              pendingLiveFieldsRef.current = {
+                ...fields,
+                ...pendingLiveFieldsRef.current,
+              };
+
+              if (info.retryable) {
+                const attempt = Math.min(liveWriteAttemptRef.current + 1, 6);
+                liveWriteAttemptRef.current = attempt;
+                const delayMs = Math.min(700 * (2 ** (attempt - 1)), 8_000) + Math.floor(Math.random() * 250);
+                setSyncError(info.kind === 'resource-exhausted'
+                  ? 'Firebase đang giới hạn tài nguyên. Plicker đã tự giảm tần suất ghi và sẽ đồng bộ lại; không cần bấm hoặc quét lại liên tục.'
+                  : info.message);
+                scheduleLiveSessionFlush(delayMs);
+              } else {
+                reportSynchronizationError(error);
+              }
+            } finally {
+              liveWriteInFlightRef.current = false;
+              if (Object.keys(pendingLiveFieldsRef.current).length > 0 && liveWriteTimerRef.current === null) {
+                scheduleLiveSessionFlush(320);
+              }
+            }
+          }, [liveRoomReference, reportSynchronizationError, scheduleLiveSessionFlush]);
+
+          flushLiveSessionFieldsRef.current = () => {
+            void flushLiveSessionFields();
+          };
+
+          const updateLiveSessionFields = useCallback((fields: Record<string, unknown>) => {
+            if (!liveRoomReference || !currentRoomRef.current?.activeSession) return;
+            pendingLiveFieldsRef.current = {
+              ...pendingLiveFieldsRef.current,
+              ...fields,
+            };
+            scheduleLiveSessionFlush(320);
+          }, [liveRoomReference, scheduleLiveSessionFlush]);
+
+          useEffect(() => () => {
+            if (liveWriteTimerRef.current !== null) {
+              window.clearTimeout(liveWriteTimerRef.current);
+              liveWriteTimerRef.current = null;
+            }
+            pendingLiveFieldsRef.current = {};
+          }, []);
+          """
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'updateLiveSessionFields regex matched {count} times')
+
+          if 'const heartbeat = window.setInterval(announceDevice, 45_000);' not in text:
+              raise SystemExit('heartbeat anchor not found')
+          text = text.replace(
+              'const heartbeat = window.setInterval(announceDevice, 45_000);',
+              'const heartbeat = window.setInterval(announceDevice, 120_000);',
+              1,
+          )
+
+          publish = """  const publishLiveSession = async (session: PlickerLiveSession) => {
+            if (!liveRoomReference || !ownerUid) return;
+            const previous = currentRoomRef.current;
+          """
+          publish_new = """  const publishLiveSession = async (session: PlickerLiveSession) => {
+            if (!liveRoomReference || !ownerUid) return;
+            if (liveWriteTimerRef.current !== null) {
+              window.clearTimeout(liveWriteTimerRef.current);
+              liveWriteTimerRef.current = null;
+            }
+            pendingLiveFieldsRef.current = {};
+            liveWriteAttemptRef.current = 0;
+            const previous = currentRoomRef.current;
+          """
+          if text.count(publish) != 1:
+              raise SystemExit('publishLiveSession anchor not found')
+          text = text.replace(publish, publish_new, 1)
+          path.write_text(text, encoding='utf-8')
+
+          error_path = Path('src/lib/plickerSyncError.ts')
+          error_text = error_path.read_text(encoding='utf-8')
+          type_anchor = "  | 'timeout'\n  | 'retryable'"
+          if type_anchor not in error_text:
+              raise SystemExit('error kind anchor not found')
+          error_text = error_text.replace(type_anchor, "  | 'timeout'\n  | 'resource-exhausted'\n  | 'retryable'", 1)
+
+          cases_pattern = re.compile(
+              r"    case 'aborted':\n    case 'cancelled':\n    case 'resource-exhausted':\n      return \{\n        kind: 'retryable',\n        code,\n        retryable: true,\n        message: `Firebase tạm thời chưa hoàn tất yêu cầu \(\$\{code\}\)\. Hãy thử đồng bộ lại\.`,\n      \};",
+          )
+          cases_replacement = """    case 'resource-exhausted':
+              return {
+                kind: 'resource-exhausted',
+                code,
+                retryable: true,
+                message: 'Firebase đang giới hạn tài nguyên (resource-exhausted). Plicker sẽ tự giảm tần suất ghi và thử đồng bộ lại theo nhịp an toàn.',
+              };
+            case 'aborted':
+            case 'cancelled':
+              return {
+                kind: 'retryable',
+                code,
+                retryable: true,
+                message: `Firebase tạm thời chưa hoàn tất yêu cầu (${code}). Plicker sẽ tự thử lại.`,
+              };"""
+          error_text, count = cases_pattern.subn(cases_replacement, error_text, count=1)
+          if count != 1:
+              raise SystemExit(f'resource-exhausted cases matched {count} times')
+          error_path.write_text(error_text, encoding='utf-8')
+
+          test_path = Path('scripts/test-plicker-student-sync.ts')
+          test = test_path.read_text(encoding='utf-8')
+          test_anchor = "assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');\nchecks += 10;"
+          test_new = """assert.equal(classifyPlickerSyncError({ code: 'deadline-exceeded' }, true).kind, 'timeout');
+          assert.equal(classifyPlickerSyncError({ code: 'resource-exhausted' }, true).kind, 'resource-exhausted');
+          assert.equal(classifyPlickerSyncError({ code: 'resource-exhausted' }, true).retryable, true);
+          assert.match(describePlickerSyncError({ code: 'resource-exhausted' }, true), /giới hạn tài nguyên/u);
+          checks += 13;"""
+          if test.count(test_anchor) != 1:
+              raise SystemExit('resource-exhausted test anchor not found')
+          test = test.replace(test_anchor, test_new, 1)
+
+          source_anchor = "assert.doesNotMatch(classroom, /title=\"Học sinh\" value=\\{allStudents\\.length\\}/u);"
+          source_new = """assert.match(classroom, /pendingLiveFieldsRef/u);
+          assert.match(classroom, /scheduleLiveSessionFlush\(320\)/u);
+          assert.match(classroom, /window\.setInterval\(announceDevice, 120_000\)/u);
+          checks += 3;
+          """ + source_anchor
+          if test.count(source_anchor) != 1:
+              raise SystemExit('source assertion anchor not found')
+          test = test.replace(source_anchor, source_new, 1)
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Verify Plicker load protection
+        run: npm run test:plicker-student-sync
+
+      - name: Build static ecosystem
+        run: npm run build:static
+
+      - name: Commit Plicker load protection
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/PlickerClassroom.tsx src/lib/plickerSyncError.ts scripts/test-plicker-student-sync.ts
+          git commit -m "fix: batch Plicker Firestore writes with backoff"
+          git pull --rebase origin main
+          git push origin HEAD:main
