@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   Activity, ArrowLeft, ArrowRight, BarChart3, Camera, CheckCircle2, ChevronLeft,
   ChevronRight, CircleAlert, ClipboardPaste, Download, Eye, EyeOff, FileText, FileUp,
@@ -54,7 +55,9 @@ import {
   createPlickerLiveSession,
   createPlickerQuestionKey,
   getPlickerOrphanedRosterChanges,
+  isPlickerDeviceOnline,
   isPlickerLiveSessionRunning,
+  PLICKER_DEVICE_HEARTBEAT_MS,
   mergePlickerDeletedClasses,
   mergePlickerDeletedQuestionSets,
   mergePlickerQuestionSets,
@@ -151,6 +154,19 @@ const REPORT_SETTINGS_STORAGE_KEY = 'smartclass_plicker_report_settings_v1';
 
 function createIdentifier(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getOrCreatePlickerDeviceId(ownerUid: string, role: PlickerDeviceRole): string {
+  const storageKey = `smartclass_plicker_device_v1_${ownerUid || 'guest'}_${role}`;
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved && /^[a-zA-Z0-9_-]{1,120}$/u.test(saved)) return saved;
+    const created = createIdentifier(`device-${role}`);
+    localStorage.setItem(storageKey, created);
+    return created;
+  } catch {
+    return createIdentifier(`device-${role}`);
+  }
 }
 
 function defaultQuestion(id = 1): ClassroomQuestion {
@@ -403,19 +419,21 @@ export default function PlickerClassroom({
   const [pwaPromptReady, setPwaPromptReady] = useState(hasPwaInstallationPrompt);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showPairingHelp, setShowPairingHelp] = useState(false);
+  const [scannerQrCode, setScannerQrCode] = useState('');
   const [deviceRole, setDeviceRole] = useState<PlickerDeviceRole>(() =>
     readPlickerDeviceRole(window.location.search, navigator.userAgent));
   const [liveRoom, setLiveRoom] = useState<PlickerLiveRoom | null>(null);
   const [syncReady, setSyncReady] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [presenceNow, setPresenceNow] = useState(Date.now());
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const questionImportInputRef = useRef<HTMLInputElement>(null);
   const consensusRef = useRef(new PlickerTemporalConsensus(2, 850));
   const sessionIdRef = useRef(createIdentifier('session'));
-  const deviceIdRef = useRef(createIdentifier('device'));
+  const deviceIdRef = useRef(getOrCreatePlickerDeviceId(ownerUid, deviceRole));
   const currentRoomRef = useRef<PlickerLiveRoom | null>(null);
   const followedSessionIdRef = useRef('');
   const displayedActivationKeysRef = useRef(new Set<string>());
@@ -562,6 +580,11 @@ export default function PlickerClassroom({
   }, []);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setPresenceNow(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     const markOnline = () => setIsOnline(true);
     const markOffline = () => {
       setIsOnline(false);
@@ -696,15 +719,17 @@ export default function PlickerClassroom({
     if (!syncReady || !ownerUid) return;
     const announceDevice = () => {
       if (document.hidden || !canWriteToFirestore()) return;
+      const device = { deviceId: deviceIdRef.current, updatedAt: Date.now() };
       void saveRoomFields({
         devices: {
-          [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },
+          ...(currentRoomRef.current?.devices || {}),
+          [deviceRole]: device,
         },
       });
     };
 
     announceDevice();
-    const heartbeat = window.setInterval(announceDevice, 300_000);
+    const heartbeat = window.setInterval(announceDevice, PLICKER_DEVICE_HEARTBEAT_MS);
     const onVisibilityChange = () => {
       if (!document.hidden) announceDevice();
     };
@@ -1145,7 +1170,10 @@ export default function PlickerClassroom({
       });
       followedSessionIdRef.current = session.sessionId;
       void publishLiveSession(session);
-      setNotice('Buổi học đã đồng bộ. Mở cùng tài khoản trên điện thoại và máy tính để quét và trình chiếu song song.');
+      if (deviceRole === 'display' && !isPlickerDeviceOnline(currentRoomRef.current?.devices.scanner, Date.now())) {
+        setShowPairingHelp(true);
+      }
+      setNotice('Buổi học đã sẵn sàng. Điện thoại cùng tài khoản sẽ tự nhận phiên; nếu là lần đầu, chỉ cần quét mã QR mở nhanh.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Không thể tạo buổi học đồng bộ.');
     }
@@ -1583,11 +1611,26 @@ export default function PlickerClassroom({
 
   const totalRecorded = reports.reduce((sum, report) =>
     sum + report.questions.reduce((questionSum, question) => questionSum + question.responses.length, 0), 0);
-  const scannerConnected = Boolean(liveRoom?.devices.scanner && Date.now() - liveRoom.devices.scanner.updatedAt < 120_000);
-  const displayConnected = Boolean(liveRoom?.devices.display && Date.now() - liveRoom.devices.display.updatedAt < 120_000);
+  const scannerConnected = isPlickerDeviceOnline(liveRoom?.devices.scanner, presenceNow);
+  const displayConnected = isPlickerDeviceOnline(liveRoom?.devices.display, presenceNow);
   const answerDistribution = summarizePlickerLiveAnswers(currentAnswers);
-  const scannerUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'scanner'), window.location.origin).toString();
+  const scannerUrlObject = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'scanner'), window.location.origin);
+  if (sessionInProgress) scannerUrlObject.searchParams.set('section', 'session');
+  const scannerUrl = scannerUrlObject.toString();
   const displayUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'display'), window.location.origin).toString();
+
+  useEffect(() => {
+    let cancelled = false;
+    void QRCode.toDataURL(scannerUrl, { width: 220, margin: 1, errorCorrectionLevel: 'M' })
+      .then(dataUrl => {
+        if (!cancelled) setScannerQrCode(dataUrl);
+      })
+      .catch(error => {
+        console.error('Không thể tạo mã QR kết nối điện thoại:', error);
+        if (!cancelled) setScannerQrCode('');
+      });
+    return () => { cancelled = true; };
+  }, [scannerUrl]);
 
   const installClassroomApplication = async () => {
     const result = await promptPwaInstallation();
@@ -1662,7 +1705,7 @@ export default function PlickerClassroom({
               }`}
             >
               {syncReady && isOnline && !syncError ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-              {scannerConnected && displayConnected ? 'Đã ghép 2 thiết bị' : 'Ghép điện thoại'}
+              {scannerConnected && displayConnected ? '2 thiết bị đang online' : scannerConnected ? 'Điện thoại đã sẵn sàng' : 'Kết nối điện thoại'}
             </button>
             <button type="button" onClick={openClassroomDisplay} className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-white/10">
               <MonitorPlay className="h-4 w-4" /> Màn hình lớp học
@@ -2233,15 +2276,35 @@ export default function PlickerClassroom({
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600"><Link2 className="h-6 w-6" /></div>
-                <div><h2 id="plicker-pairing-title" className="text-lg font-bold">Ghép điện thoại và màn hình máy tính</h2><p className="mt-1 text-sm text-slate-500">Đăng nhập cùng một tài khoản trên cả hai thiết bị.</p></div>
+                <div><h2 id="plicker-pairing-title" className="text-lg font-bold">Kết nối điện thoại tự động</h2><p className="mt-1 text-sm text-slate-500">Cùng tài khoản là tự nhận phiên. QR chỉ dùng để mở nhanh trên điện thoại.</p></div>
               </div>
               <button type="button" onClick={() => setShowPairingHelp(false)} aria-label="Đóng hướng dẫn ghép thiết bị" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
             </div>
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <section className="mt-5 grid gap-4 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4 sm:grid-cols-[auto_1fr] sm:items-center">
+    <div className="mx-auto flex h-[220px] w-[220px] items-center justify-center overflow-hidden rounded-2xl border border-white bg-white shadow-sm">
+      {scannerQrCode ? <img src={scannerQrCode} alt="Mã QR mở ứng dụng quét thẻ trên điện thoại" className="h-full w-full" /> : <LoaderCircle className="h-8 w-8 animate-spin text-indigo-500" />}
+    </div>
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-indigo-500">Mở nhanh một lần</p>
+      <h3 className="mt-1 text-lg font-bold text-slate-900">Quét QR bằng camera điện thoại</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-600">Sau khi đăng nhập cùng tài khoản, điện thoại tự nhận lớp, bộ câu hỏi và buổi học đang chạy. Không nhập mã phòng, không chọn lại phiên.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <a href={scannerUrl} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"><Smartphone className="h-4 w-4" />Mở trên điện thoại này</a>
+        <button
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(scannerUrl).then(() => setNotice('Đã sao chép liên kết mở nhanh trên điện thoại.')).catch(() => setNotice('Không thể sao chép tự động. Hãy dùng mã QR.'))}
+          className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700"
+        ><Link2 className="h-4 w-4" />Sao chép liên kết</button>
+      </div>
+      <p className={`mt-3 text-xs font-semibold ${scannerConnected ? 'text-emerald-700' : 'text-amber-700'}`}>{scannerConnected ? '● Điện thoại đang online và đã tự ghép' : '○ Chưa thấy điện thoại — quét QR để mở nhanh'}</p>
+    </div>
+  </section>
+
+  <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
                 <div className="flex items-center gap-2 font-semibold text-indigo-900"><Smartphone className="h-5 w-5" />1. Điện thoại quét</div>
-                <p className="mt-2 text-sm leading-6 text-indigo-800">Mở ứng dụng PWA hoặc đường dẫn dưới đây, chọn lớp rồi nhấn “Bắt đầu quét”.</p>
+                <p className="mt-2 text-sm leading-6 text-indigo-800">Mở ứng dụng/PWA. Nếu máy tính đã bắt đầu buổi học, điện thoại sẽ tự vào đúng phiên và chỉ cần nhấn nút quét.</p>
                 <a href={scannerUrl} className="mt-3 block break-all rounded-lg bg-white p-2 text-xs text-indigo-700">{scannerUrl}</a>
                 <p className={`mt-3 text-xs font-semibold ${scannerConnected ? 'text-emerald-700' : 'text-amber-700'}`}>{scannerConnected ? '● Điện thoại đã kết nối' : '○ Chưa thấy điện thoại'}</p>
               </section>
@@ -2253,7 +2316,7 @@ export default function PlickerClassroom({
               </section>
             </div>
 
-            <p className="mt-4 text-sm leading-6 text-slate-600">Điện thoại điều khiển câu hỏi, quét thẻ, hiện đáp án và biểu đồ; máy tính cập nhật đồng thời từng học sinh đã trả lời.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Khi cả hai thiết bị dùng cùng tài khoản, phiên học và trạng thái được đồng bộ tự động. Điện thoại là remote + scanner; máy tính tự trình chiếu và cập nhật kết quả theo thời gian thực.</p>
             <button type="button" onClick={() => setShowPairingHelp(false)} className="mt-5 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Đã hiểu</button>
           </div>
         </div>
