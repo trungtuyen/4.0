@@ -5,7 +5,8 @@ import { doc, setDoc, updateDoc, getDoc, getDocs, collection, serverTimestamp, d
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Start the local demo emulator and set FIRESTORE_EMULATOR_HOST=127.0.0.1:8088. Production is never used.');
 const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
-const environment = await initializeTestEnvironment({ projectId: 'demo-learning-wall', firestore: { host, port: Number(port), rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
+const rulesFile = process.env.LEARNING_WALL_RULES_FILE || 'firestore.rules';
+const environment = await initializeTestEnvironment({ projectId: 'demo-learning-wall', firestore: { host, port: Number(port), rules: readFileSync(new URL(`../${rulesFile}`, import.meta.url), 'utf8') } });
 const token = 'a'.repeat(48);
 const wallPath = `shared_learning_walls/${token}`;
 let checks = 0;
@@ -83,5 +84,5 @@ try {
   await denied(getDoc(doc(locked, 'wall_posts/private')));
   await allowed(deleteDoc(doc(first, `${wallPath}/submissions/student1`)));
   assert.equal((await getDoc(doc(first, 'wall_posts/private'))).data().score, 0);
-  console.info(`Learning Wall Firestore emulator: ${checks} permission checks passed; private legacy data preserved.`);
+  console.info(`Learning Wall Firestore emulator: ${checks} permission checks passed (${rulesFile}); private legacy data preserved.`);
 } finally { await environment.cleanup(); }

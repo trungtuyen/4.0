@@ -91,7 +91,7 @@ jobs:
           java-version: '21'
 
       - name: Verify public learning-wall submissions without login
-        run: npx --yes firebase-tools@^15.17.0 emulators:exec --project demo-learning-wall --config firebase.learning-wall.json --only firestore "npm run test:learning-wall-rules"
+        run: npx --yes firebase-tools@^15.17.0 emulators:exec --project demo-learning-wall --config firebase.learning-wall.json --only firestore "npm run test:learning-wall-rules && LEARNING_WALL_RULES_FILE=firestore.learning-wall.rules npm run test:learning-wall-rules"
 
       - name: Verify owner-scoped Plicker class and student synchronization
         run: npm run test:plicker-student-sync

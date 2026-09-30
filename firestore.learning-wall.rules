@@ -1,0 +1,219 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function emailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (emailVerified() && request.auth.token.email == 'tuyenthcskimhy@gmail.com') ||
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        ('role' in request.auth.token && request.auth.token.role == 'admin') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 &&
+        id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isActiveTeacher() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/teachers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.id == request.auth.uid &&
+        get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function ownsField(data, ownerField) {
+      return ownerField in data && isActiveTeacher() && isOwner(data[ownerField]);
+    }
+
+    function mayAccess(data, ownerField) {
+      return isAdmin() || ownsField(data, ownerField);
+    }
+
+    function ownerRemainsUnchanged(ownerField) {
+      return ownerField in existing() && ownerField in incoming() &&
+        existing()[ownerField] == incoming()[ownerField];
+    }
+
+    function wallPostOwnerIsConsistent() {
+      return !('teacherId' in incoming()) || incoming().teacherId == incoming().authorId;
+    }
+
+    function categoryOwnerIsConsistent() {
+      return !('ownerUid' in incoming()) || incoming().ownerUid == incoming().authorId;
+    }
+
+    // 1. Teachers
+    match /teachers/{teacherId} {
+      allow read, write: if true;
+    }
+
+    match /categories/{categoryId} {
+      allow read: if mayAccess(existing(), 'authorId');
+      allow create: if isAdmin() || (
+        ownsField(incoming(), 'authorId') && categoryOwnerIsConsistent()
+      );
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'authorId') && ownerRemainsUnchanged('authorId') &&
+        categoryOwnerIsConsistent()
+      );
+      allow delete: if mayAccess(existing(), 'authorId');
+    }
+
+    match /wall_posts/{postId} {
+      allow read: if mayAccess(existing(), 'authorId');
+      allow create: if isAdmin() || (
+        ownsField(incoming(), 'authorId') && wallPostOwnerIsConsistent()
+      );
+      allow update: if isAdmin() || (
+        ownsField(existing(), 'authorId') &&
+        ownerRemainsUnchanged('authorId') && wallPostOwnerIsConsistent()
+      );
+      allow delete: if mayAccess(existing(), 'authorId');
+    }
+
+    // Padlet-style boards publish an explicit projection. Private categories and
+    // wall_posts retain their existing owner-only policies above.
+    function sharedWall(shareId) {
+      return get(/databases/$(database)/documents/shared_learning_walls/$(shareId)).data;
+    }
+
+    function sharedWallIsSafe(shareId) {
+      let data = incoming();
+      return shareId.matches('^[a-f0-9]{48}$') &&
+        data.keys().hasAll(['authorId', 'title', 'description', 'icon', 'layout', 'background', 'sections', 'sectionIds', 'enabled', 'permission', 'updatedAt']) &&
+        data.keys().hasOnly(['authorId', 'title', 'description', 'icon', 'layout', 'background', 'sections', 'sectionIds', 'enabled', 'permission', 'updatedAt']) &&
+        isValidId(data.authorId) && data.title is string && data.title.size() > 0 && data.title.size() <= 180 &&
+        data.description is string && data.description.size() <= 2000 && data.icon is string && data.icon.size() <= 32 &&
+        data.layout in ['wall', 'grid', 'columns', 'stream', 'timeline', 'canvas', 'map'] &&
+        data.background in ['sage', 'cream', 'blue', 'rose', 'lavender', 'white'] &&
+        data.sections is list && data.sectionIds is list && data.sectionIds.size() > 0 && data.sectionIds.size() <= 40 &&
+        data.sections.size() == data.sectionIds.size() &&
+        isValidId(data.sectionIds[0]) &&
+        get(/databases/$(database)/documents/categories/$(data.sectionIds[0])).data.authorId == data.authorId &&
+        data.enabled is bool && data.permission in ['read', 'write'] && data.updatedAt == request.time;
+    }
+
+    function sharedWallCategoryIsSafe(shareId, categoryId) {
+      return isValidId(categoryId) && categoryId in sharedWall(shareId).sectionIds &&
+        get(/databases/$(database)/documents/categories/$(categoryId)).data.authorId == sharedWall(shareId).authorId &&
+        (categoryId == sharedWall(shareId).sectionIds[0] || get(/databases/$(database)/documents/categories/$(categoryId)).data.parentId == sharedWall(shareId).sectionIds[0]);
+    }
+
+    function sharedWallPostIsSafe(shareId) {
+      let data = incoming();
+      return data.keys().hasAll(['categoryId', 'title', 'text', 'studentName', 'imageSrc', 'attachments', 'createdAt', 'color', 'pinned']) &&
+        data.keys().hasOnly(['categoryId', 'title', 'text', 'studentName', 'imageSrc', 'attachments', 'createdAt', 'color', 'pinned', 'location', 'position']) &&
+        sharedWallCategoryIsSafe(shareId, data.categoryId) && data.title is string && data.title.size() <= 200 &&
+        data.text is string && data.text.size() <= 12000 &&
+        data.studentName is string && data.studentName.size() <= 120 &&
+        data.imageSrc is string && data.imageSrc.size() < 650000 &&
+        data.attachments is list && data.attachments.size() <= 4 && data.createdAt is number &&
+        data.color in ['#ffffff', '#fff3cc', '#e5f2e4', '#e5eefb', '#fbe5e8', '#efe6fc'] && data.pinned is bool;
+    }
+
+    function sharedWallAcceptsSubmissions(shareId) {
+      let wall = sharedWall(shareId);
+      let board = get(/databases/$(database)/documents/categories/$(wall.sectionIds[0])).data;
+      return shareId.matches('^[a-f0-9]{48}$') && wall.enabled == true && wall.permission == 'write' &&
+        (!('wallArchived' in board) || board.wallArchived == false);
+    }
+
+    function wallSubmissionIsSafe(shareId, submissionId) {
+      let data = incoming();
+      // Public visitors can only create a submission while this board accepts work.
+      // No Firebase account or anonymous-auth session is required.
+      return isValidId(submissionId) && sharedWallAcceptsSubmissions(shareId) &&
+        data.keys().hasAll(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
+        data.keys().hasOnly(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
+        data.title is string && data.title.size() <= 200 && data.text is string && data.text.size() <= 12000 &&
+        data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120 &&
+        sharedWallCategoryIsSafe(shareId, data.categoryId) &&
+        data.imageSrc is string && data.imageSrc.size() < 500000 &&
+        (data.imageSrc == '' || data.imageSrc.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$')) &&
+        data.link is string && data.link.size() <= 2048 && (data.link == '' || data.link.matches('^https?://[^\\s]+$')) &&
+        (data.title.size() > 0 || data.text.size() > 0 || data.imageSrc.size() > 0 || data.link.size() > 0) &&
+        data.createdAt == request.time;
+    }
+
+    match /shared_learning_walls/{shareId} {
+      allow get: if mayAccess(existing(), 'authorId') ||
+        (shareId.matches('^[a-f0-9]{48}$') && existing().enabled == true);
+      allow list: if mayAccess(existing(), 'authorId');
+      allow create: if mayAccess(incoming(), 'authorId') && sharedWallIsSafe(shareId);
+      allow update: if mayAccess(existing(), 'authorId') && ownerRemainsUnchanged('authorId') && sharedWallIsSafe(shareId);
+      allow delete: if mayAccess(existing(), 'authorId');
+
+      match /posts/{postId} {
+        allow read: if mayAccess(sharedWall(shareId), 'authorId') || sharedWall(shareId).enabled == true;
+        allow create, update: if mayAccess(sharedWall(shareId), 'authorId') && sharedWallPostIsSafe(shareId);
+        allow delete: if mayAccess(sharedWall(shareId), 'authorId');
+      }
+      match /submissions/{submissionId} {
+        allow read, delete: if mayAccess(sharedWall(shareId), 'authorId');
+        allow create: if wallSubmissionIsSafe(shareId, submissionId);
+        allow update: if false;
+      }
+    }
+
+
+    // 4. Exams
+    match /exams/{examId} {
+      allow read: if true;
+      allow create: if true; 
+      allow update, delete: if true; 
+    }
+
+    // 5. Classes
+    match /classes/{classId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // 6. Students
+    match /students/{studentId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // 7. Results
+    match /results/{resultId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // 8. Exam Sessions
+    match /exam_sessions/{sessionId} {
+      allow read, write: if true;
+    }
+  }
+}
