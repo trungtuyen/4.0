@@ -35,6 +35,8 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
   const board = categories.find(item => item.id === openedClassId);
   const currentBoardPosts = useMemo(() => board ? boardPosts(board, categories, posts) : [], [board, categories, posts]);
 
+  useEffect(() => { if (board?.wallDeleted) setOpenedClassId(null); }, [board?.wallDeleted]);
+
   useEffect(() => {
     setCategories([]); setOpenedClassId(null); setCategoriesReady(false); setError('');
     if (accessScope.role === 'guest') return;
@@ -81,12 +83,20 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
       if (input.wallIcon !== undefined) patch.wallIcon = input.wallIcon.slice(0, 8);
       if (input.wallLayout !== undefined) patch.wallLayout = wallLayout(input.wallLayout);
       if (input.wallBackground !== undefined) patch.wallBackground = wallBackground(input.wallBackground).id;
-      for (const key of ['wallArchived', 'wallComments', 'wallReactions'] as const) if (input[key] !== undefined) patch[key] = Boolean(input[key]);
+      for (const key of ['wallArchived', 'wallDeleted', 'wallComments', 'wallReactions'] as const) if (input[key] !== undefined) patch[key] = Boolean(input[key]);
       const batch = writeBatch(db); batch.update(doc(db, 'categories', target.id), patch);
-      if (target.wallShareId && share) batch.set(doc(db, 'shared_learning_walls', target.wallShareId), { ...sharedSettings({ ...target, ...patch }, categories, share.permission, input.wallArchived ? false : share.enabled), updatedAt: serverTimestamp() });
+      if (target.wallShareId && input.wallDeleted === true) {
+        // Close sharing atomically, including deletion from the dashboard where no share listener is active.
+        const publishedRef = doc(db, 'shared_learning_walls', target.wallShareId);
+        const published = await getDocFromServer(publishedRef);
+        if (published.exists()) batch.update(publishedRef, { enabled: false, updatedAt: serverTimestamp() });
+      } else if (target.wallShareId && share && board?.id === target.id) {
+        batch.set(doc(db, 'shared_learning_walls', target.wallShareId), { ...sharedSettings({ ...target, ...patch }, categories, share.permission, input.wallArchived || target.wallDeleted ? false : share.enabled), updatedAt: serverTimestamp() });
+      }
       await batch.commit();
     },
     async createSection(target, title) {
+      if (target.wallDeleted) throw new Error('Hãy khôi phục bảng trước khi thêm cột.');
       assertOwner(target); const ref = doc(collection(db, 'categories'));
       const section: WallCategory = { id: ref.id, title: title.slice(0, 180), parentId: target.id, authorId: target.authorId, ownerUid: target.authorId, author: target.author || displayName };
       const { id, ...data } = section; const batch = writeBatch(db); batch.set(ref, { ...data, createdAt: serverTimestamp() });
@@ -99,6 +109,7 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
       await batch.commit();
     },
     async savePost(target, input, existing) {
+      if (target.wallDeleted) throw new Error('Hãy khôi phục bảng trước khi đăng bài.');
       assertOwner(target); if (existing) assertOwner(existing);
       if (target.wallArchived) throw new Error('Hãy khôi phục bảng trước khi đăng bài.');
       const selectedCategoryId = input.categoryId || existing?.categoryId || target.id;
@@ -137,7 +148,7 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
     },
     async grade(post, score) { assertOwner(post); if (!Number.isFinite(score) || score < 0 || score > 10) throw new Error('Điểm phải nằm trong khoảng 0–10.'); await updateDoc(doc(db, 'wall_posts', post.id), { score }); },
     async share(target, permission) {
-      assertOwner(target); if (target.wallArchived) throw new Error('Hãy khôi phục bảng trước khi chia sẻ.');
+      assertOwner(target); if (target.wallArchived || target.wallDeleted) throw new Error('Hãy khôi phục bảng trước khi chia sẻ.');
       const token = target.wallShareId || newWallShareId(); const ref = doc(db, 'shared_learning_walls', token);
       if (target.wallShareId) {
         const published = await getDocFromServer(ref);

@@ -117,6 +117,8 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 
 - Đăng nhập sử dụng Firebase Authentication; ứng dụng không lưu mật khẩu dưới dạng văn bản trong Firestore.
 - Quản trị viên có thể đăng nhập bằng Google hoặc bằng email đã xác minh.
+- Đăng nhập Google có nút hủy và thời gian chờ tối đa 2 phút; lỗi cửa sổ bị chặn, mất mạng hoặc tên miền chưa được cấp phép có thông báo tiếng Việt. Cửa sổ Google sử dụng phiên Firebase tạm trong bộ nhớ; kết quả đến sau khi hủy hoặc hết giờ không thể thay đổi tài khoản của ứng dụng. Bước xác thực chính chờ tối đa 30 giây, đọc hồ sơ giáo viên chờ tối đa 15 giây và lấy dữ liệu từ máy chủ trước khi cấp quyền. Chạy `npm run test:auth-flow` để kiểm tra các trường hợp này.
+- Google provider phải được bật trong Firebase Authentication; **Authorized domains** phải có `trungtuyen.github.io`. GitHub Pages giữ `authDomain` Firebase hiện có và dùng popup; không tự chuyển sang redirect vì trình duyệt chặn lưu trữ bên thứ ba có thể làm luồng redirect không hoàn tất.
 - Repository variable `VITE_ADMIN_EMAIL` là tùy chọn. Nếu chưa cấu hình, khi nhập tên `admin` hãy điền email Firebase của quản trị viên; hoặc đăng nhập bằng Google. Sau khi quyền quản trị được Firebase/Firestore xác minh, trình duyệt ghi nhớ email cho phiên hiện tại.
 - Giáo viên mới được tạo ở trạng thái chờ duyệt; quản trị viên phải kích hoạt trước khi sử dụng thư viện.
 - Firebase chặn trực tiếp giáo viên đang chờ duyệt hoặc đã bị khóa, kể cả khi cố truy vấn dữ liệu bên ngoài giao diện; tài khoản đang sử dụng bị đăng xuất ngay khi quản trị viên vô hiệu hóa.
@@ -135,6 +137,7 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 ## Chia sẻ Tường học tập và nhận bài không cần đăng nhập
 
 - Giáo viên mở bảng → **Chia sẻ** → **Cho phép học sinh nộp bài**, sau đó gửi liên kết hoặc mã QR. Bất kỳ học sinh nào có liên kết đều có thể nhập tên và gửi nội dung, ảnh hoặc liên kết tài liệu, không cần tạo tài khoản hay đăng nhập Firebase.
+- Giáo viên có thể **Xóa bảng** ngay trong danh sách hoặc **Cài đặt bảng → Xóa lớp / bảng**. Bảng được chuyển vào **Thùng rác** của chủ sở hữu, các cột và bài làm được giữ lại, và liên kết học sinh bị tắt trong cùng một lần ghi. **Khôi phục** đưa bảng trở lại danh sách; giáo viên phải bật chia sẻ lại nếu muốn nhận bài tiếp.
 - Vai trò công khai chỉ được xem nội dung đã công khai và tạo bài nộp vào hộp chờ của đúng bảng khi chế độ nhận bài đang bật. Khách không được sửa, xóa, chấm điểm, quản lý bảng hoặc đọc các bài đang chờ duyệt. Giáo viên duyệt bài trước khi đăng lên bảng.
 - Chuyển sang **Chỉ xem** vẫn giữ liên kết hoạt động, nhưng máy chủ từ chối bài nộp mới ngay cả khi học sinh đã mở sẵn biểu mẫu. **Tắt liên kết** chặn truy cập công khai; bảng đã lưu trữ không nhận bài mới.
 - Nếu xuất hiện lỗi **Missing or insufficient permissions**, cần xuất bản quyền Tường học tập cho cơ sở dữ liệu **ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e** của dự án **gen-lang-client-0870957273**. Việc cập nhật GitHub Pages riêng lẻ không cập nhật quyền Firebase. GitHub Actions ghi rõ bước này chưa hoàn tất nếu thiếu thông tin triển khai; không cần mở quyền ghi toàn bộ cơ sở dữ liệu.

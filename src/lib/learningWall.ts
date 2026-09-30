@@ -16,6 +16,7 @@ export interface WallCategory extends TeacherOwnedRecord {
   wallLayout?: WallLayout;
   wallBackground?: string;
   wallArchived?: boolean;
+  wallDeleted?: boolean;
   wallComments?: boolean;
   wallReactions?: boolean;
   wallShareId?: string;

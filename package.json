@@ -18,6 +18,7 @@
     "test:question-pptx": "node --import tsx scripts/test-question-pptx-export.ts",
     "test:question-exam-bridge": "node --import tsx scripts/test-question-exam-bridge.ts",
     "test:platform": "node --import tsx scripts/test-platform.ts",
+    "test:auth-flow": "node --import tsx scripts/test-auth-flow.ts",
     "test:head-shake": "node --import tsx scripts/test-head-shake-questions.ts",
     "test:student-portal": "node --import tsx scripts/test-exam-student-portal.ts",
     "test:exam-privacy": "node --import tsx scripts/test-exam-privacy.ts",

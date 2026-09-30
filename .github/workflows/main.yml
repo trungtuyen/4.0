@@ -48,6 +48,9 @@ jobs:
       - name: Verify core platform and account utilities
         run: npm run test:platform
 
+      - name: Verify recoverable Google sign-in and account lookup
+        run: npm run test:auth-flow
+
       - name: Verify all 10 Question Engine scoring modes
         run: npm run test:question-engine
 

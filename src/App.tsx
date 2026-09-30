@@ -1,14 +1,16 @@
-import React, { lazy, useState, useEffect } from 'react';
+import React, { lazy, useState, useEffect, useRef } from 'react';
 import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, ListChecks, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
-import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from 'firebase/auth';
+import { collection, onSnapshot, doc, setDoc, getDocFromServer } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithCredential, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
 import PlatformFooter, { publishPlatformRegistrationMetrics } from './components/PlatformFooter';
 import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
 import { createPlickerLaunchPath, readRequestedApplication, selectApplicationManifest } from './lib/plickerPwa';
 import { synchronizeTeacherBrowserSession } from './lib/teacherIsolation';
+import { AUTH_PROFILE_TIMEOUT_MS, AUTH_REQUEST_TIMEOUT_MS, describeAuthError, waitForAuthOperation } from './lib/authFlow';
+import { requestGoogleCredential } from './lib/googleAuth';
 
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const ExamManager = lazy(() => import('./components/ExamManager'));
@@ -53,26 +55,11 @@ async function hasAdministratorAccess(user: FirebaseUser): Promise<boolean> {
   if (isVerifiedAdministrator(user)) return true;
 
   try {
-    const token = await user.getIdTokenResult();
+    const token = await waitForAuthOperation(user.getIdTokenResult(), AUTH_PROFILE_TIMEOUT_MS, 'auth/profile-timeout');
     return token.claims.admin === true || token.claims.role === 'admin';
   } catch {
     return false;
   }
-}
-
-function describeAuthError(error: unknown): string {
-  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
-  const messages: Record<string, string> = {
-    'auth/invalid-credential': 'Email hoặc mật khẩu chưa đúng. Vui lòng kiểm tra lại.',
-    'auth/invalid-email': 'Địa chỉ email chưa đúng định dạng.',
-    'auth/email-already-in-use': 'Email này đã có tài khoản. Hãy đăng nhập hoặc chọn quên mật khẩu.',
-    'auth/weak-password': 'Mật khẩu chưa đủ mạnh. Hãy sử dụng ít nhất 8 ký tự.',
-    'auth/operation-not-allowed': 'Phương thức đăng nhập chưa được bật trong Firebase Authentication.',
-    'auth/popup-closed-by-user': 'Cửa sổ đăng nhập Google đã bị đóng.',
-    'auth/unauthorized-domain': 'Tên miền website chưa được thêm vào danh sách Authorized domains của Firebase.',
-    'permission-denied': 'Tài khoản chưa được cấp quyền truy cập dữ liệu Firebase.',
-  };
-  return messages[code] || (error instanceof Error ? error.message : 'Không thể xác thực tài khoản.');
 }
 
 export default function App() {
@@ -97,12 +84,18 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<Teacher | 'admin' | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
+  const [googlePopupPending, setGooglePopupPending] = useState(false);
+  const googleAbort = useRef<AbortController | null>(null);
   const [authMessage, setAuthMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginIdentifier, setLoginIdentifier] = useState('');
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async firebaseUser => {
+    let revision = 0;
+    let disposed = false;
+    const unsubscribe = onAuthStateChanged(auth, async firebaseUser => {
+      const currentRevision = ++revision;
+      const isCurrent = () => !disposed && revision === currentRevision && auth.currentUser?.uid === firebaseUser?.uid;
       if (synchronizeTeacherBrowserSession(sessionStorage, firebaseUser?.uid)) {
         setCurrentUser(null);
         setTeachers([]);
@@ -116,27 +109,33 @@ export default function App() {
       }
 
       if (await hasAdministratorAccess(firebaseUser)) {
+        if (!isCurrent()) return;
         if (firebaseUser.email) rememberVerifiedAdministratorEmail(firebaseUser.email);
         setCurrentUser('admin');
         setAuthReady(true);
         return;
       }
 
+      if (!isCurrent()) return;
+
       setTeachers([]);
       try {
-        const profile = await getDoc(doc(db, 'teachers', firebaseUser.uid));
+        const profile = await waitForAuthOperation(getDocFromServer(doc(db, 'teachers', firebaseUser.uid)), AUTH_PROFILE_TIMEOUT_MS, 'auth/profile-timeout');
+        if (!isCurrent()) return;
         if (profile.exists() && profile.data().status === 'active') {
           setCurrentUser({ id: profile.id, ...profile.data() } as Teacher);
         } else {
           setCurrentUser(null);
         }
       } catch (error) {
+        if (!isCurrent()) return;
         console.error('Không thể kiểm tra hồ sơ giáo viên:', error);
         setCurrentUser(null);
       } finally {
-        setAuthReady(true);
+        if (isCurrent()) setAuthReady(true);
       }
     });
+    return () => { disposed = true; revision++; unsubscribe(); googleAbort.current?.abort(); };
   }, []);
 
   useEffect(() => {
@@ -201,6 +200,7 @@ export default function App() {
 
   const resolveSignedInUser = async (firebaseUser: FirebaseUser): Promise<Teacher | 'admin'> => {
     if (await hasAdministratorAccess(firebaseUser)) {
+      if (auth.currentUser?.uid !== firebaseUser.uid) throw new Error('Phiên đăng nhập đã thay đổi. Vui lòng thử lại.');
       if (firebaseUser.email) rememberVerifiedAdministratorEmail(firebaseUser.email);
       return 'admin';
     }
@@ -209,7 +209,8 @@ export default function App() {
       throw new Error('Tài khoản quản trị cần xác minh email hoặc đăng nhập bằng Google.');
     }
 
-    const profile = await getDoc(doc(db, 'teachers', firebaseUser.uid));
+    const profile = await waitForAuthOperation(getDocFromServer(doc(db, 'teachers', firebaseUser.uid)), AUTH_PROFILE_TIMEOUT_MS, 'auth/profile-timeout');
+    if (auth.currentUser?.uid !== firebaseUser.uid) throw new Error('Phiên đăng nhập đã thay đổi. Vui lòng thử lại.');
     if (!profile.exists()) {
       throw new Error('Chưa tìm thấy hồ sơ giáo viên. Vui lòng đăng ký hoặc liên hệ quản trị viên.');
     }
@@ -222,6 +223,7 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (authBusy) return;
     const formData = new FormData(e.currentTarget);
     const loginId = String(formData.get('loginId') || '').trim();
     const loginEmail = resolveAdministratorLoginEmail(loginId, {
@@ -237,8 +239,10 @@ export default function App() {
     setAuthBusy(true);
     setAuthMessage('');
 
+    let signedInUid = '';
     try {
-      const credential = await signInWithEmailAndPassword(auth, loginEmail, password);
+      const credential = await waitForAuthOperation(signInWithEmailAndPassword(auth, loginEmail, password), AUTH_REQUEST_TIMEOUT_MS, 'auth/request-timeout');
+      signedInUid = credential.user.uid;
       const verifiedUser = await resolveSignedInUser(credential.user);
       if (isAdministratorAlias(loginId) && verifiedUser !== 'admin') {
         throw new Error('Tài khoản đã đăng nhập nhưng chưa được cấp quyền quản trị.');
@@ -246,7 +250,7 @@ export default function App() {
       setCurrentUser(verifiedUser);
       setCurrentView('admin');
     } catch (error) {
-      if (auth.currentUser) await signOut(auth).catch(() => undefined);
+      if (signedInUid && auth.currentUser?.uid === signedInUid) await signOut(auth).catch(() => undefined);
       setAuthMessage(describeAuthError(error));
     } finally {
       setAuthBusy(false);
@@ -254,17 +258,30 @@ export default function App() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (authBusy) return;
+    const controller = new AbortController();
+    googleAbort.current = controller;
     setAuthBusy(true);
-    setAuthMessage('');
+    setGooglePopupPending(true);
+    setAuthMessage('Hãy chọn tài khoản và hoàn tất xác thực trong cửa sổ Google.');
+    let signedInUid = '';
     try {
-      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+      const googleCredential = await requestGoogleCredential(auth, controller.signal);
+      setGooglePopupPending(false);
+      googleAbort.current = null;
+      setAuthMessage('Đang kiểm tra tài khoản và hồ sơ giáo viên…');
+      const credential = await waitForAuthOperation(signInWithCredential(auth, googleCredential), AUTH_REQUEST_TIMEOUT_MS, 'auth/request-timeout');
+      signedInUid = credential.user.uid;
       const verifiedUser = await resolveSignedInUser(credential.user);
       setCurrentUser(verifiedUser);
+      setAuthMessage('');
       setCurrentView('admin');
     } catch (error) {
-      if (auth.currentUser) await signOut(auth).catch(() => undefined);
+      if (signedInUid && auth.currentUser?.uid === signedInUid) await signOut(auth).catch(() => undefined);
       setAuthMessage(describeAuthError(error));
     } finally {
+      googleAbort.current = null;
+      setGooglePopupPending(false);
       setAuthBusy(false);
     }
   };
@@ -505,6 +522,7 @@ export default function App() {
                 <button type="button" disabled={authBusy} onClick={handleGoogleSignIn} className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
                   Đăng nhập bằng Google
                 </button>
+                {googlePopupPending && <button type="button" onClick={() => googleAbort.current?.abort()} className="w-full rounded-lg px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100">Hủy đăng nhập Google</button>}
               </form>
             ) : (
               <form className="space-y-4" onSubmit={handleRegister}>

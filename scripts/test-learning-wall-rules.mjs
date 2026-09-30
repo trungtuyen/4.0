@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, setDoc, updateDoc, getDoc, getDocs, collection, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDoc, getDocs, collection, serverTimestamp, deleteDoc, writeBatch } from 'firebase/firestore';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Start the local demo emulator and set FIRESTORE_EMULATOR_HOST=127.0.0.1:8088. Production is never used.');
 const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
@@ -83,6 +83,24 @@ try {
   await allowed(getDoc(doc(first, `${wallPath}/submissions/student1`)));
   await denied(getDoc(doc(locked, 'wall_posts/private')));
   await allowed(deleteDoc(doc(first, `${wallPath}/submissions/student1`)));
+  // A teacher can remove their own class while closing its public link in the same commit.
+  await allowed(setDoc(doc(first, 'categories/owner-created'), { title: 'Lớp mới', authorId: 'teacher-one', ownerUid: 'teacher-one', parentId: null }));
+  await denied(updateDoc(doc(second, 'categories/owner-created'), { wallDeleted: true }));
+  await denied(updateDoc(doc(guest, 'categories/owner-created'), { wallDeleted: true }));
+  await allowed(updateDoc(doc(first, 'categories/owner-created'), { wallDeleted: true }));
+  await allowed(updateDoc(doc(first, 'categories/owner-created'), { wallDeleted: false }));
+  await allowed(updateDoc(doc(first, wallPath), { enabled: true, updatedAt: serverTimestamp() }));
+  const trash = writeBatch(first);
+  trash.update(doc(first, 'categories/class-one'), { wallDeleted: true });
+  trash.update(doc(first, wallPath), { enabled: false, updatedAt: serverTimestamp() });
+  await allowed(trash.commit());
+  await denied(getDoc(doc(guest, wallPath)));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/deleted-class`), submission));
+  await allowed(getDoc(doc(first, 'wall_posts/private')));
+  await allowed(getDoc(doc(first, 'categories/section-one')));
+  await allowed(updateDoc(doc(first, 'categories/class-one'), { wallDeleted: false }));
+  await denied(getDoc(doc(guest, wallPath)));
+  assert.equal((await getDoc(doc(first, wallPath))).data().enabled, false, 'Restoring a class never reopens sharing automatically.');
   assert.equal((await getDoc(doc(first, 'wall_posts/private'))).data().score, 0);
   console.info(`Learning Wall Firestore emulator: ${checks} permission checks passed (${rulesFile}); private legacy data preserved.`);
 } finally { await environment.cleanup(); }
