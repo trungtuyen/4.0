@@ -132,6 +132,14 @@ Máy chủ Node.js riêng vẫn là lựa chọn bổ sung cho OMR hoặc hệ t
 - `firebase.json` ghép chính xác bộ quy tắc với cơ sở dữ liệu `ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e`. Nếu repository secret `FIREBASE_SERVICE_ACCOUNT_JSON` đã được cấu hình bằng tài khoản dịch vụ có quyền Firebase Rules, GitHub Actions tự xuất bản `firestore.rules` trước khi triển khai website.
 - Nếu chưa có secret, quản trị viên Firebase vẫn phải mở dự án `gen-lang-client-0870957273`, chọn đúng cơ sở dữ liệu, dán `firestore.rules` vào **Firestore Database → Rules** rồi chọn **Publish**; hoặc đăng nhập Firebase CLI và chạy `npm run deploy:firestore`. Cho đến khi hoàn tất, máy chủ tiếp tục dùng bộ quy tắc đã triển khai trước đó.
 
+## Chia sẻ Tường học tập và nhận bài không cần đăng nhập
+
+- Giáo viên mở bảng → **Chia sẻ** → **Cho phép học sinh nộp bài**, sau đó gửi liên kết hoặc mã QR. Bất kỳ học sinh nào có liên kết đều có thể nhập tên và gửi nội dung, ảnh hoặc liên kết tài liệu, không cần tạo tài khoản hay đăng nhập Firebase.
+- Vai trò công khai chỉ được xem nội dung đã công khai và tạo bài nộp vào hộp chờ của đúng bảng khi chế độ nhận bài đang bật. Khách không được sửa, xóa, chấm điểm, quản lý bảng hoặc đọc các bài đang chờ duyệt. Giáo viên duyệt bài trước khi đăng lên bảng.
+- Chuyển sang **Chỉ xem** vẫn giữ liên kết hoạt động, nhưng máy chủ từ chối bài nộp mới ngay cả khi học sinh đã mở sẵn biểu mẫu. **Tắt liên kết** chặn truy cập công khai; bảng đã lưu trữ không nhận bài mới.
+- Nếu xuất hiện lỗi **Missing or insufficient permissions**, cần xuất bản toàn bộ [firestore.rules](./firestore.rules) cho cơ sở dữ liệu **ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e** của dự án **gen-lang-client-0870957273**. Việc cập nhật GitHub Pages riêng lẻ không cập nhật quyền Firebase. GitHub Actions ghi rõ bước này chưa hoàn tất nếu thiếu thông tin triển khai; không cần mở quyền ghi toàn bộ cơ sở dữ liệu.
+- Kiểm thử quyền trên Firestore Emulator: `npx --yes firebase-tools@^15.17.0 emulators:exec --project demo-learning-wall --config firebase.learning-wall.json --only firestore "npm run test:learning-wall-rules"` (Node.js 20+ và Java 21+). Kiểm thử dùng dữ liệu mô phỏng, không gửi bài vào bảng thật.
+
 ## Lộ trình tiếp theo
 
 1. Kích hoạt Firebase AI Logic, đăng ký App Check/reCAPTCHA Enterprise và kiểm thử Google Gemini trên website thật.

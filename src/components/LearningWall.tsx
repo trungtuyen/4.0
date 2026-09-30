@@ -1,19 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, where, getDocs, setDoc, writeBatch, runTransaction, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, where, getDocs, getDocFromServer, setDoc, writeBatch, runTransaction, orderBy, limit } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Teacher } from '../types';
 import { isPlickerSystemCategory } from '../lib/plickerLive';
 import { canAccessTeacherOwnedRecord, filterTeacherOwnedRecords, isValidTeacherUid, resolveTeacherAccessScope } from '../lib/teacherIsolation';
-import { WALL_POST_COLORS, assertWallSize, boardPosts, createWallLink, newWallShareId, readWallShareId, safeWallAttachment, safeWallImage, safeWallUrl, sharedWallPost, validWallLocation, wallBackground, wallLayout, type SharedWall, type WallCategory, type WallPost, type WallSubmission } from '../lib/learningWall';
+import { WALL_POST_COLORS, assertWallSize, boardPosts, canSubmitToSharedWall, createWallLink, newWallShareId, readWallShareId, safeWallAttachment, safeWallImage, safeWallUrl, sharedWallPost, validWallLocation, wallBackground, wallErrorMessage as errorMessage, wallLayout, type SharedWall, type WallCategory, type WallPost, type WallSubmission } from '../lib/learningWall';
 import WallBoardSurface, { type WallBoardActions } from './learning-wall/WallBoardSurface';
 
 interface Props { onBack: () => void; currentUser?: Teacher | 'admin' | null; onLogin?: () => void }
-function errorMessage(error: unknown): string {
-  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-  if (code.includes('permission-denied')) return 'Không có quyền truy cập hoặc quy tắc chia sẻ chưa được triển khai. Vui lòng kiểm tra tài khoản và cấu hình Firebase.';
-  if (code.includes('unavailable')) return 'Chưa kết nối được máy chủ. Vui lòng kiểm tra mạng và thử lại.';
-  return error instanceof Error ? error.message : 'Không thể hoàn tất thao tác. Vui lòng thử lại.';
-}
 function useOnline() {
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => { const update = () => setOnline(navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
@@ -144,8 +138,17 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
     async grade(post, score) { assertOwner(post); if (!Number.isFinite(score) || score < 0 || score > 10) throw new Error('Điểm phải nằm trong khoảng 0–10.'); await updateDoc(doc(db, 'wall_posts', post.id), { score }); },
     async share(target, permission) {
       assertOwner(target); if (target.wallArchived) throw new Error('Hãy khôi phục bảng trước khi chia sẻ.');
-      const sourcePosts = boardPosts(target, categories, posts); if (sourcePosts.length > 150) throw new Error('Một bảng chia sẻ tối đa 150 bài. Hãy chia nội dung thành các bảng nhỏ hơn.');
       const token = target.wallShareId || newWallShareId(); const ref = doc(db, 'shared_learning_walls', token);
+      if (target.wallShareId) {
+        const published = await getDocFromServer(ref);
+        if (published.exists() && published.data().enabled === true) {
+          // Changing submission mode keeps the link readable and its guest listeners alive.
+          await updateDoc(ref, { ...sharedSettings(target, categories, permission, true), updatedAt: serverTimestamp() });
+          setError('');
+          return;
+        }
+      }
+      const sourcePosts = boardPosts(target, categories, posts); if (sourcePosts.length > 150) throw new Error('Một bảng chia sẻ tối đa 150 bài. Hãy chia nội dung thành các bảng nhỏ hơn.');
       // Disable before uploading; readers never see a partly refreshed publication.
       await setDoc(ref, { ...sharedSettings(target, categories, permission, false), updatedAt: serverTimestamp() });
       const old = await getDocs(collection(ref, 'posts')); const keep = new Set(sourcePosts.map(post => post.id));
@@ -203,20 +206,20 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
     createBoard: unavailable, updateBoard: unavailable, createSection: unavailable, renameSection: unavailable, removePost: unavailable, react: unavailable, comment: unavailable, grade: unavailable, share: unavailable, revoke: unavailable, review: unavailable,
     async savePost(target, input) {
       if (!online) throw new Error('Hãy kết nối lại mạng trước khi gửi bài.');
-      if (!shared?.enabled || shared.permission !== 'write') throw new Error('Giáo viên chưa mở nhận bài.');
+      if (!canSubmitToSharedWall(shared)) throw new Error('Giáo viên chưa mở nhận bài.');
       if (Date.now() - lastSubmit.current < 10_000) throw new Error('Hãy chờ ít giây trước khi gửi bài tiếp theo.');
       if (!input.categoryId || !shared.sectionIds.includes(input.categoryId)) throw new Error('Cột nhận bài chưa hợp lệ.');
       const images = (input.attachments || []).filter(item => item.kind === 'image'); const links = (input.attachments || []).filter(item => item.kind !== 'image');
       if (images.length > 1 || links.length > 1) throw new Error('Mỗi bài nhận một ảnh và một liên kết.');
       const data = { title: (input.title || '').trim().slice(0, 200), text: (input.text || '').trim().slice(0, 12000), studentName: (input.studentName || '').trim().slice(0, 120), categoryId: input.categoryId, imageSrc: images[0] ? safeWallImage(images[0].url) : '', link: links[0] ? safeWallUrl(links[0].url) : '' };
       if (!data.studentName || (!data.title && !data.text && !data.imageSrc && !data.link)) throw new Error('Hãy nhập tên và nội dung bài gửi.'); assertWallSize(data);
-      try { await addDoc(collection(db, 'shared_learning_walls', token, 'submissions'), { ...data, createdAt: serverTimestamp() }); lastSubmit.current = Date.now(); } catch (error) { throw new Error(errorMessage(error)); }
+      try { await addDoc(collection(db, 'shared_learning_walls', token, 'submissions'), { ...data, createdAt: serverTimestamp() }); lastSubmit.current = Date.now(); } catch (error) { throw new Error(errorMessage(error, true)); }
     },
   };
   if (!shared) return <div className="lw-app"><div className="lw-main"><div className="lw-empty"><h1>Tường học tập</h1><p role={error ? 'alert' : 'status'}>{loading ? 'Đang mở bảng được chia sẻ…' : error}</p><button className="lw-button" onClick={onBack}>Về trang chủ</button></div></div></div>;
   const rootId = shared.sectionIds[0];
   const categories: WallCategory[] = [{ id: rootId, title: shared.title, wallDescription: shared.description, wallIcon: shared.icon, wallLayout: wallLayout(shared.layout), wallBackground: shared.background }, ...shared.sections.filter(item => item.id !== rootId).map(item => ({ ...item, parentId: rootId }))];
-  return <WallBoardSurface categories={categories} posts={posts} boardId={rootId} onOpen={() => undefined} onBack={onBack} displayName="Khách" ownerUid="" guest guestCanPost={shared.permission === 'write'} loading={!ready} error={error} offline={!online} actions={actions} />;
+  return <WallBoardSurface categories={categories} posts={posts} boardId={rootId} onOpen={() => undefined} onBack={onBack} displayName="Công khai" ownerUid="" guest guestCanPost={canSubmitToSharedWall(shared)} loading={!ready} error={error} offline={!online} actions={actions} />;
 }
 
 export default function LearningWall(props: Props) {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { boardPosts, createWallLink, newWallShareId, readWallShareId, safeWallUrl, safeWallImage, safeWallAttachment, sharedWallPost, exportWallCsv, orderWallPosts, reactionCount, validWallLocation, assertWallSize, youtubeEmbed, type WallCategory, type WallPost } from '../src/lib/learningWall.ts';
+import { boardPosts, canSubmitToSharedWall, createWallLink, newWallShareId, readWallShareId, safeWallUrl, safeWallImage, safeWallAttachment, sharedWallPost, exportWallCsv, orderWallPosts, reactionCount, validWallLocation, assertWallSize, youtubeEmbed, type WallCategory, type WallPost } from '../src/lib/learningWall.ts';
 
 const board: WallCategory = { id: 'class-one', title: 'Lớp 8A', authorId: 'teacher-one' };
 const categories: WallCategory[] = [board, { id: 'section-one', title: 'Nhóm 1', parentId: board.id, authorId: 'teacher-one' }, { id: 'foreign', title: 'Không được lấy', parentId: board.id, authorId: 'teacher-two' }];
@@ -27,4 +27,9 @@ assert.throws(() => assertWallSize({ text: 'a'.repeat(800_000) }));
 assert.equal(validWallLocation(21.5, 105.7), true); assert.equal(validWallLocation(NaN, 105), false); assert.equal(validWallLocation(91, 0), false);
 const token = newWallShareId(); assert.match(token, /^[a-f0-9]{48}$/); assert.equal(readWallShareId(`#wall=${token}`), token); assert.equal(readWallShareId('#wall=guess'), '');
 const url = new URL(createWallLink('/4.0/', 'https://school.test', token)); assert.equal(url.searchParams.get('app'), 'learning-wall'); assert.equal(url.hash, `#wall=${token}`); assert.ok(!url.search.includes(token));
+assert.equal(canSubmitToSharedWall(null), false);
+assert.equal(canSubmitToSharedWall({ enabled: true, permission: 'write' }), true);
+assert.equal(canSubmitToSharedWall({ enabled: true, permission: 'read' }), false);
+assert.equal(canSubmitToSharedWall({ enabled: false, permission: 'write' }), false);
+assert.equal(canSubmitToSharedWall({ enabled: false, permission: 'read' }), false);
 console.info('Learning Wall: legacy compatibility, owner isolation, redaction, media safety, CSV, layouts and sharing tests passed.');

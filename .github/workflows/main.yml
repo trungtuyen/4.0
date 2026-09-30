@@ -84,6 +84,15 @@ jobs:
       - name: Verify Padlet-style learning wall compatibility and redaction
         run: npm run test:learning-wall
 
+      - name: Setup Java for the Firestore emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Verify public learning-wall submissions without login
+        run: npx --yes firebase-tools@^15.17.0 emulators:exec --project demo-learning-wall --config firebase.learning-wall.json --only firestore "npm run test:learning-wall-rules"
+
       - name: Verify owner-scoped Plicker class and student synchronization
         run: npm run test:plicker-student-sync
 
@@ -110,6 +119,11 @@ jobs:
         run: |
           if [[ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]]; then
             echo "::warning::Firestore rules were not published. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
+            {
+              echo "### Learning Wall: Firebase permission setup required"
+              echo "The website build passed, but public sharing and submissions require the current Firestore rules."
+              echo "Publish firestore.rules in project gen-lang-client-0870957273, database ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e, or configure FIREBASE_SERVICE_ACCOUNT_JSON."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 

@@ -296,9 +296,18 @@ service cloud.firestore {
         data.color in ['#ffffff', '#fff3cc', '#e5f2e4', '#e5eefb', '#fbe5e8', '#efe6fc'] && data.pinned is bool;
     }
 
+    function sharedWallAcceptsSubmissions(shareId) {
+      let wall = sharedWall(shareId);
+      let board = get(/databases/$(database)/documents/categories/$(wall.sectionIds[0])).data;
+      return shareId.matches('^[a-f0-9]{48}$') && wall.enabled == true && wall.permission == 'write' &&
+        (!('wallArchived' in board) || board.wallArchived == false);
+    }
+
     function wallSubmissionIsSafe(shareId, submissionId) {
       let data = incoming();
-      return isValidId(submissionId) && sharedWall(shareId).enabled == true && sharedWall(shareId).permission == 'write' &&
+      // Public visitors can only create a submission while this board accepts work.
+      // No Firebase account or anonymous-auth session is required.
+      return isValidId(submissionId) && sharedWallAcceptsSubmissions(shareId) &&
         data.keys().hasAll(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
         data.keys().hasOnly(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
         data.title is string && data.title.size() <= 200 && data.text is string && data.text.size() <= 12000 &&

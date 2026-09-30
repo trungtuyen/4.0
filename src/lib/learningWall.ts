@@ -75,6 +75,22 @@ export interface WallSubmission {
   createdAt?: unknown;
 }
 
+export function canSubmitToSharedWall(wall?: Pick<SharedWall, 'enabled' | 'permission'> | null): boolean {
+  return wall?.enabled === true && wall.permission === 'write';
+}
+
+export function wallErrorMessage(error: unknown, publicSubmission = false): string {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  const message = error instanceof Error ? error.message : '';
+  if (code.includes('permission-denied') || /missing or insufficient permissions/i.test(message)) {
+    return publicSubmission
+      ? 'Chưa gửi được bài. Giáo viên có thể đã tắt nhận bài hoặc quyền nhận bài công khai chưa được bật trên máy chủ. Em không cần đăng nhập; hãy báo cho giáo viên kiểm tra.'
+      : 'Máy chủ chưa cấp quyền cho thao tác này. Quản trị viên cần kiểm tra tài khoản và xuất bản quy tắc Firebase cho Tường học tập trên đúng cơ sở dữ liệu của ứng dụng.';
+  }
+  if (code.includes('unavailable')) return 'Chưa kết nối được máy chủ. Vui lòng kiểm tra mạng và thử lại.';
+  return message || 'Không thể hoàn tất thao tác. Vui lòng thử lại.';
+}
+
 export const WALL_LAYOUTS: { id: WallLayout; label: string; description: string }[] = [
   { id: 'wall', label: 'Tường', description: 'Các thẻ tự xếp theo chiều cao' },
   { id: 'grid', label: 'Lưới', description: 'Các bài đăng thẳng hàng' },
