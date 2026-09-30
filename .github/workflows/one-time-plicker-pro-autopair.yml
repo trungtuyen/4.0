@@ -1,0 +1,328 @@
+name: One-time Plicker Pro auto-pair upgrade
+
+on:
+  push:
+    branches:
+      - feat/plicker-pro-autopair
+    paths:
+      - .github/workflows/one-time-plicker-pro-autopair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply Pro auto-pair upgrade
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          live_path = Path('src/lib/plickerLive.ts')
+          live = live_path.read_text(encoding='utf-8')
+
+          anchor = "const MAX_CARD_ID = 63;\n"
+          addition = """const MAX_CARD_ID = 63;
+
+          export const PLICKER_DEVICE_HEARTBEAT_MS = 25_000;
+          export const PLICKER_DEVICE_STALE_MS = 70_000;
+
+          export function isPlickerDeviceOnline(
+            device: PlickerLiveDevice | null | undefined,
+            now = Date.now(),
+            staleMs = PLICKER_DEVICE_STALE_MS,
+          ): boolean {
+            return Boolean(
+              device?.deviceId &&
+              Number.isFinite(device.updatedAt) &&
+              device.updatedAt > 0 &&
+              Number.isFinite(staleMs) &&
+              staleMs > 0 &&
+              now - device.updatedAt <= staleMs,
+            );
+          }
+          """
+          if live.count(anchor) != 1:
+              raise SystemExit('MAX_CARD_ID anchor not found')
+          live = live.replace(anchor, addition, 1)
+          live_path.write_text(live, encoding='utf-8')
+
+          path = Path('src/components/PlickerClassroom.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          react_anchor = "import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';\n"
+          react_new = react_anchor + "import QRCode from 'qrcode';\n"
+          if text.count(react_anchor) != 1:
+              raise SystemExit('React import anchor not found')
+          text = text.replace(react_anchor, react_new, 1)
+
+          live_import_anchor = "  getPlickerOrphanedRosterChanges,\n  isPlickerLiveSessionRunning,\n"
+          live_import_new = "  getPlickerOrphanedRosterChanges,\n  isPlickerDeviceOnline,\n  isPlickerLiveSessionRunning,\n  PLICKER_DEVICE_HEARTBEAT_MS,\n"
+          if text.count(live_import_anchor) != 1:
+              raise SystemExit('plicker live import anchor not found')
+          text = text.replace(live_import_anchor, live_import_new, 1)
+
+          identifier_anchor = """function createIdentifier(prefix: string): string {
+            return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          }
+          """
+          identifier_new = identifier_anchor + """
+          function getOrCreatePlickerDeviceId(ownerUid: string, role: PlickerDeviceRole): string {
+            const storageKey = `smartclass_plicker_device_v1_${ownerUid || 'guest'}_${role}`;
+            try {
+              const saved = localStorage.getItem(storageKey);
+              if (saved && /^[a-zA-Z0-9_-]{1,120}$/u.test(saved)) return saved;
+              const created = createIdentifier(`device-${role}`);
+              localStorage.setItem(storageKey, created);
+              return created;
+            } catch {
+              return createIdentifier(`device-${role}`);
+            }
+          }
+          """
+          if text.count(identifier_anchor) != 1:
+              raise SystemExit('createIdentifier anchor not found')
+          text = text.replace(identifier_anchor, identifier_new, 1)
+
+          pairing_state_anchor = "  const [showPairingHelp, setShowPairingHelp] = useState(false);\n"
+          pairing_state_new = pairing_state_anchor + "  const [scannerQrCode, setScannerQrCode] = useState('');\n"
+          if text.count(pairing_state_anchor) != 1:
+              raise SystemExit('pairing state anchor not found')
+          text = text.replace(pairing_state_anchor, pairing_state_new, 1)
+
+          online_state_anchor = "  const [isOnline, setIsOnline] = useState(navigator.onLine);\n"
+          online_state_new = online_state_anchor + "  const [presenceNow, setPresenceNow] = useState(Date.now());\n"
+          if text.count(online_state_anchor) != 1:
+              raise SystemExit('online state anchor not found')
+          text = text.replace(online_state_anchor, online_state_new, 1)
+
+          device_anchor = "  const deviceIdRef = useRef(createIdentifier('device'));\n"
+          device_new = "  const deviceIdRef = useRef(getOrCreatePlickerDeviceId(ownerUid, deviceRole));\n"
+          if text.count(device_anchor) != 1:
+              raise SystemExit('device id anchor not found')
+          text = text.replace(device_anchor, device_new, 1)
+
+          online_effect_anchor = """  useEffect(() => {
+            const markOnline = () => setIsOnline(true);
+          """
+          presence_effect = """  useEffect(() => {
+            const timer = window.setInterval(() => setPresenceNow(Date.now()), 10_000);
+            return () => window.clearInterval(timer);
+          }, []);
+
+          """ + online_effect_anchor
+          if text.count(online_effect_anchor) != 1:
+              raise SystemExit('online effect anchor not found')
+          text = text.replace(online_effect_anchor, presence_effect, 1)
+
+          announce_anchor = """      void saveRoomFields({
+                devices: {
+                  [deviceRole]: { deviceId: deviceIdRef.current, updatedAt: Date.now() },
+                },
+              });
+          """
+          announce_new = """      const device = { deviceId: deviceIdRef.current, updatedAt: Date.now() };
+              void saveRoomFields({
+                devices: {
+                  ...(currentRoomRef.current?.devices || {}),
+                  [deviceRole]: device,
+                },
+              });
+          """
+          if text.count(announce_anchor) != 1:
+              raise SystemExit('announceDevice payload anchor not found')
+          text = text.replace(announce_anchor, announce_new, 1)
+
+          heartbeat_anchor = "const heartbeat = window.setInterval(announceDevice, 300_000);"
+          heartbeat_new = "const heartbeat = window.setInterval(announceDevice, PLICKER_DEVICE_HEARTBEAT_MS);"
+          if text.count(heartbeat_anchor) != 1:
+              raise SystemExit('heartbeat anchor not found')
+          text = text.replace(heartbeat_anchor, heartbeat_new, 1)
+
+          start_notice_anchor = """      void publishLiveSession(session);
+              setNotice('Buổi học đã đồng bộ. Mở cùng tài khoản trên điện thoại và máy tính để quét và trình chiếu song song.');
+          """
+          start_notice_new = """      void publishLiveSession(session);
+              if (deviceRole === 'display' && !isPlickerDeviceOnline(currentRoomRef.current?.devices.scanner, Date.now())) {
+                setShowPairingHelp(true);
+              }
+              setNotice('Buổi học đã sẵn sàng. Điện thoại cùng tài khoản sẽ tự nhận phiên; nếu là lần đầu, chỉ cần quét mã QR mở nhanh.');
+          """
+          if text.count(start_notice_anchor) != 1:
+              raise SystemExit('start session notice anchor not found')
+          text = text.replace(start_notice_anchor, start_notice_new, 1)
+
+          connected_anchor = """  const scannerConnected = Boolean(liveRoom?.devices.scanner && Date.now() - liveRoom.devices.scanner.updatedAt < 120_000);
+            const displayConnected = Boolean(liveRoom?.devices.display && Date.now() - liveRoom.devices.display.updatedAt < 120_000);
+            const answerDistribution = summarizePlickerLiveAnswers(currentAnswers);
+            const scannerUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'scanner'), window.location.origin).toString();
+            const displayUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'display'), window.location.origin).toString();
+          """
+          connected_new = """  const scannerConnected = isPlickerDeviceOnline(liveRoom?.devices.scanner, presenceNow);
+            const displayConnected = isPlickerDeviceOnline(liveRoom?.devices.display, presenceNow);
+            const answerDistribution = summarizePlickerLiveAnswers(currentAnswers);
+            const scannerUrlObject = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'scanner'), window.location.origin);
+            if (sessionInProgress) scannerUrlObject.searchParams.set('section', 'session');
+            const scannerUrl = scannerUrlObject.toString();
+            const displayUrl = new URL(createPlickerDevicePath(import.meta.env.BASE_URL, 'display'), window.location.origin).toString();
+
+            useEffect(() => {
+              let cancelled = false;
+              void QRCode.toDataURL(scannerUrl, { width: 220, margin: 1, errorCorrectionLevel: 'M' })
+                .then(dataUrl => {
+                  if (!cancelled) setScannerQrCode(dataUrl);
+                })
+                .catch(error => {
+                  console.error('Không thể tạo mã QR kết nối điện thoại:', error);
+                  if (!cancelled) setScannerQrCode('');
+                });
+              return () => { cancelled = true; };
+            }, [scannerUrl]);
+          """
+          if text.count(connected_anchor) != 1:
+              raise SystemExit('connected status anchor not found')
+          text = text.replace(connected_anchor, connected_new, 1)
+
+          pair_button_anchor = "{scannerConnected && displayConnected ? 'Đã ghép 2 thiết bị' : 'Ghép điện thoại'}"
+          pair_button_new = "{scannerConnected && displayConnected ? '2 thiết bị đang online' : scannerConnected ? 'Điện thoại đã sẵn sàng' : 'Kết nối điện thoại'}"
+          if text.count(pair_button_anchor) != 1:
+              raise SystemExit('pair button anchor not found')
+          text = text.replace(pair_button_anchor, pair_button_new, 1)
+
+          modal_intro_anchor = """                <div><h2 id="plicker-pairing-title" className="text-lg font-bold">Ghép điện thoại và màn hình máy tính</h2><p className="mt-1 text-sm text-slate-500">Đăng nhập cùng một tài khoản trên cả hai thiết bị.</p></div>
+          """
+          modal_intro_new = """                <div><h2 id="plicker-pairing-title" className="text-lg font-bold">Kết nối điện thoại tự động</h2><p className="mt-1 text-sm text-slate-500">Cùng tài khoản là tự nhận phiên. QR chỉ dùng để mở nhanh trên điện thoại.</p></div>
+          """
+          if text.count(modal_intro_anchor) != 1:
+              raise SystemExit('pairing modal intro anchor not found')
+          text = text.replace(modal_intro_anchor, modal_intro_new, 1)
+
+          modal_grid_anchor = """            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          """
+          modal_grid_new = """            <section className="mt-5 grid gap-4 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4 sm:grid-cols-[auto_1fr] sm:items-center">
+              <div className="mx-auto flex h-[220px] w-[220px] items-center justify-center overflow-hidden rounded-2xl border border-white bg-white shadow-sm">
+                {scannerQrCode ? <img src={scannerQrCode} alt="Mã QR mở ứng dụng quét thẻ trên điện thoại" className="h-full w-full" /> : <LoaderCircle className="h-8 w-8 animate-spin text-indigo-500" />}
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-indigo-500">Mở nhanh một lần</p>
+                <h3 className="mt-1 text-lg font-bold text-slate-900">Quét QR bằng camera điện thoại</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Sau khi đăng nhập cùng tài khoản, điện thoại tự nhận lớp, bộ câu hỏi và buổi học đang chạy. Không nhập mã phòng, không chọn lại phiên.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a href={scannerUrl} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"><Smartphone className="h-4 w-4" />Mở trên điện thoại này</a>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(scannerUrl).then(() => setNotice('Đã sao chép liên kết mở nhanh trên điện thoại.')).catch(() => setNotice('Không thể sao chép tự động. Hãy dùng mã QR.'))}
+                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700"
+                  ><Link2 className="h-4 w-4" />Sao chép liên kết</button>
+                </div>
+                <p className={`mt-3 text-xs font-semibold ${scannerConnected ? 'text-emerald-700' : 'text-amber-700'}`}>{scannerConnected ? '● Điện thoại đang online và đã tự ghép' : '○ Chưa thấy điện thoại — quét QR để mở nhanh'}</p>
+              </div>
+            </section>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          """
+          if text.count(modal_grid_anchor) != 1:
+              raise SystemExit('pairing modal grid anchor not found')
+          text = text.replace(modal_grid_anchor, modal_grid_new, 1)
+
+          scanner_copy_anchor = "Mở ứng dụng PWA hoặc đường dẫn dưới đây, chọn lớp rồi nhấn “Bắt đầu quét”."
+          scanner_copy_new = "Mở ứng dụng/PWA. Nếu máy tính đã bắt đầu buổi học, điện thoại sẽ tự vào đúng phiên và chỉ cần nhấn nút quét."
+          if text.count(scanner_copy_anchor) != 1:
+              raise SystemExit('scanner pairing copy anchor not found')
+          text = text.replace(scanner_copy_anchor, scanner_copy_new, 1)
+
+          footer_copy_anchor = "Điện thoại điều khiển câu hỏi, quét thẻ, hiện đáp án và biểu đồ; máy tính cập nhật đồng thời từng học sinh đã trả lời."
+          footer_copy_new = "Khi cả hai thiết bị dùng cùng tài khoản, phiên học và trạng thái được đồng bộ tự động. Điện thoại là remote + scanner; máy tính tự trình chiếu và cập nhật kết quả theo thời gian thực."
+          if text.count(footer_copy_anchor) != 1:
+              raise SystemExit('pairing footer copy anchor not found')
+          text = text.replace(footer_copy_anchor, footer_copy_new, 1)
+
+          path.write_text(text, encoding='utf-8')
+
+          test_path = Path('scripts/test-plicker-live.ts')
+          test = test_path.read_text(encoding='utf-8')
+
+          test_import_anchor = """  getPlickerLiveResponses,
+            isPlickerLiveSessionRunning,
+          """
+          test_import_new = """  getPlickerLiveResponses,
+            isPlickerDeviceOnline,
+            isPlickerLiveSessionRunning,
+            PLICKER_DEVICE_HEARTBEAT_MS,
+            PLICKER_DEVICE_STALE_MS,
+          """
+          if test.count(test_import_anchor) != 1:
+              raise SystemExit('test import anchor not found')
+          test = test.replace(test_import_anchor, test_import_new, 1)
+
+          test_anchor = """assert.equal(createPlickerDevicePath('/4.0/', 'scanner'), '/4.0/?app=plicker&role=scanner');
+          assert.equal(createPlickerDevicePath('/4.0', 'display'), '/4.0/?app=plicker&role=display');
+          """
+          test_new = test_anchor + """assert.equal(PLICKER_DEVICE_HEARTBEAT_MS < PLICKER_DEVICE_STALE_MS, true);
+          assert.equal(isPlickerDeviceOnline(undefined, 1_000), false);
+          assert.equal(isPlickerDeviceOnline({ deviceId: 'phone', updatedAt: 950 }, 1_000, 100), true);
+          assert.equal(isPlickerDeviceOnline({ deviceId: 'phone', updatedAt: 800 }, 1_000, 100), false);
+          """
+          if test.count(test_anchor) != 1:
+              raise SystemExit('device path tests anchor not found')
+          test = test.replace(test_anchor, test_new, 1)
+
+          check_anchor = "checks += 14;"
+          if test.count(check_anchor) != 1:
+              raise SystemExit('early checks anchor not found')
+          test = test.replace(check_anchor, "checks += 18;", 1)
+
+          source_anchor = """assert.match(classroomSource, /onSnapshot\\(liveRoomReference/);
+          """
+          source_new = """assert.match(classroomSource, /QRCode\\.toDataURL\\(scannerUrl/);
+          assert.match(classroomSource, /PLICKER_DEVICE_HEARTBEAT_MS/);
+          assert.match(classroomSource, /getOrCreatePlickerDeviceId/);
+          assert.match(classroomSource, /isPlickerDeviceOnline/);
+          checks += 4;
+          """ + source_anchor
+          if test.count(source_anchor) != 1:
+              raise SystemExit('source assertions anchor not found')
+          test = test.replace(source_anchor, source_new, 1)
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Verify live pairing
+        run: npm run test:plicker-live
+
+      - name: Verify mobile scanner
+        run: npm run test:plicker-mobile
+
+      - name: Verify display
+        run: npm run test:plicker-display
+
+      - name: Verify PWA
+        run: npm run test:pwa
+
+      - name: Build static ecosystem
+        run: npm run build:static
+
+      - name: Commit Pro auto-pair upgrade
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/plickerLive.ts src/components/PlickerClassroom.tsx scripts/test-plicker-live.ts
+          git commit -m "feat: automate Plicker companion pairing"
+          git pull --rebase origin feat/plicker-pro-autopair
+          git push origin HEAD:feat/plicker-pro-autopair
