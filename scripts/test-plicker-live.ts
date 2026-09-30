@@ -7,7 +7,10 @@ import {
   createPlickerLiveSession,
   createPlickerQuestionKey,
   getPlickerLiveResponses,
+  isPlickerDeviceOnline,
   isPlickerLiveSessionRunning,
+  PLICKER_DEVICE_HEARTBEAT_MS,
+  PLICKER_DEVICE_STALE_MS,
   isPlickerSystemCategory,
   mergePlickerDeletedClasses,
   mergePlickerDeletedQuestionSets,
@@ -49,9 +52,13 @@ assert.equal(readPlickerDeviceRole('?app=plicker', 'Mozilla/5.0 (Linux; Android 
 assert.equal(readPlickerDeviceRole('?app=plicker', 'Mozilla/5.0 (Windows NT 10.0)'), 'display');
 assert.equal(createPlickerDevicePath('/4.0/', 'scanner'), '/4.0/?app=plicker&role=scanner');
 assert.equal(createPlickerDevicePath('/4.0', 'display'), '/4.0/?app=plicker&role=display');
+assert.equal(PLICKER_DEVICE_HEARTBEAT_MS < PLICKER_DEVICE_STALE_MS, true);
+assert.equal(isPlickerDeviceOnline(undefined, 1_000), false);
+assert.equal(isPlickerDeviceOnline({ deviceId: 'phone', updatedAt: 950 }, 1_000, 100), true);
+assert.equal(isPlickerDeviceOnline({ deviceId: 'phone', updatedAt: 800 }, 1_000, 100), false);
 assert.equal(createPlickerQuestionKey('set-01', 2), 'set-01:2');
 assert.throws(() => createPlickerQuestionKey('set.bad', 2));
-checks += 14;
+checks += 18;
 
 const roster: PlickerLiveStudent[] = [
   { id: 'student-an', classId: 'class-8a', name: 'An', cardId: 1 },
@@ -209,6 +216,11 @@ const classroomSource = readFileSync(new URL('../src/components/PlickerClassroom
 const displaySource = readFileSync(new URL('../src/components/PlickerDisplayScreen.tsx', import.meta.url), 'utf8');
 const dashboardSource = readFileSync(new URL('../src/components/AdminDashboard.tsx', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('../public/plicker.webmanifest', import.meta.url), 'utf8')) as { start_url: string };
+assert.match(classroomSource, /QRCode\.toDataURL\(scannerUrl/);
+assert.match(classroomSource, /PLICKER_DEVICE_HEARTBEAT_MS/);
+assert.match(classroomSource, /getOrCreatePlickerDeviceId/);
+assert.match(classroomSource, /isPlickerDeviceOnline/);
+checks += 4;
 assert.match(classroomSource, /onSnapshot\(liveRoomReference/);
 assert.match(classroomSource, /doc\(db, 'categories', createPlickerLiveRoomId\(ownerUid\)\)/);
 assert.match(classroomSource, /activeSession\.answersByQuestion/);

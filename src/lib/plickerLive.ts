@@ -86,6 +86,24 @@ const ROOM_PREFIX = 'plicker-live-';
 const ANSWERS = new Set<PlickerAnswer>(['A', 'B', 'C', 'D']);
 const MAX_CARD_ID = 63;
 
+export const PLICKER_DEVICE_HEARTBEAT_MS = 120_000;
+export const PLICKER_DEVICE_STALE_MS = 300_000;
+
+export function isPlickerDeviceOnline(
+  device: PlickerLiveDevice | null | undefined,
+  now = Date.now(),
+  staleMs = PLICKER_DEVICE_STALE_MS,
+): boolean {
+  return Boolean(
+    device?.deviceId &&
+    Number.isFinite(device.updatedAt) &&
+    device.updatedAt > 0 &&
+    Number.isFinite(staleMs) &&
+    staleMs > 0 &&
+    now - device.updatedAt <= staleMs,
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
