@@ -114,18 +114,16 @@ jobs:
               "  const deviceIdRef = useRef(getOrCreatePlickerDeviceId(ownerUid, deviceRole));\n",
               'device id',
           )
-          marker = "    const markOnline = () => setIsOnline(true);"
-          text = replace_once(
-              text,
-              marker,
+
+          online_anchor = "  useEffect(() => {\n    const markOnline = () => setIsOnline(true);"
+          online_replacement = (
               "  useEffect(() => {\n"
               "    const timer = window.setInterval(() => setPresenceNow(Date.now()), 10_000);\n"
               "    return () => window.clearInterval(timer);\n"
               "  }, []);\n\n"
-              "  useEffect(() => {\n"
-              + marker,
-              'online effect',
+              + online_anchor
           )
+          text = replace_once(text, online_anchor, online_replacement, 'online effect')
 
           announce_pattern = re.compile(
               r"      void saveRoomFields\(\{\n\s+devices: \{\n\s+\[deviceRole\]: \{ deviceId: deviceIdRef\.current, updatedAt: Date\.now\(\) \},\n\s+\},\n\s+\}\);"
