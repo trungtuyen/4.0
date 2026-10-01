@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle, Clock, FileText, GraduationCap, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle, Clock, Eye, EyeOff, FileText, GraduationCap, LoaderCircle, X } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
@@ -20,6 +20,8 @@ import {
   type PrivateStudentRosterEntry,
 } from '../lib/teacherIsolation';
 import QuestionEngineStudentQuestion, { questionTypeLabel } from './QuestionEngineStudentQuestion';
+import { StudentExamPortalBackdrop, StudentExamPortalBook, StudentExamPortalCap, StudentExamPortalIdea } from './StudentExamPortalArtwork';
+import './student-exam-portal.css';
 
 interface LegacyMatchingPair {
   id: string;
@@ -101,8 +103,12 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   const [studentName, setStudentName] = useState('');
   const [examCode, setExamCode] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [showExamCode, setShowExamCode] = useState(false);
+  const [showLoginHelp, setShowLoginHelp] = useState(false);
   const [schedule, setSchedule] = useState<PublicExamSchedule[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState(false);
   const [activeExam, setActiveExam] = useState<UnifiedExam | null>(() => {
     try {
       const saved = sessionStorage.getItem('activeExam');
@@ -133,6 +139,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   useEffect(() => {
     if (status !== 'login') return;
     setScheduleLoading(true);
+    setScheduleError(false);
     const published = query(collection(db, PUBLIC_EXAM_SCHEDULES_COLLECTION), where('status', '==', 'published'));
     return onSnapshot(published, snapshot => {
       setSchedule(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as PublicExamSchedule)));
@@ -140,6 +147,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
     }, error => {
       console.error('Không thể tải lịch thi công khai:', error);
       setSchedule([]);
+      setScheduleError(true);
       setScheduleLoading(false);
     });
   }, [status]);
@@ -154,6 +162,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (loginBusy) return;
     setLoginError('');
     const normalizedName = studentName.trim();
     const normalizedCode = examCode.trim();
@@ -162,6 +171,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
       return;
     }
 
+    setLoginBusy(true);
     try {
       const accessId = await createExamAccessDocumentId(normalizedCode);
       const encrypted = await getDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId));
@@ -238,6 +248,8 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
     } catch (error) {
       console.error('Không thể mở bài kiểm tra:', error);
       setLoginError('Không thể mở bài kiểm tra. Hãy kiểm tra mã và kết nối mạng.');
+    } finally {
+      setLoginBusy(false);
     }
   };
 
@@ -351,6 +363,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
     setExamVersion('Gốc');
     setAnswers({});
     setScore(null);
+    setLoginError('');
     setStatus('login');
     setAutoSubmitted(false);
     sessionStorage.removeItem('currentStudent');
@@ -359,47 +372,93 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   };
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:px-8">
-        <div className="flex items-center gap-3">
-          {status === 'login' && <button type="button" onClick={onBack} className="rounded-full p-2 text-slate-600 hover:bg-slate-100"><ArrowLeft className="h-5 w-5" /></button>}
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><GraduationCap className="h-6 w-6" /></div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Lớp Học Thông Minh 4.0</p>
-            <h1 className="text-base font-bold md:text-xl">Cổng làm bài học sinh</h1>
+    <div className={status === 'login' ? 'student-exam-portal' : 'flex min-h-screen flex-1 flex-col bg-slate-50 text-slate-900'}>
+      {status === 'login' ? (
+        <>
+          <StudentExamPortalBackdrop />
+          <header className="sep-header">
+            <StudentExamPortalCap />
+            <div>
+              <p className="sep-brand">LỚP HỌC THÔNG MINH 4.0</p>
+              <h1>CỔNG THI HỌC SINH</h1>
+            </div>
+            <StudentExamPortalIdea />
+          </header>
+        </>
+      ) : (
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><GraduationCap className="h-6 w-6" /></div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Lớp Học Thông Minh 4.0</p>
+              <h1 className="text-base font-bold md:text-xl">Cổng làm bài học sinh</h1>
+            </div>
           </div>
-        </div>
-        {currentStudent && <span className="hidden rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 sm:inline">{currentStudent.name}</span>}
-      </header>
+          {currentStudent && <span className="hidden rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 sm:inline">{currentStudent.name}</span>}
+        </header>
+      )}
 
       {status === 'login' && (
-        <main className="mx-auto grid w-full max-w-6xl flex-1 gap-6 p-4 lg:grid-cols-[420px_1fr] lg:p-8">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600"><ShieldCheck className="h-6 w-6" /></div>
-              <div><h2 className="text-xl font-bold">Vào bài kiểm tra</h2><p className="text-sm text-slate-500">Nhập họ tên và mã giáo viên cung cấp.</p></div>
-            </div>
-            <form onSubmit={login} className="space-y-4">
-              <label className="block"><span className="mb-1.5 block text-sm font-semibold text-slate-700">Họ và tên học sinh</span><input value={studentName} onChange={event => setStudentName(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="Nguyễn Văn An" /></label>
-              <label className="block"><span className="mb-1.5 block text-sm font-semibold text-slate-700">Mã bài kiểm tra / kỳ thi</span><input value={examCode} onChange={event => setExamCode(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-lg tracking-widest outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="12 chữ số" /></label>
-              {loginError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loginError}</div>}
-              <button type="submit" className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700">Mở bài kiểm tra</button>
-            </form>
-          </section>
+        <>
+          <main className="sep-main">
+            <StudentExamPortalBook />
+            <div className="sep-columns">
+              <section className="sep-login" aria-labelledby="sep-login-heading">
+                <h2 id="sep-login-heading">ĐĂNG NHẬP</h2>
+                <p className="sep-intro">Nhập họ tên và mã kỳ thi do giáo viên cung cấp.</p>
+                <form onSubmit={login} className="sep-form" aria-busy={loginBusy}>
+                  <div className="sep-field">
+                    <label htmlFor="sep-student-name">Họ và tên học sinh <span className="sep-required">(*)</span></label>
+                    <input id="sep-student-name" name="studentName" value={studentName} onChange={event => setStudentName(event.target.value)} placeholder="Nhập đầy đủ họ và tên" autoComplete="name" required disabled={loginBusy} aria-describedby={loginError ? 'sep-login-error' : undefined} />
+                  </div>
+                  <div className="sep-field">
+                    <label htmlFor="sep-exam-code">Mã đăng nhập / mã kỳ thi <span className="sep-required">(*)</span></label>
+                    <div className="sep-input-wrap">
+                      <input id="sep-exam-code" name="examCode" type={showExamCode ? 'text' : 'password'} inputMode="numeric" value={examCode} onChange={event => setExamCode(event.target.value)} placeholder="Mã kỳ thi gồm 12 chữ số" autoComplete="off" spellCheck={false} required disabled={loginBusy} aria-describedby={`sep-code-help${loginError ? ' sep-login-error' : ''}`} aria-invalid={Boolean(loginError)} />
+                      <button type="button" className="sep-code-toggle" onClick={() => setShowExamCode(value => !value)} aria-label={showExamCode ? 'Ẩn mã kỳ thi' : 'Hiện mã kỳ thi'} aria-pressed={showExamCode} aria-controls="sep-exam-code">
+                        {showExamCode ? <EyeOff size={17} /> : <Eye size={17} />}
+                      </button>
+                    </div>
+                  </div>
+                  <p id="sep-code-help" className="sep-code-help">Chưa có mã đăng nhập? Em hãy liên hệ giáo viên phụ trách kỳ thi.</p>
+                  {loginError && <div id="sep-login-error" role="alert" className="sep-login-error">{loginError}</div>}
+                  <button type="submit" className="sep-submit" disabled={loginBusy}>
+                    {loginBusy && <LoaderCircle size={17} className="sep-loading-icon" aria-hidden="true" />}
+                    {loginBusy ? 'Đang mở bài kiểm tra…' : 'Đăng nhập'}
+                  </button>
+                </form>
+                <button type="button" className="sep-help-button" onClick={() => setShowLoginHelp(value => !value)} aria-expanded={showLoginHelp} aria-controls="sep-login-help"><BookOpen size={16} aria-hidden="true" />Hướng dẫn vào thi</button>
+                {showLoginHelp && <div id="sep-login-help" className="sep-help"><ol><li>Nhập đầy đủ họ tên theo danh sách lớp và mã kỳ thi giáo viên đã cấp.</li><li>Chọn <strong>Đăng nhập</strong>, kiểm tra tên bài và thời gian, rồi chọn <strong>Bắt đầu làm bài</strong>.</li><li>Làm bài trong thời gian quy định và chọn <strong>Nộp bài</strong> khi hoàn thành.</li></ol></div>}
+              </section>
 
-          <section className="rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
-            <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Thông báo lịch thi</p><h2 className="text-xl font-bold text-slate-900">Bài đang mở và sắp diễn ra</h2></div><FileText className="h-7 w-7 text-blue-500" /></div>
-            {scheduleLoading ? <p className="text-sm text-slate-500">Đang tải lịch...</p> : visibleSchedule.length ? (
-              <div className="space-y-3">
-                {visibleSchedule.map(item => {
-                  const upcoming = getExamScheduleState(item, now) === 'upcoming';
-                  return <article key={item.id} className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-slate-800">{item.title}</h3><p className="mt-1 text-xs text-slate-500">{formatExamScheduleDate(item.startTime)}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${upcoming ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{upcoming ? 'Sắp diễn ra' : 'Đang mở'}</span></div><div className="mt-3 flex gap-4 border-t border-slate-100 pt-3 text-xs text-slate-500"><span>{item.durationMinutes} phút</span><span>{item.questionCount} câu</span></div></article>;
-                })}
-              </div>
-            ) : <p className="rounded-xl bg-white/70 p-4 text-sm text-slate-500">Hiện chưa có bài kiểm tra nào được giáo viên mở.</p>}
-            <p className="mt-5 border-t border-blue-100 pt-4 text-xs leading-5 text-slate-500">Danh sách được cập nhật tự động từ mục Tạo kỳ thi của giáo viên. Mã đăng nhập vẫn được giáo viên cung cấp riêng.</p>
-          </section>
-        </main>
+              <section className="sep-notices" aria-labelledby="sep-notice-heading">
+                <h2 id="sep-notice-heading">THÔNG BÁO LỊCH THI</h2>
+                <p className="sep-notice-intro">Các bài kiểm tra đang mở và sắp diễn ra được cập nhật tại đây. Học sinh sử dụng <strong>mã kỳ thi do giáo viên cung cấp</strong> để đăng nhập.</p>
+                <div aria-live="polite" aria-busy={scheduleLoading}>
+                  {scheduleLoading ? <p className="sep-schedule-loading"><LoaderCircle size={16} className="sep-loading-icon" aria-hidden="true" />Đang tải thông báo lịch thi…</p> : scheduleError ? (
+                    <div className="sep-empty"><strong>Chưa thể tải thông báo lịch thi.</strong><p>Em vẫn có thể nhập mã kỳ thi để đăng nhập. Hãy kiểm tra kết nối mạng nếu không vào được bài.</p></div>
+                  ) : visibleSchedule.length ? (
+                    <div className="sep-schedule">
+                      {visibleSchedule.map(item => {
+                        const upcoming = getExamScheduleState(item, now) === 'upcoming';
+                        return (
+                          <article key={item.id} className="sep-exam">
+                            <div className="sep-exam-top"><h3>{item.title}</h3><span className="sep-exam-state" data-state={upcoming ? 'upcoming' : 'open'}>{upcoming ? 'Sắp diễn ra' : 'Đang mở'}</span></div>
+                            <p className="sep-exam-date"><CalendarDays size={14} aria-hidden="true" />{formatExamScheduleDate(item.startTime)}</p>
+                            <div className="sep-exam-meta"><span><Clock size={13} aria-hidden="true" />{item.durationMinutes} phút</span><span><FileText size={13} aria-hidden="true" />{item.questionCount} câu</span></div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : <div className="sep-empty"><strong>Hiện chưa có bài kiểm tra nào được giáo viên mở.</strong><p>Em theo dõi thông báo của giáo viên để biết lịch thi và nhận mã đăng nhập.</p></div>}
+                </div>
+                <p className="sep-notice-footnote">Danh sách được cập nhật tự động từ mục Tạo kỳ thi của giáo viên. Mã đăng nhập được giáo viên cung cấp riêng cho học sinh.</p>
+                <p className="sep-student-note"><strong>Học sinh lưu ý:</strong> Kiểm tra đúng họ tên, mã kỳ thi và thời gian làm bài. Chuẩn bị kết nối mạng ổn định trước khi bắt đầu.</p>
+              </section>
+            </div>
+          </main>
+          <footer className="sep-footer"><button type="button" onClick={onBack} className="sep-back"><ArrowLeft size={15} aria-hidden="true" />Về trang chủ</button><p>Lớp Học Thông Minh 4.0 · Cổng thi dành cho học sinh</p></footer>
+        </>
       )}
 
       {status === 'waiting' && activeExam && (
