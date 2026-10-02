@@ -71,6 +71,48 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
   };
   const shareRef = () => board?.wallShareId ? doc(db, 'shared_learning_walls', board.wallShareId) : null;
   const actions: WallBoardActions = {
+    async emptyTrash(targets) {
+      assertOwner();
+      for (const target of targets) {
+        assertOwner(target);
+        const rootRef = doc(db, 'categories', target.id);
+        const latest = await getDocFromServer(rootRef);
+        if (!latest.exists()) continue;
+        const root = { ...latest.data(), id: target.id } as WallCategory;
+        assertOwner(root);
+        if (!root.wallDeleted || root.parentId) throw new Error('Bảng đã được khôi phục. Hãy tải lại thùng rác.');
+        // Read fresh data; a dashboard snapshot may still be loading.
+        const children = await getDocs(query(collection(db, 'categories'), where('parentId', '==', root.id)));
+        const ownChildren = children.docs.filter(item => item.data().authorId === root.authorId);
+        const refs = [];
+        for (const id of [root.id, ...ownChildren.map(item => item.id)]) {
+          const work = await getDocs(query(collection(db, 'wall_posts'), where('categoryId', '==', id)));
+          for (const item of work.docs) { if (item.data().authorId === root.authorId) { assertOwner({ ...item.data(), id: item.id } as WallPost); refs.push(item.ref); } }
+        }
+        if (root.wallShareId) {
+          const publishedRef = doc(db, 'shared_learning_walls', root.wallShareId);
+          const published = await getDocFromServer(publishedRef);
+          if (published.exists()) {
+            if (published.data().authorId !== root.authorId) throw new Error('Dữ liệu chia sẻ không thuộc bảng này.');
+            await updateDoc(publishedRef, { enabled: false, updatedAt: serverTimestamp() });
+            for (const name of ['posts', 'submissions']) {
+              const items = await getDocs(collection(publishedRef, name));
+              refs.push(...items.docs.map(item => item.ref));
+            }
+            refs.push(publishedRef);
+          }
+        }
+        // Keep the root until the very end so failed cleanup can be retried.
+        refs.push(...ownChildren.map(item => item.ref));
+        for (let offset = 0; offset < refs.length; offset += 400) {
+          assertOwner(root);
+          const batch = writeBatch(db);
+          refs.slice(offset, offset + 400).forEach(ref => batch.delete(ref));
+          await batch.commit();
+        }
+        const batch = writeBatch(db); batch.delete(rootRef); await batch.commit();
+      }
+    },
     async createBoard(input) {
       assertOwner(); const title = input.title?.trim(); if (!title) throw new Error('Vui lòng nhập tên bảng.');
       const ref = await addDoc(collection(db, 'categories'), { title: title.slice(0, 180), authorId: ownerUid, ownerUid, author: displayName, parentId: null, wallIcon: (input.wallIcon || '📚').slice(0, 8), wallDescription: (input.wallDescription || '').slice(0, 2000), wallLayout: wallLayout(input.wallLayout), wallBackground: wallBackground(input.wallBackground).id, createdAt: serverTimestamp() });
@@ -214,7 +256,7 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
   }, [token, shared?.enabled]);
   const unavailable = async () => { throw new Error('Chỉ giáo viên quản lý bảng mới được thực hiện thao tác này.'); };
   const actions: WallBoardActions = {
-    createBoard: unavailable, updateBoard: unavailable, createSection: unavailable, renameSection: unavailable, removePost: unavailable, react: unavailable, comment: unavailable, grade: unavailable, share: unavailable, revoke: unavailable, review: unavailable,
+    emptyTrash: unavailable, createBoard: unavailable, updateBoard: unavailable, createSection: unavailable, renameSection: unavailable, removePost: unavailable, react: unavailable, comment: unavailable, grade: unavailable, share: unavailable, revoke: unavailable, review: unavailable,
     async savePost(target, input) {
       if (!online) throw new Error('Hãy kết nối lại mạng trước khi gửi bài.');
       if (!canSubmitToSharedWall(shared)) throw new Error('Giáo viên chưa mở nhận bài.');
