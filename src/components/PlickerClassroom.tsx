@@ -972,11 +972,22 @@ export default function PlickerClassroom({
     }
   }, [currentQuestion, questionKey, queueLiveAnswerFields]);
 
+  // A synchronized roster or answer must not stop/reopen the camera. Read the
+  // latest students and answer handler from each frame instead of effect deps.
+  const scanContextRef = useRef({ studentsByCard: classStudentsByCard, record: recordAnswer });
+  scanContextRef.current = { studentsByCard: classStudentsByCard, record: recordAnswer };
+  const cameraActive = scanning && view === 'session' && Boolean(currentQuestion) && classStudents.length > 0;
+
   useEffect(() => {
-    if (!scanning || view !== 'session' || !currentQuestion || classStudents.length === 0) return;
+    consensusRef.current.reset();
+  }, [questionKey, selectedClassId, liveSession?.sessionId]);
+
+  useEffect(() => {
+    if (!cameraActive) return;
     let cancelled = false;
     let animationFrame = 0;
     let stream: MediaStream | null = null;
+    let attachedVideo: HTMLVideoElement | null = null;
     let lastFrame = 0;
     let measuredFrames = 0;
     let measurementStarted = performance.now();
@@ -984,16 +995,18 @@ export default function PlickerClassroom({
     const processingContext = processing.getContext('2d', { willReadFrequently: true });
     consensusRef.current.reset();
 
-    const renderDetections = (detections: DetectedPlickerCard[]) => {
+    const renderDetections = (detections: DetectedPlickerCard[], studentsByCard: Map<number, Student>) => {
       const overlay = overlayRef.current;
       const context = overlay?.getContext('2d');
       if (!overlay || !context) return;
-      overlay.width = processing.width;
-      overlay.height = processing.height;
+      if (overlay.width !== processing.width || overlay.height !== processing.height) {
+        overlay.width = processing.width;
+        overlay.height = processing.height;
+      }
       context.clearRect(0, 0, overlay.width, overlay.height);
 
       for (const detection of detections) {
-        const student = classStudentsByCard.get(detection.cardId);
+        const student = studentsByCard.get(detection.cardId);
         if (!student) continue;
         context.strokeStyle = '#34d399';
         context.lineWidth = 3;
@@ -1018,7 +1031,7 @@ export default function PlickerClassroom({
       if (cancelled) return;
       animationFrame = requestAnimationFrame(scanFrame);
       const video = videoRef.current;
-      if (!video || !processingContext || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+      if (!video || !processingContext || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) return;
       if (timestamp - lastFrame < 145) return;
       lastFrame = timestamp;
 
@@ -1031,12 +1044,13 @@ export default function PlickerClassroom({
       }
       processingContext.drawImage(video, 0, 0, processing.width, processing.height);
       const frame = processingContext.getImageData(0, 0, processing.width, processing.height);
-      const detections = detectPlickerCards(frame).filter(item => classStudentsByCard.has(item.cardId));
-      renderDetections(detections);
+      const { studentsByCard, record } = scanContextRef.current;
+      const detections = detectPlickerCards(frame).filter(item => studentsByCard.has(item.cardId));
+      renderDetections(detections, studentsByCard);
       const stable = consensusRef.current.update(detections, timestamp);
       for (const detection of stable) {
-        const student = classStudentsByCard.get(detection.cardId);
-        if (student) recordAnswer(student, detection.cardId, detection.answer, detection.confidence, 'camera');
+        const student = studentsByCard.get(detection.cardId);
+        if (student) record(student, detection.cardId, detection.answer, detection.confidence, 'camera');
       }
 
       measuredFrames += 1;
@@ -1072,9 +1086,11 @@ export default function PlickerClassroom({
           return;
         }
         const video = videoRef.current;
-        if (!video) return;
+        if (!video) throw new Error('Màn hình quét chưa sẵn sàng. Hãy mở lại camera.');
+        attachedVideo = video;
         video.srcObject = stream;
         await video.play();
+        if (cancelled) return;
         setScanError('');
         animationFrame = requestAnimationFrame(scanFrame);
       } catch (error) {
@@ -1090,11 +1106,11 @@ export default function PlickerClassroom({
       cancelled = true;
       cancelAnimationFrame(animationFrame);
       stream?.getTracks().forEach(track => track.stop());
-      if (videoRef.current) videoRef.current.srcObject = null;
+      if (attachedVideo?.srcObject === stream) attachedVideo.srcObject = null;
       const overlay = overlayRef.current;
       overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
     };
-  }, [classStudents, classStudentsByCard, currentQuestion, recordAnswer, scanning, view]);
+  }, [cameraActive, deviceRole, showProjector]);
 
   const publishLiveSession = async (session: PlickerLiveSession) => {
     if (!liveRoomReference || !ownerUid) return;
