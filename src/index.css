@@ -1,28 +1,2 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
-
-/* Learning Wall branding: display the user-facing name as “Không gian trưng bày”. */
-.lw-mini-brand {
-  font-size: 0;
-}
-
-.lw-mini-brand::before {
-  content: "Không gian trưng bày";
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.lw-brand > span:not(.lw-brand-mark) {
-  font-size: 0;
-}
-
-.lw-brand > span:not(.lw-brand-mark)::before {
-  content: "Không gian trưng bày";
-  font-size: 17px;
-  font-weight: 750;
-  letter-spacing: -.5px;
-}
-
-.lw-brand > span:not(.lw-brand-mark) > small {
-  font-size: 10px;
-}
