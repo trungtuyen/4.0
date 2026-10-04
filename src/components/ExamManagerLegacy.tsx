@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileText, LogOut, ChevronRight, ChevronLeft, Save, PlayCircle, StopCircle, Calendar, Upload, X, Download, Shuffle, Activity, ArrowRight, Camera, GraduationCap, BookOpen, Bell, ShieldCheck, UserRound, KeyRound, CalendarClock, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileText, LogOut, ChevronRight, ChevronLeft, Save, PlayCircle, StopCircle, Calendar, Upload, X, Download, Shuffle, Activity, ArrowRight, Camera, GraduationCap, BookOpen, Bell, ShieldCheck, UserRound, KeyRound, CalendarClock, Loader2, Printer } from 'lucide-react';
 import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
+import ExamReceiptDialog from './ExamReceiptDialog';
+import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, printExamReceipt, type ExamReceiptSettings } from '../lib/examReceipt';
 import * as XLSX from 'xlsx';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -56,6 +58,8 @@ interface Exam {
   }[];
   teacherId?: string;
   studentDirectory?: Record<string, PrivateStudentRosterEntry>;
+  receiptSettings?: Partial<ExamReceiptSettings>;
+  classNames?: Record<string, string>;
   accessVersionCode?: string;
 }
 
@@ -311,6 +315,18 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [cheatEvents, setCheatEvents] = useState({ rightClicks: 0, tabChanges: 0, windowResizes: 0 });
   const [cheatWarning, setCheatWarning] = useState<string | null>(null);
   const [autoSubmitted, setAutoSubmitted] = useState(false);
+  const [receiptHtml, setReceiptHtml] = useState('');
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [printMessage, setPrintMessage] = useState('');
+  const submissionRef = useRef(false);
+  const autoPrintRef = useRef(false);
+  const startedAtRef = useRef('');
+
+  useEffect(() => {
+    if (examStatus !== 'finished' || !receiptHtml || !activeExam || autoPrintRef.current) return;
+    autoPrintRef.current = true;
+    if (getExamReceiptSettings(activeExam).autoPrint) void printExamReceipt(receiptHtml).catch(() => setPrintMessage('Chọn Xem / in phiếu ký để mở lại lệnh in.'));
+  }, [examStatus, receiptHtml, activeExam]);
 
   useEffect(() => {
     if (appMode !== 'student' || examStatus !== 'login') return;
@@ -360,6 +376,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       createdAt: new Date().toISOString(),
       startTime: new Date().toISOString().slice(0, 16),
       teacherId: accessScope.ownerUid,
+      receiptSettings: { ...DEFAULT_EXAM_RECEIPT_SETTINGS, autoPrint: true },
     });
     setIsExamModalOpen(true);
   };
@@ -493,9 +510,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         if (!canAccessTeacherOwnedRecord(accessScope, editingExam)) {
           throw new Error('Bạn không có quyền thay đổi kỳ thi của giáo viên khác.');
         }
+        const examToSave = { ...editingExam, classNames: Object.fromEntries(classes.filter(item => item.teacherId === editingExam.teacherId).map(item => [item.id, item.name])) };
         const previousExam = exams.find(exam => exam.id === editingExam.id) || editingExam;
-        await setDoc(doc(db, 'exams', editingExam.id), editingExam);
-        await synchronizeExamPublication(editingExam, previousExam);
+        await setDoc(doc(db, 'exams', examToSave.id), examToSave);
+        await synchronizeExamPublication(examToSave, previousExam);
         setIsExamModalOpen(false);
         setEditingExam(null);
       } catch (error) {
@@ -809,6 +827,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           nextExam = {
             ...nextExam,
             studentDirectory: await createPrivateStudentRosterDirectory(exam.teacherId, exam.id, teacherRoster),
+            classNames: Object.fromEntries(classes.filter(item => item.teacherId === exam.teacherId).map(item => [item.id, item.name])),
           };
         }
         await setDoc(doc(db, 'exams', examId), nextExam);
@@ -1117,6 +1136,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const handleStartExam = async () => {
     if (activeExam && currentStudent) {
       setExamStatus('taking');
+      startedAtRef.current = new Date().toISOString();
+      submissionRef.current = false;
+      autoPrintRef.current = false;
+      setReceiptHtml('');
+      setPrintMessage('');
       setTimeRemaining(activeExam.durationMinutes * 60);
       setStudentAnswers({});
       
@@ -1126,7 +1150,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           id: sessionId,
           examId: activeExam.id,
           studentId: currentStudent.id,
-          startTime: new Date().toISOString(),
+          startTime: startedAtRef.current,
           lastActive: new Date().toISOString(),
           status: 'taking',
           teacherId: activeExam.teacherId || '',
@@ -1194,7 +1218,9 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   }, [examStatus]);
 
   const handleSubmitExam = async () => {
+    if (submissionRef.current || examStatus !== 'taking') return;
     if (activeExam && currentStudent) {
+      submissionRef.current = true;
       let score = 0;
       activeExam.questions.forEach(q => {
         if (q.type === 'short_answer') {
@@ -1238,19 +1264,21 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
       try {
         await setDoc(doc(db, 'results', newResult.id), newResult);
-        sessionStorage.setItem(createTeacherStorageKey(
+        try { sessionStorage.setItem(createTeacherStorageKey(
           `submitted_exam_${currentStudent.id}_${activeExam.id}`,
           activeExam.teacherId,
-        ), '1');
+        ), '1'); } catch { /* Result already saved. */ }
         
         const sessionId = `${currentStudent.id}_${activeExam.id}`;
-        await setDoc(doc(db, 'exam_sessions', sessionId), { status: 'submitted', lastActive: new Date().toISOString() }, { merge: true });
+        void setDoc(doc(db, 'exam_sessions', sessionId), { status: 'submitted', lastActive: newResult.submittedAt }, { merge: true }).catch(console.error);
+        setReceiptHtml(buildExamReceiptHtml(activeExam, currentStudent, newResult, startedAtRef.current));
 
         setStudentScore({ score, total: activeExam.questions.length });
         setExamStatus('finished');
         setCheatEvents({ rightClicks: 0, tabChanges: 0, windowResizes: 0 }); // Reset for next exam
       } catch (error) {
         console.error("Error submitting exam:", error);
+        submissionRef.current = false;
         setLoginError('Không thể nộp bài. Bài thi có thể đã được nộp hoặc kết nối vừa bị gián đoạn.');
       }
     }
@@ -1704,6 +1732,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
             </div>
           )}
 
+          {showReceipt && receiptHtml && <ExamReceiptDialog html={receiptHtml} onClose={() => setShowReceipt(false)} />}
           {examStatus === 'finished' && studentScore && (
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-md w-full mt-10 text-center">
               <div className="w-24 h-24 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -1723,6 +1752,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                 </div>
               </div>
 
+              <button type="button" onClick={() => setShowReceipt(true)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-bold text-white"><Printer size={18} />Xem / in phiếu ký</button>
+              {printMessage && <p className="mb-3 text-sm text-slate-600">{printMessage}</p>}
               <button 
                 onClick={() => {
                   setCurrentStudent(null);
@@ -2454,6 +2485,12 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                             )}
                           </td>
                           <td className="px-6 py-4 text-center border-l border-slate-200">
+                            <button type="button" disabled={!exam || !student} onClick={() => {
+                              if (!exam || !student) return;
+                              const receiptExam = { ...exam, classNames: { ...exam.classNames, ...Object.fromEntries(classes.map(item => [item.id, item.name])) } };
+                              setReceiptHtml(buildExamReceiptHtml(receiptExam, student, result, activeSessions.find(item => item.studentId === result.studentId && item.examId === result.examId)?.startTime));
+                              setShowReceipt(true);
+                            }} className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 disabled:opacity-40" title="Xem / in phiếu ký" aria-label="Xem / in phiếu ký"><Printer className="h-5 w-5" /></button>
                             <button
                               onClick={() => handleDeleteResult(result.id)}
                               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -2578,6 +2615,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         </div>
       </div>
 
+      {showReceipt && receiptHtml && <ExamReceiptDialog html={receiptHtml} onClose={() => setShowReceipt(false)} />}
       {/* Exam Editor Modal */}
       {isExamModalOpen && editingExam && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
@@ -2639,6 +2677,18 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                       />
                     </div>
                   </div>
+                </div>
+
+                <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h4 className="flex items-center gap-2 text-lg font-bold text-slate-800"><Printer size={20} />Phiếu xác nhận nộp bài</h4>
+                  <p className="text-sm text-slate-500">Phiếu A4 theo Mẫu số 01: thông tin học sinh, ô ảnh, bảng đáp án, kết quả và chữ ký học sinh / giám thị. Bài được chấm và lưu trước khi mở lệnh in.</p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="text-sm font-medium text-slate-700">Tên trường<input value={getExamReceiptSettings(editingExam).schoolName} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), schoolName: event.target.value } })} placeholder="TH & THCS Na Rì 1" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
+                    <label className="text-sm font-medium text-slate-700">Môn kiểm tra<input value={getExamReceiptSettings(editingExam).subject} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), subject: event.target.value } })} placeholder="Ví dụ: Toán 8" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
+                  </div>
+                  <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).autoPrint} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), autoPrint: event.target.checked } })} />Tự động mở hộp thoại in khi học sinh nộp bài</label>
+                  <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).includeCorrectAnswers} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), includeCorrectAnswers: event.target.checked } })} />In đáp án đúng và kết quả từng câu trên phiếu</label>
+                  <p className="text-xs text-slate-500">Lệnh in mở trên máy học sinh đang nộp bài. Máy này cần kết nối máy in; giáo viên cũng có thể in lại tại tab Kết quả. Nếu các học sinh khác còn thi, thầy có thể bỏ chọn in đáp án đúng.</p>
                 </div>
 
                 {/* Questions */}

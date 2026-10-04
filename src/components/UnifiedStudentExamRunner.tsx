@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, BookOpen, CalendarDays, CheckCircle, Clock, Eye, EyeOff, FileText, GraduationCap, LoaderCircle, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle, Clock, Eye, EyeOff, FileText, GraduationCap, LoaderCircle, Printer, X } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
@@ -22,6 +22,8 @@ import {
 import QuestionEngineStudentQuestion, { questionTypeLabel } from './QuestionEngineStudentQuestion';
 import { StudentExamPortalBackdrop, StudentExamPortalBook, StudentExamPortalCap, StudentExamPortalIdea } from './StudentExamPortalArtwork';
 import './student-exam-portal.css';
+import ExamReceiptDialog from './ExamReceiptDialog';
+import { buildExamReceiptHtml, getExamReceiptSettings, printExamReceipt, type ExamReceiptSettings } from '../lib/examReceipt';
 
 interface LegacyMatchingPair {
   id: string;
@@ -51,6 +53,8 @@ interface UnifiedExam {
   startTime?: string;
   teacherId?: string;
   studentDirectory?: Record<string, PrivateStudentRosterEntry>;
+  receiptSettings?: Partial<ExamReceiptSettings>;
+  classNames?: Record<string, string>;
   accessVersionCode?: string;
   isShuffled?: boolean;
   shuffledVersions?: { code: string; questions: UnifiedExamQuestion[] }[];
@@ -135,6 +139,21 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   const [cheatWarning, setCheatWarning] = useState('');
   const [autoSubmitted, setAutoSubmitted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const startedAtRef = useRef('');
+  const [receiptHtml, setReceiptHtml] = useState('');
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [printMessage, setPrintMessage] = useState('');
+  const autoPrintRef = useRef(false);
+
+  useEffect(() => {
+    if (status !== 'finished' || !receiptHtml || !activeExam || autoPrintRef.current) return;
+    autoPrintRef.current = true;
+    if (getExamReceiptSettings(activeExam).autoPrint) {
+      void printExamReceipt(receiptHtml).then(() => setPrintMessage('Chọn máy in trong hộp thoại In. Sau khi in, em ký xác nhận trên phiếu giấy.')).catch(() => setPrintMessage('Chưa mở được lệnh in tự động. Em chọn Xem / in phiếu ký để in lại.'));
+    }
+  }, [status, receiptHtml, activeExam]);
 
   useEffect(() => {
     if (status !== 'login') return;
@@ -255,6 +274,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
 
   const startExam = async () => {
     if (!activeExam || !currentStudent) return;
+    startedAtRef.current = new Date().toISOString();
     setAnswers({});
     setTimeRemaining(activeExam.durationMinutes * 60);
     setStatus('taking');
@@ -264,7 +284,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
         id: sessionId,
         examId: activeExam.id,
         studentId: currentStudent.id,
-        startTime: new Date().toISOString(),
+        startTime: startedAtRef.current,
         lastActive: new Date().toISOString(),
         status: 'taking',
         teacherId: activeExam.teacherId || '',
@@ -321,7 +341,10 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   }, [status]);
 
   const submitExam = async () => {
-    if (!activeExam || !currentStudent || status !== 'taking') return;
+    if (!activeExam || !currentStudent || status !== 'taking' || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setLoginError('');
     let correct = 0;
     for (const question of activeExam.questions) {
       const engine = engineQuestionForExam(question);
@@ -334,6 +357,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
     }
 
     const resultId = `${currentStudent.id}_${activeExam.id}`;
+    const submittedAt = new Date().toISOString();
     try {
       await setDoc(doc(db, 'results', resultId), {
         id: resultId,
@@ -341,23 +365,34 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
         studentId: currentStudent.id,
         score: correct,
         totalQuestions: activeExam.questions.length,
-        submittedAt: new Date().toISOString(),
+        submittedAt,
         answers,
         cheatEvents,
         examVersion,
         teacherId: activeExam.teacherId || '',
       });
-      await setDoc(doc(db, 'exam_sessions', resultId), { status: 'submitted', lastActive: new Date().toISOString() }, { merge: true });
-      sessionStorage.setItem(createTeacherStorageKey(`submitted_exam_${currentStudent.id}_${activeExam.id}`, activeExam.teacherId), '1');
+      // The saved result is authoritative. A failed heartbeat update must not ask the student to submit again.
+      void setDoc(doc(db, 'exam_sessions', resultId), { status: 'submitted', lastActive: submittedAt }, { merge: true }).catch(error => console.error('Không thể cập nhật trạng thái phiên đã nộp:', error));
+      try { sessionStorage.setItem(createTeacherStorageKey(`submitted_exam_${currentStudent.id}_${activeExam.id}`, activeExam.teacherId), '1'); } catch { /* The server result has already been saved. */ }
+      setReceiptHtml(buildExamReceiptHtml(activeExam, currentStudent, { id: resultId, score: correct, totalQuestions: activeExam.questions.length, submittedAt, answers, examVersion }, startedAtRef.current));
+      setCheatWarning('');
       setScore({ correct, total: activeExam.questions.length });
       setStatus('finished');
     } catch (error) {
       console.error('Không thể nộp bài:', error);
       setLoginError('Không thể nộp bài. Vui lòng kiểm tra kết nối và thử lại.');
+      submittingRef.current = false;
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const reset = () => {
+    submittingRef.current = false;
+    autoPrintRef.current = false;
+    setReceiptHtml('');
+    setShowReceipt(false);
+    setPrintMessage('');
     setCurrentStudent(null);
     setActiveExam(null);
     setExamVersion('Gốc');
@@ -468,7 +503,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
       {status === 'taking' && activeExam && (
         <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col p-4 md:p-6">
           <div className="sticky top-[65px] z-20 mb-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><h2 className="font-bold text-slate-800">{activeExam.title}</h2><p className="text-xs text-slate-500">Đã trả lời {Object.keys(answers).length}/{activeExam.questions.length} câu</p></div><div className={`flex items-center gap-2 rounded-xl px-4 py-2 font-mono text-xl font-bold ${timeRemaining !== null && timeRemaining < 300 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-700'}`}><Clock className="h-5 w-5" />{timeRemaining !== null ? formatTime(timeRemaining) : '00:00'}</div></div>
-          <div className="space-y-5 pb-28">
+          <fieldset disabled={submitting} className="space-y-5 pb-28">
             {activeExam.questions.map((question, index) => {
               const engine = engineQuestionForExam(question);
               return (
@@ -487,16 +522,17 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
                 </section>
               );
             })}
-          </div>
-          <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 p-4 backdrop-blur"><div className="mx-auto flex max-w-4xl items-center justify-between"><span className="text-sm text-slate-500">Hãy kiểm tra các câu trước khi nộp.</span><button type="button" onClick={() => setShowSubmitConfirm(true)} className="rounded-xl bg-blue-600 px-7 py-3 font-bold text-white hover:bg-blue-700">Nộp bài</button></div></div>
+          </fieldset>
+          <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 p-4 backdrop-blur"><div className="mx-auto flex max-w-4xl items-center justify-between"><div><span className="text-sm text-slate-500">Hãy kiểm tra các câu trước khi nộp.</span>{loginError && <p role="alert" className="text-sm text-red-600">{loginError}</p>}</div><button type="button" disabled={submitting} onClick={() => setShowSubmitConfirm(true)} className="rounded-xl bg-blue-600 px-7 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50">{submitting ? 'Đang lưu bài…' : 'Nộp bài'}</button></div></div>
         </main>
       )}
 
       {status === 'finished' && score && (
-        <main className="flex flex-1 items-center justify-center p-4"><section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle className="h-12 w-12" /></div><h2 className="text-3xl font-bold">Hoàn thành!</h2><p className="mt-2 text-slate-500">{autoSubmitted ? 'Đã hết thời gian và hệ thống tự động nộp bài.' : 'Bài làm đã được ghi nhận thành công.'}</p><div className="my-7 rounded-2xl bg-slate-50 p-6"><div className="text-sm text-slate-500">Kết quả</div><div className="mt-1 text-5xl font-black text-blue-600">{Math.round((score.correct / score.total) * 100) / 10}<span className="text-2xl font-medium text-slate-400"> / 10</span></div><div className="mt-2 text-sm text-slate-500">{score.correct}/{score.total} câu đúng</div></div><button type="button" onClick={reset} className="w-full rounded-xl bg-slate-900 px-4 py-3 font-bold text-white hover:bg-black">Về cổng học sinh</button></section></main>
+        <main className="flex flex-1 items-center justify-center p-4"><section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle className="h-12 w-12" /></div><h2 className="text-3xl font-bold">Hoàn thành!</h2><p className="mt-2 text-slate-500">{autoSubmitted ? 'Đã hết thời gian và hệ thống tự động nộp bài.' : 'Bài làm đã được ghi nhận thành công.'}</p><div className="my-7 rounded-2xl bg-slate-50 p-6"><div className="text-sm text-slate-500">Kết quả</div><div className="mt-1 text-5xl font-black text-blue-600">{Math.round((score.correct / score.total) * 100) / 10}<span className="text-2xl font-medium text-slate-400"> / 10</span></div><div className="mt-2 text-sm text-slate-500">{score.correct}/{score.total} câu đúng</div></div><button type="button" onClick={() => setShowReceipt(true)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-bold text-white"><Printer size={18} />Xem / in phiếu ký</button>{printMessage && <p className="mb-4 text-sm text-slate-600" role="status">{printMessage}</p>}<button type="button" onClick={reset} className="w-full rounded-xl bg-slate-900 px-4 py-3 font-bold text-white hover:bg-black">Về cổng học sinh</button></section></main>
       )}
 
-      {showSubmitConfirm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"><div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl"><h3 className="text-xl font-bold">Xác nhận nộp bài</h3><p className="my-4 text-sm text-slate-500">Sau khi nộp, em không thể thay đổi đáp án.</p><div className="flex justify-center gap-3"><button type="button" onClick={() => setShowSubmitConfirm(false)} className="rounded-lg px-5 py-2 text-slate-600 hover:bg-slate-100">Hủy</button><button type="button" onClick={() => { setShowSubmitConfirm(false); void submitExam(); }} className="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">Nộp bài</button></div></div></div>}
+      {showReceipt && receiptHtml && <ExamReceiptDialog html={receiptHtml} onClose={() => setShowReceipt(false)} />}
+      {showSubmitConfirm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"><div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl"><h3 className="text-xl font-bold">Xác nhận nộp bài</h3><p className="my-4 text-sm text-slate-500">Sau khi nộp, em không thể thay đổi đáp án.</p><div className="flex justify-center gap-3"><button type="button" onClick={() => setShowSubmitConfirm(false)} className="rounded-lg px-5 py-2 text-slate-600 hover:bg-slate-100">Hủy</button><button type="button" disabled={submitting} onClick={() => { setShowSubmitConfirm(false); void submitExam(); }} className="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">Nộp bài</button></div></div></div>}
       {cheatWarning && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-red-900/40 p-4 backdrop-blur-sm"><div className="w-full max-w-sm rounded-2xl border-2 border-red-400 bg-white p-6 text-center shadow-xl"><div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600"><X className="h-7 w-7" /></div><h3 className="text-lg font-bold">Cảnh báo</h3><p className="my-3 text-sm text-slate-600">{cheatWarning}</p><button type="button" onClick={() => setCheatWarning('')} className="w-full rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white">Tôi đã hiểu</button></div></div>}
     </div>
   );
