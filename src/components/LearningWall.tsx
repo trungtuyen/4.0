@@ -1,3 +1,4 @@
+import { submitWallFiles, wallLargeUploadsEnabled } from '../lib/learningWallUpload';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, where, getDocs, getDocFromServer, setDoc, writeBatch, runTransaction, orderBy, limit } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -283,6 +284,7 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
       setPosts(records.filter(item => item.id !== WALL_APPEARANCE_ID)); setReady(true);
     }, () => { setPosts([]); setAppearance({}); setReady(true); setError('Không đọc được bài đăng; có thể giáo viên đã tắt chia sẻ.'); });
   }, [token, shared?.enabled]);
+  const [uploadProgress, setUploadProgress] = useState('');
   const unavailable = async () => { throw new Error('Chỉ giáo viên quản lý bảng mới được thực hiện thao tác này.'); };
   const actions: WallBoardActions = {
     emptyTrash: unavailable, createBoard: unavailable, updateBoard: unavailable, createSection: unavailable, renameSection: unavailable, removePost: unavailable, react: unavailable, comment: unavailable, grade: unavailable, share: unavailable, revoke: unavailable, review: unavailable,
@@ -291,6 +293,11 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
       if (!canSubmitToSharedWall(shared)) throw new Error('Giáo viên chưa mở nhận bài.');
       if (Date.now() - lastSubmit.current < 10_000) throw new Error('Hãy chờ ít giây trước khi gửi bài tiếp theo.');
       if (!input.categoryId || !shared.sectionIds.includes(input.categoryId)) throw new Error('Cột nhận bài chưa hợp lệ.');
+      if (wallLargeUploadsEnabled && input.attachments?.some(item => item.kind === 'file')) {
+        try { await submitWallFiles(token, input, setUploadProgress); lastSubmit.current = Date.now(); }
+        finally { setUploadProgress(''); }
+        return;
+      }
       const data = wallSubmissionData(input);
       try { await addDoc(collection(db, 'shared_learning_walls', token, 'submissions'), { ...data, createdAt: serverTimestamp() }); lastSubmit.current = Date.now(); } catch (error) {
         if ('attachments' in data && String((error as { code?: string })?.code).includes('permission-denied')) throw new Error('Chưa gửi được tệp. Giáo viên có thể đã tắt nhận bài hoặc chưa cập nhật quyền nhận tệp trên Firebase. Tệp vẫn được giữ trong cửa sổ này.');
@@ -301,7 +308,7 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
   if (!shared) return <div className="lw-app"><div className="lw-main"><div className="lw-empty"><h1>Tường học tập</h1><p role={error ? 'alert' : 'status'}>{loading ? 'Đang mở bảng được chia sẻ…' : error}</p><button className="lw-button" onClick={onBack}>Về trang chủ</button></div></div></div>;
   const rootId = shared.sectionIds[0];
   const categories: WallCategory[] = [{ id: rootId, title: shared.title, wallDescription: shared.description, wallIcon: shared.icon, wallLayout: wallLayout(shared.layout), wallBackground: shared.background, ...appearance }, ...shared.sections.filter(item => item.id !== rootId).map(item => ({ ...item, parentId: rootId }))];
-  return <WallBoardSurface categories={categories} posts={posts} boardId={rootId} onOpen={() => undefined} onBack={onBack} displayName="Công khai" ownerUid="" guest guestCanPost={canSubmitToSharedWall(shared)} loading={!ready} error={error} offline={!online} actions={actions} />;
+  return <WallBoardSurface categories={categories} posts={posts} boardId={rootId} onOpen={() => undefined} onBack={onBack} displayName="Công khai" ownerUid="" guest guestCanPost={canSubmitToSharedWall(shared)} uploadProgress={uploadProgress} loading={!ready} error={error} offline={!online} actions={actions} />;
 }
 
 export default function LearningWall(props: Props) {

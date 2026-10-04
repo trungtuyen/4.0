@@ -1,0 +1,3 @@
+[
+  { "origin": ["https://trungtuyen.github.io"], "method": ["PUT"], "responseHeader": ["Content-Type", "Content-Range", "Range"], "maxAgeSeconds": 3600 }
+]
