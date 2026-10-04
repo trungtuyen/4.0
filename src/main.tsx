@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import PlatformBootstrap from './components/PlatformBootstrap';
 import './index.css';
 import { resolveApiUrl } from './lib/api';
+import { initializeLearningWallDashboardRename } from './lib/learningWallDashboardRename';
 import { initializePwaInstallation, registerClassroomServiceWorker } from './lib/plickerPwa';
 
 initializePwaInstallation();
@@ -71,3 +72,5 @@ createRoot(document.getElementById('root')!).render(
     <PlatformBootstrap />
   </StrictMode>,
 );
+
+initializeLearningWallDashboardRename();
