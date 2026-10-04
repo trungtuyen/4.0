@@ -56,3 +56,22 @@ assert.equal(sharedWallAppearance({ ...board, bgValue: '' }), null);
 const photo = sharedWallAppearance({ ...board, bgType: 'image', bgValue: image })!;
 assert.deepEqual(readSharedWallAppearance({ ...photo, id: WALL_APPEARANCE_ID }, board.id), { bgType: 'image', bgValue: image });
 console.info('Learning Wall backgrounds: safe color/image input, scoped public appearance and reset passed.');
+
+const { wallSubmissionData, submissionPostAttachments, submissionFiles, WALL_FILE_EXTENSIONS, MAX_WALL_FILE_BYTES } = await import('../src/lib/learningWall.ts');
+const binary = 'data:application/octet-stream;base64,' + Buffer.from('student document').toString('base64');
+for (const extension of WALL_FILE_EXTENSIONS) {
+  const file = { id: 'file-one', kind: 'file' as const, name: `Bài làm.${extension.toUpperCase()}`, url: binary, size: 16 };
+  const submitted = wallSubmissionData({ studentName: ' An ', categoryId: board.id, attachments: [file] });
+  assert.equal(submitted.studentName, 'An');
+  assert.deepEqual(submissionPostAttachments({ ...submitted, id: 's' })[0], file);
+  assert.deepEqual(sharedWallPost({ id: 'approved', ...submitted, attachments: submissionPostAttachments({ ...submitted, id: 's' }) }).attachments[0].url, binary);
+}
+const file = { id: 'file-one', kind: 'file' as const, name: 'Bài làm.docx', url: binary };
+assert.equal('attachments' in wallSubmissionData({ studentName: 'An', categoryId: board.id, text: 'Legacy text' }), false);
+assert.equal(wallSubmissionData({ studentName: 'An', categoryId: board.id, attachments: [file, { ...file, id: 'f2', name: 'Bảng tính.xlsx' }] }).attachments?.length, 2);
+for (const patch of [{ name: 'attack.html' }, { url: 'data:text/html;base64,YQ==' }, { url: 'https://example.com/file.docx' }, { url: 'data:application/octet-stream;base64,YQ=' }, { name: '../file.docx' }, { id: 'unsafe/id' }]) assert.throws(() => submissionFiles([{ ...file, ...patch }]));
+assert.throws(() => submissionFiles([file, file, file]));
+assert.throws(() => submissionFiles([{ ...file, url: 'data:application/octet-stream;base64,' + Buffer.alloc(MAX_WALL_FILE_BYTES + 1).toString('base64') }]));
+assert.throws(() => wallSubmissionData({ studentName: 'An', attachments: [file, { ...file, id: 'f2', url: 'data:application/octet-stream;base64,' + Buffer.alloc(MAX_WALL_FILE_BYTES).toString('base64') }], imageSrc: 'data:image/jpeg;base64,' + 'a'.repeat(480_000) }));
+assert.throws(() => wallSubmissionData({ studentName: '', attachments: [file] }));
+console.info('Student file submissions: accepted formats, legacy compatibility, exact bytes through approval/publication, malformed files and size limits passed.');

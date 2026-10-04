@@ -303,20 +303,43 @@ service cloud.firestore {
         (!('wallArchived' in board) || board.wallArchived == false);
     }
 
+    // Student documents are inert downloads. Public callers never write approved posts.
+    function wallSubmissionFileIsSafe(file) {
+      return file is map &&
+        file.keys().hasAll(['id', 'kind', 'name', 'url', 'size']) &&
+        file.keys().hasOnly(['id', 'kind', 'name', 'url', 'size']) &&
+        file.id is string && file.id.matches('^[A-Za-z0-9_-]{1,128}$') && file.kind == 'file' &&
+        file.name is string && file.name.size() > 0 && file.name.size() <= 180 &&
+        file.name.matches('(?i)^.+\\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf|odt|ods|odp|zip|rar|7z|sb3)$') &&
+        file.url is string && file.url.size() <= 436945 &&
+        file.url.matches('^data:application/octet-stream;base64,[A-Za-z0-9+/]+={0,2}$') &&
+        file.size is int && file.size > 0 && file.size <= 327680;
+    }
+
+    function wallSubmissionFilesAreSafe(data) {
+      let files = 'attachments' in data ? data.attachments : [];
+      return files is list && files.size() <= 2 &&
+        (files.size() < 1 || wallSubmissionFileIsSafe(files[0])) &&
+        (files.size() < 2 || wallSubmissionFileIsSafe(files[1])) &&
+        data.imageSrc.size() + (files.size() > 0 ? files[0].url.size() : 0) +
+          (files.size() > 1 ? files[1].url.size() : 0) <= 650000;
+    }
+
     function wallSubmissionIsSafe(shareId, submissionId) {
       let data = incoming();
       // Public visitors can only create a submission while this board accepts work.
       // No Firebase account or anonymous-auth session is required.
       return isValidId(submissionId) && sharedWallAcceptsSubmissions(shareId) &&
         data.keys().hasAll(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
-        data.keys().hasOnly(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'createdAt']) &&
+        data.keys().hasOnly(['title', 'text', 'studentName', 'categoryId', 'imageSrc', 'link', 'attachments', 'createdAt']) &&
+        wallSubmissionFilesAreSafe(data) &&
         data.title is string && data.title.size() <= 200 && data.text is string && data.text.size() <= 12000 &&
         data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 120 &&
         sharedWallCategoryIsSafe(shareId, data.categoryId) &&
         data.imageSrc is string && data.imageSrc.size() < 500000 &&
         (data.imageSrc == '' || data.imageSrc.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$')) &&
         data.link is string && data.link.size() <= 2048 && (data.link == '' || data.link.matches('^https?://[^\\s]+$')) &&
-        (data.title.size() > 0 || data.text.size() > 0 || data.imageSrc.size() > 0 || data.link.size() > 0) &&
+        (data.title.size() > 0 || data.text.size() > 0 || data.imageSrc.size() > 0 || data.link.size() > 0 || ('attachments' in data && data.attachments.size() > 0)) &&
         data.createdAt == request.time;
     }
 
