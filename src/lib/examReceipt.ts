@@ -176,7 +176,7 @@ export function buildExamReceiptHtml(exam: ReceiptExam, student: ReceiptStudent,
   <p class="record">Mã bài nộp: ${escape(result.id)} · Trạng thái: ĐÃ NỘP BÀI · Thời gian trên phiếu: giờ Việt Nam.</p></main></body></html>`;
 }
 
-/** Prints the saved receipt in a same-origin frame; no popup permission is required. */
+/** Resolves after the browser finishes its print/preview cycle so jobs never overlap. */
 export async function printExamReceipt(html: string): Promise<void> {
   if (document.getElementById('exam-receipt-print-frame')) throw new Error('Một phiếu đang mở lệnh in. Hãy đóng hộp thoại in trước.');
   const frame = document.createElement('iframe');
@@ -184,22 +184,29 @@ export async function printExamReceipt(html: string): Promise<void> {
   frame.title = 'In phiếu xác nhận nộp bài';
   frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;';
   await new Promise<void>((resolve, reject) => {
-    const fail = (error: unknown) => { frame.remove(); reject(error); };
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true; window.clearTimeout(watchdog); frame.remove();
+      if (error) reject(error); else resolve();
+    };
+    const watchdog = window.setTimeout(() => finish(new Error('Trình duyệt chưa xác nhận kết thúc lệnh in. Kiểm tra hàng đợi máy in trước khi in lại.')), 90_000);
     frame.onload = async () => {
       try {
         const target = frame.contentWindow;
         if (!target || !frame.contentDocument) throw new Error('Không thể mở phiếu in.');
         await frame.contentDocument.fonts.ready;
-        await new Promise<void>(done => target.requestAnimationFrame(() => done()));
-        target.addEventListener('afterprint', () => frame.remove(), { once: true });
+        await Promise.race([
+          new Promise<void>(done => target.requestAnimationFrame(() => done())),
+          new Promise<void>(done => window.setTimeout(done, 100)),
+        ]);
+        if (settled) return;
+        target.addEventListener('afterprint', () => finish(), { once: true });
         target.focus();
         target.print();
-        // Desktop print() blocks until the dialog closes. Some mobile browsers return sooner.
-        if (!window.matchMedia('(pointer: coarse)').matches) frame.remove();
-        resolve();
-      } catch (error) { fail(error); }
+      } catch (error) { finish(error); }
     };
-    frame.onerror = () => fail(new Error('Không thể tải phiếu in.'));
+    frame.onerror = () => finish(new Error('Không thể tải phiếu in.'));
     frame.srcdoc = html;
     document.body.appendChild(frame);
   });

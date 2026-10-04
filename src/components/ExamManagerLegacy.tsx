@@ -3,7 +3,9 @@ import { ArrowLeft, Plus, Trash2, Edit2, Play, CheckCircle, Clock, Users, FileTe
 import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
 import ExamReceiptDialog from './ExamReceiptDialog';
-import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, printExamReceipt, type ExamReceiptSettings } from '../lib/examReceipt';
+import TeacherExamPrintStation from './TeacherExamPrintStation';
+import { gradeSubmittedExam } from '../lib/teacherExamPrinting';
+import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, type ExamReceiptSettings } from '../lib/examReceipt';
 import * as XLSX from 'xlsx';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -85,6 +87,7 @@ interface ExamResult {
   score: number;
   totalQuestions: number;
   submittedAt: string;
+  teacherGradedAt?: string;
   answers?: Record<string, any>;
   cheatEvents?: {
     rightClicks: number;
@@ -317,16 +320,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [autoSubmitted, setAutoSubmitted] = useState(false);
   const [receiptHtml, setReceiptHtml] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
-  const [printMessage, setPrintMessage] = useState('');
   const submissionRef = useRef(false);
-  const autoPrintRef = useRef(false);
   const startedAtRef = useRef('');
-
-  useEffect(() => {
-    if (examStatus !== 'finished' || !receiptHtml || !activeExam || autoPrintRef.current) return;
-    autoPrintRef.current = true;
-    if (getExamReceiptSettings(activeExam).autoPrint) void printExamReceipt(receiptHtml).catch(() => setPrintMessage('Chọn Xem / in phiếu ký để mở lại lệnh in.'));
-  }, [examStatus, receiptHtml, activeExam]);
 
   useEffect(() => {
     if (appMode !== 'student' || examStatus !== 'login') return;
@@ -424,14 +419,15 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     const data = examResults.map((result, index) => {
       const student = students.find(s => s.id === result.studentId);
       const studentClass = classes.find(c => c.id === student?.classId);
+      const pendingTeacherGrade = getExamReceiptSettings(examToExport).autoPrint && !result.teacherGradedAt;
       const percentage = Math.round((result.score / result.totalQuestions) * 100);
       const calculatedScore = Math.round((result.score / result.totalQuestions) * 100) / 10;
       const rowData: any = {
         'STT': index + 1,
         'Họ tên': student?.name || 'Unknown',
         'Lớp': studentClass?.name || 'Unknown',
-        'Điểm': calculatedScore,
-        'Tỉ lệ %': `${percentage}%`,
+        'Điểm': pendingTeacherGrade ? 'Chờ máy giáo viên chấm' : calculatedScore,
+        'Tỉ lệ %': pendingTeacherGrade ? '' : `${percentage}%`,
         'Mã đề': result.examVersion || 'Gốc',
       };
 
@@ -1138,9 +1134,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       setExamStatus('taking');
       startedAtRef.current = new Date().toISOString();
       submissionRef.current = false;
-      autoPrintRef.current = false;
       setReceiptHtml('');
-      setPrintMessage('');
       setTimeRemaining(activeExam.durationMinutes * 60);
       setStudentAnswers({});
       
@@ -1222,7 +1216,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     if (activeExam && currentStudent) {
       submissionRef.current = true;
       let score = 0;
-      activeExam.questions.forEach(q => {
+      (getExamReceiptSettings(activeExam).autoPrint ? [] : activeExam.questions).forEach(q => {
         if (q.type === 'short_answer') {
           const studentAns = (studentAnswers[q.id] as string || '').trim().toLowerCase();
           const correctAns = (q.correctTextAnswer || '').trim().toLowerCase();
@@ -1745,15 +1739,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                   : 'Bạn đã nộp bài thi thành công.'}
               </p>
               
-              <div className="bg-slate-50 p-6 rounded-xl mb-8">
+              {activeExam && getExamReceiptSettings(activeExam).autoPrint ? <div className="mb-6 rounded-xl bg-blue-50 p-5 text-blue-800">Đã chuyển bài đến máy giáo viên để chấm và in phiếu. Em nhận phiếu từ giáo viên và ký xác nhận.</div> : <><div className="bg-slate-50 p-6 rounded-xl mb-8">
                 <div className="text-sm text-slate-500 mb-1">Điểm số của bạn</div>
                 <div className="text-5xl font-black text-blue-600">
                   {studentScore.score} <span className="text-2xl text-slate-400 font-medium">/ {studentScore.total}</span>
                 </div>
               </div>
 
-              <button type="button" onClick={() => setShowReceipt(true)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-bold text-white"><Printer size={18} />Xem / in phiếu ký</button>
-              {printMessage && <p className="mb-3 text-sm text-slate-600">{printMessage}</p>}
+              <button type="button" onClick={() => setShowReceipt(true)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-bold text-white"><Printer size={18} />Xem / in phiếu ký</button></>}
               <button 
                 onClick={() => {
                   setCurrentStudent(null);
@@ -1841,6 +1834,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
         {/* Main Content */}
         <div className="flex-1 overflow-auto p-6 md:p-8">
+          <TeacherExamPrintStation key={auth.currentUser?.uid || 'guest'} exams={exams} authenticatedUid={resolveTeacherAccessScope(currentUser, auth.currentUser?.uid).role === 'guest' ? '' : auth.currentUser?.uid || ''} />
           {teacherTab === 'exams' && (
             <div className="max-w-7xl mx-auto">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -2413,7 +2407,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                               <div className="text-xs text-slate-500 mt-0.5">1st nỗ lực đang diễn ra</div>
                             </td>
                             <td className="px-4 py-3 sticky left-[250px] bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 text-center font-medium text-slate-800 min-w-[120px] max-w-[120px] w-[120px]">
-                              {result.score === 0 ? '0' : `${calculatedScore} (${percentage}%)`}
+                              {exam && getExamReceiptSettings(exam).autoPrint && !result.teacherGradedAt ? <span className="text-xs text-amber-700">Chờ máy giáo viên chấm</span> : result.score === 0 ? '0' : `${calculatedScore} (${percentage}%)`}
                             </td>
                           <td className="px-4 py-3 sticky left-[370px] bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 text-center font-medium text-slate-600 min-w-[100px] max-w-[100px] w-[100px]">
                             {result.examVersion || 'Gốc'}
@@ -2485,11 +2479,15 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                             )}
                           </td>
                           <td className="px-6 py-4 text-center border-l border-slate-200">
-                            <button type="button" disabled={!exam || !student} onClick={() => {
+                            <button type="button" disabled={!exam || !student} onClick={async () => {
                               if (!exam || !student) return;
                               const receiptExam = { ...exam, classNames: { ...exam.classNames, ...Object.fromEntries(classes.map(item => [item.id, item.name])) } };
-                              setReceiptHtml(buildExamReceiptHtml(receiptExam, student, result, activeSessions.find(item => item.studentId === result.studentId && item.examId === result.examId)?.startTime));
-                              setShowReceipt(true);
+                              try {
+                                const grade = getExamReceiptSettings(exam).autoPrint ? gradeSubmittedExam(exam, { ...result, teacherId: result.teacherId || exam.teacherId || '' }) : { score: result.score, totalQuestions: result.totalQuestions };
+                                if (getExamReceiptSettings(exam).autoPrint) await setDoc(doc(db, 'results', result.id), { ...grade, teacherGradedAt: new Date().toISOString() }, { merge: true });
+                                setReceiptHtml(buildExamReceiptHtml(receiptExam, student, { ...result, ...grade }, activeSessions.find(item => item.studentId === result.studentId && item.examId === result.examId)?.startTime));
+                                setShowReceipt(true);
+                              } catch (error) { alert(error instanceof Error ? error.message : 'Không thể chấm và mở phiếu.'); }
                             }} className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 disabled:opacity-40" title="Xem / in phiếu ký" aria-label="Xem / in phiếu ký"><Printer className="h-5 w-5" /></button>
                             <button
                               onClick={() => handleDeleteResult(result.id)}
@@ -2681,14 +2679,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
                 <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h4 className="flex items-center gap-2 text-lg font-bold text-slate-800"><Printer size={20} />Phiếu xác nhận nộp bài</h4>
-                  <p className="text-sm text-slate-500">Phiếu A4 theo Mẫu số 01: thông tin học sinh, ô ảnh, bảng đáp án, kết quả và chữ ký học sinh / giám thị. Bài được chấm và lưu trước khi mở lệnh in.</p>
+                  <p className="text-sm text-slate-500">Phiếu A4 theo Mẫu số 01: thông tin học sinh, ô ảnh, bảng đáp án, kết quả và chữ ký học sinh / giám thị. Máy giáo viên nhận bài, chấm lại theo đúng mã đề, lưu điểm rồi lần lượt gửi lệnh in.</p>
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="text-sm font-medium text-slate-700">Tên trường<input value={getExamReceiptSettings(editingExam).schoolName} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), schoolName: event.target.value } })} placeholder="TH & THCS Na Rì 1" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
                     <label className="text-sm font-medium text-slate-700">Môn kiểm tra<input value={getExamReceiptSettings(editingExam).subject} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), subject: event.target.value } })} placeholder="Ví dụ: Toán 8" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
                   </div>
-                  <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).autoPrint} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), autoPrint: event.target.checked } })} />Tự động mở hộp thoại in khi học sinh nộp bài</label>
+                  <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).autoPrint} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), autoPrint: event.target.checked } })} />Tự động in tại máy giáo viên khi nhận bài nộp</label>
                   <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).includeCorrectAnswers} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), includeCorrectAnswers: event.target.checked } })} />In đáp án đúng và kết quả từng câu trên phiếu</label>
-                  <p className="text-xs text-slate-500">Lệnh in mở trên máy học sinh đang nộp bài. Máy này cần kết nối máy in; giáo viên cũng có thể in lại tại tab Kết quả. Nếu các học sinh khác còn thi, thầy có thể bỏ chọn in đáp án đúng.</p>
+                  <p className="text-xs text-slate-500">Bật trạm in trên máy giáo viên trước giờ thi và cấu hình Chrome in không cần xác nhận. Máy học sinh chỉ nộp bài; giáo viên có thể in lại tại tab Kết quả. Nếu các học sinh khác còn thi, thầy có thể bỏ chọn in đáp án đúng.</p>
                 </div>
 
                 {/* Questions */}

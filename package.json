@@ -20,7 +20,7 @@
     "test:platform": "node --import tsx scripts/test-platform.ts",
     "test:auth-flow": "node --import tsx scripts/test-auth-flow.ts",
     "test:head-shake": "node --import tsx scripts/test-head-shake-questions.ts",
-    "test:student-portal": "node --import tsx scripts/test-exam-student-portal.ts",
+    "test:student-portal": "node --import tsx scripts/test-exam-student-portal.ts && npm run test:teacher-printing",
     "test:exam-privacy": "node --import tsx scripts/test-exam-privacy.ts",
     "test:ai-services": "node --import tsx scripts/test-ai-services.ts",
     "test:platform-metrics": "node --import tsx scripts/test-platform-metrics.ts",
@@ -43,7 +43,8 @@
     "test:learning-wall": "node --import tsx scripts/test-learning-wall.ts",
     "test:learning-wall-rules": "node scripts/test-learning-wall-rules.mjs",
     "deploy:learning-wall": "npx --yes firebase-tools@^15.17.0 deploy --config firebase.learning-wall-production.json --only firestore:rules --project gen-lang-client-0870957273 --non-interactive",
-    "test:exam-receipt": "node --import tsx scripts/test-exam-receipt.ts"
+    "test:exam-receipt": "node --import tsx scripts/test-exam-receipt.ts",
+    "test:teacher-printing": "node --import tsx scripts/test-teacher-exam-printing.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",

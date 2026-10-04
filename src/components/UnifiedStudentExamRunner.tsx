@@ -23,7 +23,7 @@ import QuestionEngineStudentQuestion, { questionTypeLabel } from './QuestionEngi
 import { StudentExamPortalBackdrop, StudentExamPortalBook, StudentExamPortalCap, StudentExamPortalIdea } from './StudentExamPortalArtwork';
 import './student-exam-portal.css';
 import ExamReceiptDialog from './ExamReceiptDialog';
-import { buildExamReceiptHtml, getExamReceiptSettings, printExamReceipt, type ExamReceiptSettings } from '../lib/examReceipt';
+import { buildExamReceiptHtml, getExamReceiptSettings, type ExamReceiptSettings } from '../lib/examReceipt';
 
 interface LegacyMatchingPair {
   id: string;
@@ -144,16 +144,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   const startedAtRef = useRef('');
   const [receiptHtml, setReceiptHtml] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
-  const [printMessage, setPrintMessage] = useState('');
-  const autoPrintRef = useRef(false);
 
-  useEffect(() => {
-    if (status !== 'finished' || !receiptHtml || !activeExam || autoPrintRef.current) return;
-    autoPrintRef.current = true;
-    if (getExamReceiptSettings(activeExam).autoPrint) {
-      void printExamReceipt(receiptHtml).then(() => setPrintMessage('Chọn máy in trong hộp thoại In. Sau khi in, em ký xác nhận trên phiếu giấy.')).catch(() => setPrintMessage('Chưa mở được lệnh in tự động. Em chọn Xem / in phiếu ký để in lại.'));
-    }
-  }, [status, receiptHtml, activeExam]);
 
   useEffect(() => {
     if (status !== 'login') return;
@@ -345,8 +336,9 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
     submittingRef.current = true;
     setSubmitting(true);
     setLoginError('');
+    const teacherPrinting = getExamReceiptSettings(activeExam).autoPrint;
     let correct = 0;
-    for (const question of activeExam.questions) {
+    for (const question of teacherPrinting ? [] : activeExam.questions) {
       const engine = engineQuestionForExam(question);
       if (engine) {
         const evaluation = evaluateQuestion(engine, answers[question.id] as QuestionResponse);
@@ -389,10 +381,8 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
 
   const reset = () => {
     submittingRef.current = false;
-    autoPrintRef.current = false;
     setReceiptHtml('');
     setShowReceipt(false);
-    setPrintMessage('');
     setCurrentStudent(null);
     setActiveExam(null);
     setExamVersion('Gốc');
@@ -528,7 +518,12 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
       )}
 
       {status === 'finished' && score && (
-        <main className="flex flex-1 items-center justify-center p-4"><section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle className="h-12 w-12" /></div><h2 className="text-3xl font-bold">Hoàn thành!</h2><p className="mt-2 text-slate-500">{autoSubmitted ? 'Đã hết thời gian và hệ thống tự động nộp bài.' : 'Bài làm đã được ghi nhận thành công.'}</p><div className="my-7 rounded-2xl bg-slate-50 p-6"><div className="text-sm text-slate-500">Kết quả</div><div className="mt-1 text-5xl font-black text-blue-600">{Math.round((score.correct / score.total) * 100) / 10}<span className="text-2xl font-medium text-slate-400"> / 10</span></div><div className="mt-2 text-sm text-slate-500">{score.correct}/{score.total} câu đúng</div></div><button type="button" onClick={() => setShowReceipt(true)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-bold text-white"><Printer size={18} />Xem / in phiếu ký</button>{printMessage && <p className="mb-4 text-sm text-slate-600" role="status">{printMessage}</p>}<button type="button" onClick={reset} className="w-full rounded-xl bg-slate-900 px-4 py-3 font-bold text-white hover:bg-black">Về cổng học sinh</button></section></main>
+        <main className="flex flex-1 items-center justify-center p-4"><section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle className="h-12 w-12" /></div><h2 className="text-3xl font-bold">Hoàn thành!</h2>
+          <p className="mt-2 text-slate-500">{autoSubmitted ? 'Đã hết thời gian và hệ thống tự động nộp bài.' : 'Bài làm đã được ghi nhận thành công.'}</p>
+          {activeExam && getExamReceiptSettings(activeExam).autoPrint ? <div className="my-7 rounded-2xl bg-blue-50 p-6"><p className="font-semibold text-blue-800">Đã chuyển bài đến máy giáo viên để chấm và in phiếu.</p><p className="mt-2 text-sm text-slate-600">Em nhận phiếu từ giáo viên và ký xác nhận. Máy học sinh không cần in.</p></div> : <><div className="my-7 rounded-2xl bg-slate-50 p-6"><div className="text-sm text-slate-500">Kết quả</div><div className="mt-1 text-5xl font-black text-blue-600">{score.total ? Math.round((score.correct / score.total) * 100) / 10 : 0}<span className="text-2xl font-medium text-slate-400"> / 10</span></div><div className="mt-2 text-sm text-slate-500">{score.correct}/{score.total} câu đúng</div></div><button type="button" onClick={() => setShowReceipt(true)} className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-bold text-white"><Printer size={18} />Xem / in phiếu ký</button></>}
+          <button type="button" onClick={reset} className="w-full rounded-xl bg-slate-900 px-4 py-3 font-bold text-white hover:bg-black">Về cổng học sinh</button>
+        </section></main>
       )}
 
       {showReceipt && receiptHtml && <ExamReceiptDialog html={receiptHtml} onClose={() => setShowReceipt(false)} />}
