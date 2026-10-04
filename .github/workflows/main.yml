@@ -121,10 +121,11 @@ jobs:
         shell: bash
         run: |
           if [[ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]]; then
-            echo "::warning::Firestore rules were not published. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
+            echo "::warning::Firestore rules were not published. Student Word/Excel/file uploads need the updated rules. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
             {
               echo "### Learning Wall: Firebase permission setup required"
               echo "The website build passed, but public sharing and submissions require the current Firestore rules."
+              echo "Student Word/Excel and other file submissions require the optional attachments policy in the updated rules; website deployment alone does not activate file uploads."
               echo "Publish firestore.rules in project gen-lang-client-0870957273, database ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e, or configure FIREBASE_SERVICE_ACCOUNT_JSON."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0

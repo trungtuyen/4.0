@@ -73,6 +73,7 @@ export interface WallSubmission {
   categoryId: string;
   imageSrc: string;
   link: string;
+  attachments?: WallAttachment[];
   createdAt?: unknown;
 }
 
@@ -111,6 +112,45 @@ export const WALL_BACKGROUNDS = [
 ];
 export const WALL_POST_COLORS = ['#ffffff', '#fff3cc', '#e5f2e4', '#e5eefb', '#fbe5e8', '#efe6fc'];
 export const MAX_WALL_DOCUMENT_BYTES = 750_000;
+export const MAX_WALL_FILE_BYTES = 320 * 1024;
+export const WALL_FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf', 'odt', 'ods', 'odp', 'zip', 'rar', '7z', 'sb3'];
+export const WALL_FILE_ACCEPT = ['image/jpeg', 'image/png', 'image/webp', ...WALL_FILE_EXTENSIONS.map(extension => `.${extension}`)].join(',');
+export function wallFileNameIsSafe(name: string): boolean {
+  return name.length <= 180 && !/[\\/\u0000-\u001f]/.test(name) && WALL_FILE_EXTENSIONS.includes(name.split('.').pop()?.toLowerCase() || '');
+}
+
+export function submissionFiles(value: unknown): WallAttachment[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 2) throw new Error('Mỗi bài nhận tối đa 2 tệp tài liệu.');
+  return value.map((item): WallAttachment => {
+    if (!item || item.kind !== 'file' || typeof item.name !== 'string' || !wallFileNameIsSafe(item.name) || typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(item.id) || typeof item.url !== 'string' || !/^data:application\/octet-stream;base64,[A-Za-z0-9+/]+={0,2}$/.test(item.url)) throw new Error('Tệp bài nộp chưa hợp lệ. Hãy chọn lại tệp.');
+    const base64 = item.url.slice(item.url.indexOf(',') + 1);
+    const size = base64.length * 3 / 4 - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
+    if (base64.length % 4 || size <= 0 || size > MAX_WALL_FILE_BYTES) throw new Error('Mỗi tệp tài liệu tối đa 320 KB. Tệp lớn hơn hãy dùng liên kết Drive.');
+    return { id: item.id, kind: 'file', name: item.name, url: item.url, size };
+  });
+}
+
+export function wallSubmissionData(input: Partial<WallPost>) {
+  const items = input.attachments || [];
+  const images = items.filter(item => item.kind === 'image');
+  const links = items.filter(item => item.kind === 'link');
+  const files = submissionFiles(items.filter(item => item.kind === 'file'));
+  if (images.length > 1 || links.length > 1 || items.length !== images.length + links.length + files.length) throw new Error('Mỗi bài nhận tối đa 1 ảnh, 1 liên kết và 2 tệp tài liệu.');
+  const imageSrc = images[0] ? safeWallImage(images[0].url) : safeWallImage(input.imageSrc);
+  const link = links[0] ? safeWallUrl(links[0].url) : '';
+  if ((imageSrc && !/^data:image\/(jpeg|png|webp);base64,/.test(imageSrc)) || (images[0] && !imageSrc) || (links[0] && !link)) throw new Error('Ảnh hoặc liên kết chưa hợp lệ.');
+  if (imageSrc.length >= 500_000 || files.reduce((sum, file) => sum + file.url.length, imageSrc.length) > 650_000) throw new Error('Tổng ảnh và tệp quá lớn. Hãy bớt tệp hoặc dùng liên kết Drive.');
+  const data = { title: (input.title || '').trim().slice(0, 200), text: (input.text || '').trim().slice(0, 12000), studentName: (input.studentName || '').trim().slice(0, 120), categoryId: input.categoryId || '', imageSrc, link, ...(files.length ? { attachments: files } : {}) };
+  if (!data.studentName || (!data.title && !data.text && !imageSrc && !link && !files.length)) throw new Error('Hãy nhập tên và thêm nội dung hoặc tệp bài nộp.');
+  assertWallSize(data);
+  return data;
+}
+
+export function submissionPostAttachments(value: WallSubmission): WallAttachment[] {
+  const link = safeWallUrl(value.link);
+  return [...submissionFiles(value.attachments), ...(link ? [{ id: 'submission-link', kind: 'link' as const, url: link, name: new URL(link).hostname }] : [])];
+}
 
 export function wallTimestamp(value: unknown): number {
   if (!value) return 0;
@@ -250,12 +290,14 @@ export async function readWallFile(file: File): Promise<WallAttachment> {
       return { id: crypto.randomUUID(), kind: 'image', name: file.name.slice(0, 180), url, mime: 'image/jpeg', size: Math.round(url.length * 0.75) };
     } finally { bitmap.close(); }
   }
-  if (file.size > 320 * 1024) throw new Error('Tệp tải trực tiếp tối đa 320 KB. Với video, âm thanh hoặc tài liệu lớn, hãy dùng liên kết.');
-  if (!/\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip|sb3)$/i.test(file.name)) throw new Error('Chỉ nhận ảnh, PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP hoặc SB3.');
+  if (file.size > MAX_WALL_FILE_BYTES) throw new Error('Tệp tải trực tiếp tối đa 320 KB. Với video, âm thanh hoặc tài liệu lớn, hãy dùng liên kết.');
+  const name = file.name.slice(0, 180);
+  if (!wallFileNameIsSafe(name)) throw new Error('Chọn Word, Excel, PowerPoint, PDF, TXT, CSV, RTF, OpenDocument, ZIP, RAR, 7Z hoặc SB3.');
+  if (!file.size) throw new Error('Tệp đang trống. Hãy chọn tệp có nội dung.');
   const url = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader(); reader.onerror = () => reject(new Error('Không đọc được tệp.'));
     reader.onload = () => resolve(String(reader.result).replace(/^data:[^;]*;/, 'data:application/octet-stream;'));
     reader.readAsDataURL(file);
   });
-  return { id: crypto.randomUUID(), kind: 'file', name: file.name.slice(0, 180), url, size: file.size };
+  return { id: crypto.randomUUID(), kind: 'file', name, url, size: file.size };
 }

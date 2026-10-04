@@ -72,6 +72,30 @@ try {
   await allowed(setDoc(doc(guest, `${wallPath}/submissions/student1`), submission));
   await allowed(setDoc(doc(anotherGuest, `${wallPath}/submissions/another-student`), { ...submission, studentName: 'Bình', categoryId: 'section-one' }));
   await allowed(setDoc(doc(second, `${wallPath}/submissions/signed-in-visitor`), submission));
+  const studentFile = { id: 'file-one', kind: 'file', name: 'Bài làm.docx', url: 'data:application/octet-stream;base64,YQ==', size: 1 };
+  const fileSubmission = { ...submission, title: '', text: '', attachments: [studentFile] };
+  for (const extension of ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf', 'txt', 'csv', 'rtf', 'odt', 'ods', 'odp', 'zip', 'rar', '7z', 'sb3']) {
+    await allowed(setDoc(doc(guest, `${wallPath}/submissions/file-${extension}`), { ...fileSubmission, attachments: [{ ...studentFile, name: `Bài làm.${extension.toUpperCase()}` }] }));
+  }
+  await allowed(setDoc(doc(guest, `${wallPath}/submissions/two-files`), { ...fileSubmission, attachments: [studentFile, { ...studentFile, id: 'file-two', name: 'Bảng tính.xlsx' }] }));
+  await denied(getDoc(doc(guest, `${wallPath}/submissions/file-docx`)));
+  await denied(getDoc(doc(second, `${wallPath}/submissions/file-docx`)));
+  await allowed(getDoc(doc(first, `${wallPath}/submissions/file-docx`)));
+  const approveFile = writeBatch(first);
+  approveFile.set(doc(first, 'wall_posts/approved-file'), { ...post, authorId: 'teacher-one', teacherId: 'teacher-one', attachments: [studentFile] });
+  approveFile.set(doc(first, `${wallPath}/posts/approved-file`), { ...post, attachments: [studentFile] });
+  approveFile.delete(doc(first, `${wallPath}/submissions/file-docx`));
+  await allowed(approveFile.commit());
+  assert.equal((await getDoc(doc(guest, `${wallPath}/posts/approved-file`))).data().attachments[0].url, studentFile.url);
+  for (const patch of [{ kind: 'image' }, { name: 'script.html' }, { url: 'data:text/html;base64,YQ==' }, { url: 'https://example.com/file.docx' }, { size: 327681 }, { teacherId: 'teacher-one' }]) {
+    await denied(setDoc(doc(guest, `${wallPath}/submissions/bad-file`), { ...fileSubmission, attachments: [{ ...studentFile, ...patch }] }));
+  }
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/bad-file`), { ...fileSubmission, attachments: [studentFile, studentFile, studentFile] }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/bad-file`), { ...fileSubmission, attachments: 'invalid' }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/bad-file`), { ...fileSubmission, categoryId: 'another-board' }));
+  const largestFile = { ...studentFile, size: 327680, url: 'data:application/octet-stream;base64,' + Buffer.alloc(327680).toString('base64') };
+  await allowed(setDoc(doc(guest, `${wallPath}/submissions/size-limit`), { ...fileSubmission, attachments: [largestFile] }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/bad-file`), { ...fileSubmission, attachments: [largestFile, { ...largestFile, id: 'file-two' }] }));
   await denied(getDoc(doc(guest, `${wallPath}/submissions/student1`)));
   await denied(getDocs(collection(guest, `${wallPath}/submissions`)));
   await denied(getDoc(doc(second, `${wallPath}/submissions/student1`)));
@@ -86,6 +110,7 @@ try {
   await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, imageSrc: 'data:image/svg+xml;base64,YQ==' }));
   await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), { ...submission, text: 'a'.repeat(12001) }));
   await allowed(updateDoc(doc(first, wallPath), { permission: 'read', updatedAt: serverTimestamp() }));
+  await denied(setDoc(doc(guest, `${wallPath}/submissions/closed-file`), fileSubmission));
   await denied(setDoc(doc(guest, `${wallPath}/submissions/student2`), submission));
   await allowed(getDoc(doc(guest, wallPath)));
   await allowed(updateDoc(doc(first, wallPath), { permission: 'write', updatedAt: serverTimestamp() }));

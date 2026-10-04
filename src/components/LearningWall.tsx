@@ -4,7 +4,7 @@ import { auth, db } from '../firebase';
 import type { Teacher } from '../types';
 import { isPlickerSystemCategory } from '../lib/plickerLive';
 import { canAccessTeacherOwnedRecord, filterTeacherOwnedRecords, isValidTeacherUid, resolveTeacherAccessScope } from '../lib/teacherIsolation';
-import { WALL_POST_COLORS, assertWallSize, boardPosts, canSubmitToSharedWall, createWallLink, newWallShareId, readWallShareId, safeWallAttachment, safeWallImage, safeWallUrl, sharedWallPost, validWallLocation, wallBackground, wallErrorMessage as errorMessage, wallLayout, type SharedWall, type WallCategory, type WallPost, type WallSubmission } from '../lib/learningWall';
+import { WALL_POST_COLORS, assertWallSize, boardPosts, canSubmitToSharedWall, createWallLink, newWallShareId, readWallShareId, safeWallAttachment, safeWallImage, safeWallUrl, sharedWallPost, submissionPostAttachments, wallSubmissionData, validWallLocation, wallBackground, wallErrorMessage as errorMessage, wallLayout, type SharedWall, type WallCategory, type WallPost, type WallSubmission } from '../lib/learningWall';
 import { normalizeWallAppearance, readSharedWallAppearance, sharedWallAppearance, WALL_APPEARANCE_ID, type WallAppearance } from '../lib/learningWallBackground';
 import WallBoardSurface, { type WallBoardActions } from './learning-wall/WallBoardSurface';
 
@@ -247,7 +247,7 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
         const inboxRef = doc(shareRef()!, 'submissions', submission.id); const snapshot = await transaction.get(inboxRef); if (!snapshot.exists()) throw new Error('Bài này đã được xử lý.');
         if (approve) {
           const value = snapshot.data() as WallSubmission; const id = `shared-${submission.id}`;
-          const post: WallPost = { id, categoryId: value.categoryId, boardId: board.id, authorId: board.authorId, teacherId: board.authorId, title: value.title, text: value.text, studentName: value.studentName, imageSrc: safeWallImage(value.imageSrc), attachments: safeWallUrl(value.link) ? [{ id: crypto.randomUUID(), kind: 'link', url: safeWallUrl(value.link), name: new URL(value.link).hostname }] : [], color: '#ffffff', createdAt: Date.now(), comments: [], likes: 0, likedBy: [] };
+          const post: WallPost = { id, categoryId: value.categoryId, boardId: board.id, authorId: board.authorId, teacherId: board.authorId, title: value.title, text: value.text, studentName: value.studentName, imageSrc: safeWallImage(value.imageSrc), attachments: submissionPostAttachments(value), color: '#ffffff', createdAt: Date.now(), comments: [], likes: 0, likedBy: [] };
           const { id: ignored, ...data } = post; assertWallSize(data); transaction.set(doc(db, 'wall_posts', id), { ...data, createdAt: serverTimestamp() }); transaction.set(doc(shareRef()!, 'posts', id), sharedWallPost(post));
         }
         transaction.delete(inboxRef);
@@ -291,11 +291,11 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
       if (!canSubmitToSharedWall(shared)) throw new Error('Giáo viên chưa mở nhận bài.');
       if (Date.now() - lastSubmit.current < 10_000) throw new Error('Hãy chờ ít giây trước khi gửi bài tiếp theo.');
       if (!input.categoryId || !shared.sectionIds.includes(input.categoryId)) throw new Error('Cột nhận bài chưa hợp lệ.');
-      const images = (input.attachments || []).filter(item => item.kind === 'image'); const links = (input.attachments || []).filter(item => item.kind !== 'image');
-      if (images.length > 1 || links.length > 1) throw new Error('Mỗi bài nhận một ảnh và một liên kết.');
-      const data = { title: (input.title || '').trim().slice(0, 200), text: (input.text || '').trim().slice(0, 12000), studentName: (input.studentName || '').trim().slice(0, 120), categoryId: input.categoryId, imageSrc: images[0] ? safeWallImage(images[0].url) : '', link: links[0] ? safeWallUrl(links[0].url) : '' };
-      if (!data.studentName || (!data.title && !data.text && !data.imageSrc && !data.link)) throw new Error('Hãy nhập tên và nội dung bài gửi.'); assertWallSize(data);
-      try { await addDoc(collection(db, 'shared_learning_walls', token, 'submissions'), { ...data, createdAt: serverTimestamp() }); lastSubmit.current = Date.now(); } catch (error) { throw new Error(errorMessage(error, true)); }
+      const data = wallSubmissionData(input);
+      try { await addDoc(collection(db, 'shared_learning_walls', token, 'submissions'), { ...data, createdAt: serverTimestamp() }); lastSubmit.current = Date.now(); } catch (error) {
+        if ('attachments' in data && String((error as { code?: string })?.code).includes('permission-denied')) throw new Error('Chưa gửi được tệp. Giáo viên có thể đã tắt nhận bài hoặc chưa cập nhật quyền nhận tệp trên Firebase. Tệp vẫn được giữ trong cửa sổ này.');
+        throw new Error(errorMessage(error, true));
+      }
     },
   };
   if (!shared) return <div className="lw-app"><div className="lw-main"><div className="lw-empty"><h1>Tường học tập</h1><p role={error ? 'alert' : 'status'}>{loading ? 'Đang mở bảng được chia sẻ…' : error}</p><button className="lw-button" onClick={onBack}>Về trang chủ</button></div></div></div>;
