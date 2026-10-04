@@ -53,3 +53,15 @@
   .lw-board-nav .lw-topbar-title{gap:7px}
   .lw-topbar-icon{font-size:24px}
 }
+
+.lw-background-picker{display:flex;flex-direction:column;gap:16px}
+.lw-background-preview{min-height:160px;border:1px solid #dce3d6;border-radius:12px;padding:24px;display:flex;align-items:center;justify-content:center}
+.lw-background-preview>div{display:flex;flex-direction:column;gap:8px;background:#fffffff0;border-radius:10px;padding:16px;font-size:13px;box-shadow:0 2px 8px #0001}
+.lw-background-preview span{font-size:12px;color:#67715d}
+.lw-background-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.lw-background-presets button{border:1px solid #dce3d6;border-radius:10px;background:white;padding:6px;font-size:12px}
+.lw-background-presets button>span{display:grid;place-items:center;min-height:58px;border-radius:6px;margin-bottom:6px}
+.lw-background-presets button[aria-pressed=true]{border-color:#753a43;box-shadow:0 0 0 1px #753a43}
+.lw-form .lw-background-color{display:flex;flex-direction:row;align-items:center;justify-content:space-between}
+.lw-form .lw-background-color input{width:70px;height:42px;padding:3px}
+@media(max-width:760px){.lw-background-presets{grid-template-columns:repeat(2,minmax(0,1fr))}.lw-background-preview{padding:16px}}

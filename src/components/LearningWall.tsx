@@ -5,6 +5,7 @@ import type { Teacher } from '../types';
 import { isPlickerSystemCategory } from '../lib/plickerLive';
 import { canAccessTeacherOwnedRecord, filterTeacherOwnedRecords, isValidTeacherUid, resolveTeacherAccessScope } from '../lib/teacherIsolation';
 import { WALL_POST_COLORS, assertWallSize, boardPosts, canSubmitToSharedWall, createWallLink, newWallShareId, readWallShareId, safeWallAttachment, safeWallImage, safeWallUrl, sharedWallPost, validWallLocation, wallBackground, wallErrorMessage as errorMessage, wallLayout, type SharedWall, type WallCategory, type WallPost, type WallSubmission } from '../lib/learningWall';
+import { normalizeWallAppearance, readSharedWallAppearance, sharedWallAppearance, WALL_APPEARANCE_ID, type WallAppearance } from '../lib/learningWallBackground';
 import WallBoardSurface, { type WallBoardActions } from './learning-wall/WallBoardSurface';
 
 interface Props { onBack: () => void; currentUser?: Teacher | 'admin' | null; onLogin?: () => void }
@@ -17,6 +18,12 @@ function sharedSettings(board: WallCategory, categories: WallCategory[], permiss
   const sections = [{ id: board.id, title: 'Bài chung' }, ...categories.filter(item => item.parentId === board.id && item.authorId === board.authorId && (!item.ownerUid || item.ownerUid === board.authorId)).map(item => ({ id: item.id, title: item.title }))];
   if (sections.length > 40) throw new Error('Một bảng chia sẻ hỗ trợ tối đa 39 cột và mục Bài chung.');
   return { authorId: board.authorId!, title: board.title, description: board.wallDescription || '', icon: board.wallIcon || '📚', layout: wallLayout(board.wallLayout), background: wallBackground(board.wallBackground).id, sections, sectionIds: sections.map(item => item.id), enabled, permission };
+}
+
+function publishAppearance(batch: ReturnType<typeof writeBatch>, token: string, board: WallCategory) {
+  const ref = doc(db, 'shared_learning_walls', token, 'posts', WALL_APPEARANCE_ID);
+  const appearance = sharedWallAppearance(board);
+  if (appearance) batch.set(ref, appearance); else batch.delete(ref);
 }
 
 function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
@@ -115,7 +122,7 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
     },
     async createBoard(input) {
       assertOwner(); const title = input.title?.trim(); if (!title) throw new Error('Vui lòng nhập tên bảng.');
-      const ref = await addDoc(collection(db, 'categories'), { title: title.slice(0, 180), authorId: ownerUid, ownerUid, author: displayName, parentId: null, wallIcon: (input.wallIcon || '📚').slice(0, 8), wallDescription: (input.wallDescription || '').slice(0, 2000), wallLayout: wallLayout(input.wallLayout), wallBackground: wallBackground(input.wallBackground).id, createdAt: serverTimestamp() });
+      const ref = await addDoc(collection(db, 'categories'), { title: title.slice(0, 180), authorId: ownerUid, ownerUid, author: displayName, parentId: null, wallIcon: (input.wallIcon || '📚').slice(0, 8), wallDescription: (input.wallDescription || '').slice(0, 2000), wallLayout: wallLayout(input.wallLayout), wallBackground: wallBackground(input.wallBackground).id, ...normalizeWallAppearance(input), createdAt: serverTimestamp() });
       setOpenedClassId(ref.id);
     },
     async updateBoard(target, input) {
@@ -125,6 +132,7 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
       if (input.wallIcon !== undefined) patch.wallIcon = input.wallIcon.slice(0, 8);
       if (input.wallLayout !== undefined) patch.wallLayout = wallLayout(input.wallLayout);
       if (input.wallBackground !== undefined) patch.wallBackground = wallBackground(input.wallBackground).id;
+      if (input.bgType !== undefined || input.bgValue !== undefined) Object.assign(patch, normalizeWallAppearance({ ...target, ...input }));
       for (const key of ['wallArchived', 'wallDeleted', 'wallComments', 'wallReactions'] as const) if (input[key] !== undefined) patch[key] = Boolean(input[key]);
       const batch = writeBatch(db); batch.update(doc(db, 'categories', target.id), patch);
       if (target.wallShareId && input.wallDeleted === true) {
@@ -132,8 +140,14 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
         const publishedRef = doc(db, 'shared_learning_walls', target.wallShareId);
         const published = await getDocFromServer(publishedRef);
         if (published.exists()) batch.update(publishedRef, { enabled: false, updatedAt: serverTimestamp() });
-      } else if (target.wallShareId && share && board?.id === target.id) {
-        batch.set(doc(db, 'shared_learning_walls', target.wallShareId), { ...sharedSettings({ ...target, ...patch }, categories, share.permission, input.wallArchived || target.wallDeleted ? false : share.enabled), updatedAt: serverTimestamp() });
+      } else if (target.wallShareId && board?.id === target.id) {
+        const publishedRef = doc(db, 'shared_learning_walls', target.wallShareId);
+        const published = share || (await getDocFromServer(publishedRef)).data() as SharedWall | undefined;
+        if (published) {
+          const next = { ...target, ...patch } as WallCategory;
+          batch.set(publishedRef, { ...sharedSettings(next, categories, published.permission, next.wallArchived || next.wallDeleted ? false : published.enabled), updatedAt: serverTimestamp() });
+          if (input.bgType !== undefined || input.bgValue !== undefined || input.wallBackground !== undefined) publishAppearance(batch, target.wallShareId, next);
+        }
       }
       await batch.commit();
     },
@@ -196,7 +210,10 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
         const published = await getDocFromServer(ref);
         if (published.exists() && published.data().enabled === true) {
           // Changing submission mode keeps the link readable and its guest listeners alive.
-          await updateDoc(ref, { ...sharedSettings(target, categories, permission, true), updatedAt: serverTimestamp() });
+          const batch = writeBatch(db);
+          batch.update(ref, { ...sharedSettings(target, categories, permission, true), updatedAt: serverTimestamp() });
+          publishAppearance(batch, token, target);
+          await batch.commit();
           setError('');
           return;
         }
@@ -205,11 +222,18 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
       // Disable before uploading; readers never see a partly refreshed publication.
       await setDoc(ref, { ...sharedSettings(target, categories, permission, false), updatedAt: serverTimestamp() });
       const old = await getDocs(collection(ref, 'posts')); const keep = new Set(sourcePosts.map(post => post.id));
+      const appearance = sharedWallAppearance(target);
+      if (appearance) keep.add(WALL_APPEARANCE_ID);
       let batch = writeBatch(db), bytes = 0, operations = 0;
       const flush = async () => { if (operations) { await batch.commit(); batch = writeBatch(db); operations = 0; bytes = 0; } };
       for (const post of sourcePosts) {
         const safe = sharedWallPost(post); const size = new TextEncoder().encode(JSON.stringify(safe)).length;
         if (bytes + size > 2_000_000 || operations >= 30) await flush(); batch.set(doc(ref, 'posts', post.id), safe); bytes += size; operations += 1;
+      }
+      if (appearance) {
+        const size = new TextEncoder().encode(JSON.stringify(appearance)).length;
+        if (bytes + size > 2_000_000 || operations >= 30) await flush();
+        batch.set(doc(ref, 'posts', WALL_APPEARANCE_ID), appearance); bytes += size; operations += 1;
       }
       for (const item of old.docs) if (!keep.has(item.id)) { if (operations >= 30) await flush(); batch.delete(item.ref); operations += 1; }
       await flush(); const finish = writeBatch(db); finish.update(ref, { enabled: true, updatedAt: serverTimestamp() }); finish.update(doc(db, 'categories', target.id), { wallShareId: token }); await finish.commit(); setError('');
@@ -239,20 +263,25 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
 function SharedLearningWall({ token, onBack }: { token: string; onBack: () => void }) {
   const [shared, setShared] = useState<SharedWall | null>(null);
   const [posts, setPosts] = useState<WallPost[]>([]);
+  const [appearance, setAppearance] = useState<Partial<WallAppearance>>({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
   const online = useOnline(); const lastSubmit = useRef(0);
   useEffect(() => {
-    setShared(null); setPosts([]); setLoading(true); setReady(false); setError('');
+    setShared(null); setPosts([]); setAppearance({}); setLoading(true); setReady(false); setError('');
     return onSnapshot(doc(db, 'shared_learning_walls', token), snapshot => {
       if (!snapshot.exists() || !snapshot.data().enabled) { setShared(null); setError('Liên kết đã tắt hoặc không còn tồn tại.'); }
       else { setShared(snapshot.data() as SharedWall); setError(''); } setLoading(false);
-    }, () => { setShared(null); setPosts([]); setLoading(false); setError('Không mở được bảng. Liên kết có thể đã được tắt hoặc chưa sẵn sàng.'); });
+    }, () => { setShared(null); setPosts([]); setAppearance({}); setLoading(false); setError('Không mở được bảng. Liên kết có thể đã được tắt hoặc chưa sẵn sàng.'); });
   }, [token]);
   useEffect(() => {
-    setPosts([]); setReady(false); if (!shared?.enabled) return;
-    return onSnapshot(collection(db, 'shared_learning_walls', token, 'posts'), snapshot => { setPosts(snapshot.docs.map(item => ({ ...item.data(), id: item.id } as WallPost))); setReady(true); }, () => { setPosts([]); setReady(true); setError('Không đọc được bài đăng; có thể giáo viên đã tắt chia sẻ.'); });
+    setPosts([]); setAppearance({}); setReady(false); if (!shared?.enabled) return;
+    return onSnapshot(collection(db, 'shared_learning_walls', token, 'posts'), snapshot => {
+      const records = snapshot.docs.map(item => ({ ...item.data(), id: item.id } as WallPost));
+      setAppearance(readSharedWallAppearance(records.find(item => item.id === WALL_APPEARANCE_ID), shared.sectionIds[0]));
+      setPosts(records.filter(item => item.id !== WALL_APPEARANCE_ID)); setReady(true);
+    }, () => { setPosts([]); setAppearance({}); setReady(true); setError('Không đọc được bài đăng; có thể giáo viên đã tắt chia sẻ.'); });
   }, [token, shared?.enabled]);
   const unavailable = async () => { throw new Error('Chỉ giáo viên quản lý bảng mới được thực hiện thao tác này.'); };
   const actions: WallBoardActions = {
@@ -271,7 +300,7 @@ function SharedLearningWall({ token, onBack }: { token: string; onBack: () => vo
   };
   if (!shared) return <div className="lw-app"><div className="lw-main"><div className="lw-empty"><h1>Tường học tập</h1><p role={error ? 'alert' : 'status'}>{loading ? 'Đang mở bảng được chia sẻ…' : error}</p><button className="lw-button" onClick={onBack}>Về trang chủ</button></div></div></div>;
   const rootId = shared.sectionIds[0];
-  const categories: WallCategory[] = [{ id: rootId, title: shared.title, wallDescription: shared.description, wallIcon: shared.icon, wallLayout: wallLayout(shared.layout), wallBackground: shared.background }, ...shared.sections.filter(item => item.id !== rootId).map(item => ({ ...item, parentId: rootId }))];
+  const categories: WallCategory[] = [{ id: rootId, title: shared.title, wallDescription: shared.description, wallIcon: shared.icon, wallLayout: wallLayout(shared.layout), wallBackground: shared.background, ...appearance }, ...shared.sections.filter(item => item.id !== rootId).map(item => ({ ...item, parentId: rootId }))];
   return <WallBoardSurface categories={categories} posts={posts} boardId={rootId} onOpen={() => undefined} onBack={onBack} displayName="Công khai" ownerUid="" guest guestCanPost={canSubmitToSharedWall(shared)} loading={!ready} error={error} offline={!online} actions={actions} />;
 }
 
