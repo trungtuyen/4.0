@@ -43,6 +43,25 @@ try {
   await denied(getDocs(collection(second, 'shared_learning_walls')));
   await allowed(getDoc(doc(guest, wallPath)));
   await allowed(setDoc(doc(first, `${wallPath}/posts/p1`), post));
+  // Public background media stays under the same owner-only write policy.
+  const appearancePath = `${wallPath}/posts/wall-board-background`;
+  const appearance = { ...post, title: '', studentName: '', text: '#345678', imageSrc: '' };
+  const saveBackground = writeBatch(first);
+  saveBackground.update(doc(first, 'categories/class-one'), { bgType: 'color', bgValue: '#345678' });
+  saveBackground.set(doc(first, wallPath), wall);
+  saveBackground.set(doc(first, appearancePath), appearance);
+  await allowed(saveBackground.commit());
+  await allowed(getDoc(doc(guest, appearancePath)));
+  await denied(updateDoc(doc(guest, appearancePath), { text: '#ffffff' }));
+  await denied(deleteDoc(doc(second, appearancePath)));
+  await denied(setDoc(doc(first, appearancePath), { ...appearance, categoryId: 'another-board' }));
+  await allowed(updateDoc(doc(first, appearancePath), { text: '', imageSrc: 'data:image/png;base64,YQ==' }));
+  const resetBackground = writeBatch(first);
+  resetBackground.update(doc(first, 'categories/class-one'), { bgType: 'color', bgValue: '', wallBackground: 'sage' });
+  resetBackground.set(doc(first, wallPath), wall);
+  resetBackground.delete(doc(first, appearancePath));
+  await allowed(resetBackground.commit());
+
   await allowed(getDocs(collection(guest, `${wallPath}/posts`)));
   await denied(setDoc(doc(guest, `${wallPath}/posts/forged`), post));
   await denied(setDoc(doc(second, `${wallPath}/posts/forged`), post));

@@ -33,3 +33,26 @@ assert.equal(canSubmitToSharedWall({ enabled: true, permission: 'read' }), false
 assert.equal(canSubmitToSharedWall({ enabled: false, permission: 'write' }), false);
 assert.equal(canSubmitToSharedWall({ enabled: false, permission: 'read' }), false);
 console.info('Learning Wall: legacy compatibility, owner isolation, redaction, media safety, CSV, layouts and sharing tests passed.');
+
+// Custom appearance is scoped to a board and uses only safe, public media fields.
+const { normalizeWallAppearance, wallBackgroundStyle, safeBackgroundImage, safeBackgroundColor, sharedWallAppearance, readSharedWallAppearance, WALL_APPEARANCE_ID, MAX_BACKGROUND_LENGTH } = await import('../src/lib/learningWallBackground.ts');
+const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH1cAAAAASUVORK5CYII=';
+assert.equal(safeBackgroundColor('#ABC123'), '#abc123');
+for (const value of ['red', '#fff', 'url(javascript:x)', '#123456; color:red']) assert.equal(safeBackgroundColor(value), '');
+for (const value of ['https://tracker.test/photo.png', 'data:image/svg+xml;base64,YQ==', 'data:text/html;base64,YQ==', 'data:image/png;base64,' + 'a'.repeat(MAX_BACKGROUND_LENGTH)]) assert.equal(safeBackgroundImage(value), '');
+assert.throws(() => normalizeWallAppearance({ bgType: 'color', bgValue: 'url(x)' }));
+assert.throws(() => normalizeWallAppearance({ bgType: 'image', bgValue: 'https://tracker.test/image.jpg' }));
+assert.deepEqual(normalizeWallAppearance({ bgType: 'image', bgValue: '' }), { bgType: 'color', bgValue: '' });
+assert.equal(wallBackgroundStyle({ wallBackground: 'blue', bgType: 'color', bgValue: '#123456' }).backgroundImage, 'none');
+assert.ok(wallBackgroundStyle({ bgType: 'image', bgValue: image }).backgroundImage.includes(image));
+assert.equal(wallBackgroundStyle({ bgType: 'image', bgValue: 'javascript:alert(1)' }).backgroundImage.includes('javascript'), false);
+const colored = { ...board, bgType: 'color' as const, bgValue: '#123456' };
+const sharedAppearance = sharedWallAppearance(colored)!;
+for (const key of ['authorId', 'teacherId', 'ownerUid', 'score', 'comments', 'likedBy', 'bgValue']) assert.equal(key in sharedAppearance, false);
+assert.deepEqual(readSharedWallAppearance({ ...sharedAppearance, id: WALL_APPEARANCE_ID }, board.id), { bgType: 'color', bgValue: '#123456' });
+assert.deepEqual(readSharedWallAppearance({ ...sharedAppearance, id: WALL_APPEARANCE_ID }, 'other-board'), {});
+assert.deepEqual(readSharedWallAppearance({ ...sharedAppearance, id: 'student-post' }, board.id), {});
+assert.equal(sharedWallAppearance({ ...board, bgValue: '' }), null);
+const photo = sharedWallAppearance({ ...board, bgType: 'image', bgValue: image })!;
+assert.deepEqual(readSharedWallAppearance({ ...photo, id: WALL_APPEARANCE_ID }, board.id), { bgType: 'image', bgValue: image });
+console.info('Learning Wall backgrounds: safe color/image input, scoped public appearance and reset passed.');
