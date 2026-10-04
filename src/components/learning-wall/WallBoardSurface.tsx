@@ -9,6 +9,7 @@ import {
 import './learning-wall.css';
 import WallBackgroundPicker from './WallBackgroundPicker';
 import { wallBackgroundStyle } from '../../lib/learningWallBackground';
+import { discardWallFile, wallLargeUploadsEnabled } from '../../lib/learningWallUpload';
 import { useWallDirection, type WallDirection } from './useWallDirection';
 
 const WallMap = lazy(() => import('./WallMap'));
@@ -52,6 +53,7 @@ interface Props {
   submissions?: WallSubmission[];
   shareUrl?: string;
   sharePermission?: 'read' | 'write';
+  uploadProgress?: string;
   actions: WallBoardActions;
 }
 
@@ -230,18 +232,21 @@ export default function WallBoardSurface(props: Props) {
   const directionClass = boardDirection ? ` lw-direction-${boardDirection}` : '';
   const canPost = Boolean(board && !board.wallArchived && !board.wallDeleted && (!guest || props.guestCanPost));
   const openPost = (post?: WallPost, sectionId?: string) => {
-    if (!board || !canPost || (guest && post)) return;
+    if (!board || !canPost || busy || (guest && post)) return;
+    draft.attachments?.forEach(discardWallFile);
     setDraft(post ? { ...post, attachments: [...(post.attachments || [])] } : { ...defaultDraft(board, categories, guest ? '' : displayName), ...(sectionId ? { categoryId: sectionId } : {}) });
     setEditing(post); setLink(''); setCamera(false); setPanel('post'); setActionError('');
   };
   const attachFile = async (file?: File) => {
     if (!file) return;
     await run(async () => {
-      const item = await readWallFile(file);
+      const item = await readWallFile(file, guest && wallLargeUploadsEnabled);
+      try {
       const attachments = [...(draft.attachments || []), item];
       if (attachments.length > 4) throw new Error('Đã đủ số tệp cho một bài đăng.');
-      if (guest) wallSubmissionData({ ...draft, studentName: draft.studentName || 'Học sinh', attachments });
+      if (guest) wallSubmissionData({ ...draft, studentName: draft.studentName || 'Học sinh', attachments }, wallLargeUploadsEnabled);
       assertWallSize({ ...draft, attachments }); setDraft(previous => ({ ...previous, attachments })); setCamera(false);
+      } catch (error) { discardWallFile(item); throw error; }
     }, '', false);
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -329,10 +334,10 @@ export default function WallBoardSurface(props: Props) {
       <input className="lw-title-input" aria-label="Tiêu đề bài đăng" placeholder="Tiêu đề bài đăng" maxLength={200} value={draft.title || ''} onChange={e => setDraft({ ...draft, title: e.target.value })} />
       <textarea aria-label="Nội dung bài đăng" placeholder="Viết điều em muốn chia sẻ…" maxLength={12000} rows={5} value={draft.text || ''} onChange={e => setDraft({ ...draft, text: e.target.value })} />
       {draft.imageSrc && <div className="lw-draft-attachment"><img src={safeWallImage(draft.imageSrc)} alt="Ảnh hiện có" /><button type="button" className="lw-icon" aria-label="Bỏ ảnh cũ" onClick={() => setDraft({ ...draft, imageSrc: '' })}><X size={18} /></button></div>}
-      {(draft.attachments || []).map(item => <div className="lw-draft-attachment" key={item.id}>{item.kind === 'image' ? <img src={safeWallImage(item.url)} alt={item.name} /> : <Paperclip size={20} />}<span>{item.name}</span><button type="button" className="lw-icon" aria-label={`Bỏ ${item.name}`} onClick={() => setDraft({ ...draft, attachments: draft.attachments?.filter(attachment => attachment.id !== item.id) })}><X size={18} /></button></div>)}
+      {(draft.attachments || []).map(item => <div className="lw-draft-attachment" key={item.id}>{item.kind === 'image' ? <img src={safeWallImage(item.url)} alt={item.name} /> : <Paperclip size={20} />}<span>{item.name}</span><button type="button" className="lw-icon" aria-label={`Bỏ ${item.name}`} onClick={() => { discardWallFile(item); setDraft({ ...draft, attachments: draft.attachments?.filter(attachment => attachment.id !== item.id) }); }}><X size={18} /></button></div>)}
       {camera ? <CameraCapture onClose={() => setCamera(false)} onCapture={file => void attachFile(file)} /> : <div className="lw-attachment-tools"><input ref={fileRef} hidden type="file" accept={WALL_FILE_ACCEPT} aria-label="Chọn ảnh hoặc tệp bài nộp" onChange={event => void attachFile(event.target.files?.[0])} /><button className="lw-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}><Paperclip size={18} />Ảnh / Word / Excel / tệp</button><button className="lw-button" type="button" disabled={busy} onClick={() => setCamera(true)}><Camera size={18} />Máy ảnh</button></div>}
       <div className="lw-link-input"><select aria-label="Loại liên kết" value={linkKind} onChange={e => setLinkKind(e.target.value as WallAttachment['kind'])}><option value="link">Liên kết</option>{!guest && <><option value="video">Video trực tiếp</option><option value="audio">Âm thanh trực tiếp</option></>}</select><input aria-label="Liên kết đính kèm" type="url" value={link} onChange={e => setLink(e.target.value)} placeholder="https://… (YouTube, Drive, tài liệu)" /><button className="lw-icon" type="button" aria-label="Thêm liên kết" onClick={() => { const url = safeWallUrl(link); if (!url) { setActionError('Liên kết phải bắt đầu bằng https:// hoặc http://.'); return; } if ((draft.attachments?.length || 0) >= 4 || (guest && draft.attachments?.some(item => item.kind === 'link'))) { setActionError('Đã đủ số liên kết hoặc tệp cho bài này.'); return; } setDraft({ ...draft, attachments: [...(draft.attachments || []), { id: crypto.randomUUID(), kind: linkKind, url, name: new URL(url).hostname }] }); setLink(''); setActionError(''); }}><Plus size={20} /></button></div>
-      <p className="lw-help">Ảnh tự nén trước khi gửi. Nhận Word, Excel, PowerPoint, PDF, TXT, CSV, RTF, ODT/ODS/ODP, ZIP, RAR, 7Z, SB3. Tệp trực tiếp tối đa 320 KB; tệp lớn dùng liên kết Drive. Học sinh có thể gửi 2 tệp tài liệu, 1 ảnh và 1 liên kết trong một bài; nếu tổng ảnh và tệp quá lớn, hãy dùng liên kết Drive. {guest && 'Không gửi số điện thoại, địa chỉ hoặc thông tin riêng tư.'}</p>
+      {props.uploadProgress && <p role="status" aria-live="polite">{props.uploadProgress}</p>}<p className="lw-help">Ảnh tự nén trước khi gửi. Nhận Word, Excel, PowerPoint, PDF, TXT, CSV, RTF, ODT/ODS/ODP, ZIP, RAR, 7Z, SB3. {guest && wallLargeUploadsEnabled ? 'Tệp được lưu riêng; ứng dụng không đặt giới hạn 320 KB. Tệp lớn sẽ tải lâu hơn tùy mạng.' : 'Tệp trực tiếp hiện tối đa 320 KB. Kho tệp lớn chưa được kích hoạt; tệp lớn có thể nộp qua liên kết Drive.'} Học sinh có thể gửi 2 tệp tài liệu, 1 ảnh và 1 liên kết trong một bài; ảnh được nén để hiển thị trên bảng. {guest && 'Không gửi số điện thoại, địa chỉ hoặc thông tin riêng tư.'}</p>
       {!guest && <><fieldset><legend>Màu thẻ</legend><div className="lw-swatches">{WALL_POST_COLORS.map(color => <button key={color} type="button" className={draft.color === color ? 'selected' : ''} aria-label={`Màu thẻ ${color}`} aria-pressed={draft.color === color} style={{ background: color }} onClick={() => setDraft({ ...draft, color })}>{draft.color === color && <Check size={17} />}</button>)}</div></fieldset><details><summary><MapPin size={15} />Thêm địa điểm cho bản đồ</summary><div className="lw-form-grid"><label>Vĩ độ<input type="number" min="-90" max="90" step="any" value={draft.location?.lat ?? ''} onChange={e => setDraft({ ...draft, location: { lat: Number(e.target.value), lng: draft.location?.lng ?? 0, label: draft.location?.label || '' } })} /></label><label>Kinh độ<input type="number" min="-180" max="180" step="any" value={draft.location?.lng ?? ''} onChange={e => setDraft({ ...draft, location: { lat: draft.location?.lat ?? 0, lng: Number(e.target.value), label: draft.location?.label || '' } })} /></label></div><label>Tên địa điểm<input maxLength={180} value={draft.location?.label || ''} onChange={e => setDraft({ ...draft, location: { lat: draft.location?.lat ?? 0, lng: draft.location?.lng ?? 0, label: e.target.value } })} /></label></details></>}
       {guest && !canPost && <p className="lw-inline-error" role="status">Giáo viên đã tắt nhận bài. Em có thể gửi khi bảng được mở nhận bài trở lại.</p>}{actionError && <p className="lw-inline-error" role="alert">{actionError}</p>}<button type="submit" className="lw-button lw-primary" disabled={busy || props.offline || !canPost}><Send size={18} />{busy ? 'Đang lưu…' : guest ? 'Gửi bài chờ duyệt' : editing ? 'Lưu bài đăng' : 'Đăng bài'}</button>
     </form></WallModal>}

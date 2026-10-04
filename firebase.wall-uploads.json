@@ -1,0 +1,4 @@
+{
+  "functions": [{ "source": "functions/wall-uploads", "codebase": "wall-uploads" }],
+  "storage": { "rules": "storage.wall-uploads.rules" }
+}

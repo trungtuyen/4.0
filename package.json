@@ -42,7 +42,8 @@
     "test:smart-timetable": "node --import tsx scripts/test-smart-timetable.ts",
     "test:learning-wall": "node --import tsx scripts/test-learning-wall.ts",
     "test:learning-wall-rules": "node scripts/test-learning-wall-rules.mjs",
-    "deploy:learning-wall": "npx --yes firebase-tools@^15.17.0 deploy --config firebase.learning-wall-production.json --only firestore:rules --project gen-lang-client-0870957273 --non-interactive"
+    "deploy:learning-wall": "npx --yes firebase-tools@^15.17.0 deploy --config firebase.learning-wall-production.json --only firestore:rules --project gen-lang-client-0870957273 --non-interactive",
+    "test:wall-large-uploads": "node --import tsx scripts/test-wall-large-uploads.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",

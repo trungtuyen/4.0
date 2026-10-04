@@ -1,0 +1,8 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Upload sessions are granted by the backend after checking the shared wall
+    // in the app's named database. No public bucket reads, listings or overwrites.
+    match /{path=**} { allow read, write: if false; }
+  }
+}

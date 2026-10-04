@@ -28,6 +28,10 @@ try {
   const admin = environment.authenticatedContext('administrator', { admin: true }).firestore();
   const guest = environment.unauthenticatedContext().firestore();
   const anotherGuest = environment.unauthenticatedContext().firestore();
+  await denied(getDoc(doc(guest, 'wall_upload_sessions/private-capability')));
+  await denied(setDoc(doc(guest, 'wall_upload_sessions/private-capability'), { claimHash: 'forged' }));
+  await denied(getDoc(doc(first, 'wall_upload_sessions/private-capability')));
+  await denied(setDoc(doc(first, 'wall_upload_sessions/private-capability'), { ownerUid: 'teacher-one' }));
   const locked = environment.authenticatedContext('inactive').firestore();
   const wall = { authorId: 'teacher-one', title: 'Lớp 8A', description: '', icon: '📚', layout: 'wall', background: 'sage', sections: [{ id: 'class-one', title: 'Bài chung' }, { id: 'section-one', title: 'Nhóm 1' }], sectionIds: ['class-one', 'section-one'], enabled: true, permission: 'write', updatedAt: serverTimestamp() };
   const post = { categoryId: 'class-one', title: 'Đa thức', text: 'Bài học', studentName: 'An', imageSrc: '', attachments: [], createdAt: 123, color: '#ffffff', pinned: false };
