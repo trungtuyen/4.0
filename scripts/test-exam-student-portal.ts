@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { describeExamAccessError } from '../src/lib/examAccessError';
 import { EXAM_ENROLLMENT_KEY, getExamStudentClasses, getSubmittedExamClassId, withExamStudentClass } from '../src/lib/examStudentClasses';
 import {
   buildStudentExamSchedule,
@@ -45,6 +46,8 @@ verify(formatExamScheduleDate('2026-08-24T08:00:00.000Z').length > 10, 'Valid da
 verify(exams[0].id === 'draft', 'Schedule sorting does not mutate Firestore snapshot data.');
 assert.deepEqual(getExamStudentClasses({ classNames: { a10: '8A10', a2: ' 8A2 ', invalid: '', '../bad': '9A' } }), [{ id: 'a2', name: '8A2' }, { id: 'a10', name: '8A10' }]);
 assert.deepEqual(getExamStudentClasses({}), []);
+assert.match(describeExamAccessError({ code: 'resource-exhausted', message: 'Quota exceeded for Free daily read units per project per day' }, 'schedule'), /hết hạn mức truy cập trong ngày/);
+assert.match(describeExamAccessError({ code: 'firestore/resource-exhausted' }, 'login'), /vượt hạn mức/);
 const submittedAnswers = withExamStudentClass({ q1: 0 }, 'a2');
 assert.equal(submittedAnswers.q1, 0);
 assert.equal(getSubmittedExamClassId({ classNames: { a2: '8A2' } }, { answers: submittedAnswers }), 'a2');

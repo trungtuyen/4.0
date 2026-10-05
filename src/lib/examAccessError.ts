@@ -1,5 +1,11 @@
 export function describeExamAccessError(error: unknown, action: 'login' | 'schedule' | 'publish'): string {
   const code = typeof error === 'object' && error && 'code' in error ? String(error.code).replace(/^firestore\//, '') : '';
+  if (code === 'resource-exhausted') {
+    const message = typeof error === 'object' && error && 'message' in error ? String(error.message) : '';
+    return /daily|per day|quota limits are reset/i.test(message)
+      ? 'Máy chủ kỳ thi đã hết hạn mức truy cập trong ngày. Vui lòng chờ hạn mức được đặt lại hoặc báo quản trị viên; lỗi này không phải do mã kỳ thi.'
+      : 'Máy chủ kỳ thi đang vượt hạn mức truy cập. Vui lòng thử lại sau hoặc báo quản trị viên.';
+  }
   if (code === 'permission-denied') {
     return action === 'publish'
       ? 'Chưa thể công bố kỳ thi vì Firebase chưa cho phép lưu lịch thi và đề thi bảo mật. Giáo viên cần báo quản trị viên cập nhật quyền Firebase, sau đó thử mở thi lại.'
