@@ -84,6 +84,7 @@ checks += 1;
 const privateRoster = await createPrivateStudentRosterDirectory('teacher-one', 'exam-8a', [
   { id: 'student-one', name: 'Nguyễn Văn An', classId: 'class-8a' },
   { id: 'student-two', name: 'Trần Thị Bình', classId: 'class-8b' },
+  { id: 'old-guest', name: 'Nguyễn Văn An' },
 ]);
 const firstStudentKey = await createStudentRosterLookupKey('teacher-one', 'exam-8a', '  NGUYỄN   VĂN AN ');
 const otherExamKey = await createStudentRosterLookupKey('teacher-one', 'exam-8b', 'Nguyễn Văn An');

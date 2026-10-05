@@ -156,6 +156,8 @@ export async function createPrivateStudentRosterDirectory(
 ): Promise<Record<string, PrivateStudentRosterEntry>> {
   const entries = await Promise.all(students
     .filter(student => isValidTeacherUid(student.id) && Boolean(student.name?.trim()))
+    // A guest record from an earlier login must not hide the enrolled student's class.
+    .sort((a, b) => Number(Boolean(a.classId)) - Number(Boolean(b.classId)))
     .map(async student => {
       const lookupKey = await createStudentRosterLookupKey(teacherUid, examId, student.name);
       return [lookupKey, {

@@ -25,11 +25,13 @@ try {
   // Publishing from the Exams tab must work without an already-loaded Classes tab.
   await assertSucceeds(setDoc(doc(teacher, 'classes/class-8a'), { id: 'class-8a', teacherId: exam.teacherId, name: '8A' }));
   await assertSucceeds(setDoc(doc(teacher, 'students/roster-one'), { id: 'roster-one', teacherId: exam.teacherId, name: 'Nguyễn Văn An', code: '654321', classId: 'class-8a' }));
+  await assertSucceeds(setDoc(doc(teacher, 'students/zz-old-guest'), { id: 'zz-old-guest', teacherId: exam.teacherId, name: 'Nguyễn Văn An', code: '123456', examId: exam.id }));
   await assertSucceeds(setDoc(doc(other, 'classes/class-9b'), { id: 'class-9b', teacherId: 'teacher-two', name: '9B' }));
   const rosterMetadata = await loadExamRosterMetadata(teacher, exam.teacherId, exam.id);
   assert.deepEqual(rosterMetadata.classNames, { 'class-8a': '8A' });
   const lookup = await createStudentRosterLookupKey(exam.teacherId, exam.id, 'Nguyễn Văn An');
   assert.equal(rosterMetadata.studentDirectory[lookup].classId, 'class-8a');
+  assert.equal(rosterMetadata.studentDirectory[lookup].id, 'roster-one');
   const protectedRoster = await protectExamForAccess({ ...exam, ...rosterMetadata }, exam.id);
   const decoded = await openProtectedExamAccess<typeof exam & typeof rosterMetadata>(protectedRoster, exam.id);
   const receipt = buildExamReceiptHtml(decoded, { id: 'roster-one', name: 'Nguyễn Văn An', classId: decoded.studentDirectory[lookup].classId }, { id: 'receipt', score: 1, totalQuestions: 1, submittedAt: exam.createdAt });
