@@ -156,6 +156,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const studentsStorageKey = createTeacherStorageKey('students', accessScope.ownerUid);
   const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
   const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>(initialApplication === 'plicker' ? 'plicker' : 'main');
+  const plickerViewOpen = activeLibraryView === 'plicker';
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -203,6 +204,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       setCategoriesReady(true);
       return;
     }
+    // Only the Plicker view uses these documents; the learning wall loads its own.
+    if (!plickerViewOpen) return;
 
     const categoriesQuery = accessScope.role === 'administrator'
       ? collection(db, 'categories')
@@ -265,17 +268,19 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       setCategoriesReady(true);
     });
     return unsub;
-  }, [accessScope.ownerUid, accessScope.role]);
+  }, [accessScope.ownerUid, accessScope.role, plickerViewOpen]);
 
   useEffect(() => {
     setPosts([]);
-    if (accessScope.role === 'guest') {
+    if (accessScope.role === 'guest' || !plickerViewOpen) {
       return;
     }
 
+    // Only synchronized Plicker reports are shown here; never read every wall post.
     const postsQuery = accessScope.role === 'administrator'
-      ? collection(db, 'wall_posts')
-      : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid));
+      ? query(collection(db, 'wall_posts'), where('kind', '==', 'plicker_report'))
+      : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid),
+        where('kind', '==', 'plicker_report'));
     const unsub = onSnapshot(postsQuery, (snapshot) => {
       const visiblePosts = filterTeacherOwnedRecords(accessScope, snapshot.docs
         .map(item => ({ id: item.id, ...item.data() } as {
@@ -289,7 +294,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
       setPosts([]);
     });
     return unsub;
-  }, [accessScope.ownerUid, accessScope.role]);
+  }, [accessScope.ownerUid, accessScope.role, plickerViewOpen]);
 
   const handleAddCategory = async () => {
     if (newCategoryTitle.trim()) {

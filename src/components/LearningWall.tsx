@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, where, getDocs, getDocFromServer, setDoc, writeBatch, runTransaction, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, query, serverTimestamp, doc, updateDoc, where, getDocs, getDocFromServer, setDoc, writeBatch, runTransaction, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { Teacher } from '../types';
 import { isPlickerSystemCategory } from '../lib/plickerLive';
@@ -53,15 +53,54 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
       setCategoriesReady(true);
     }, reason => { setCategories([]); setCategoriesReady(true); setError(errorMessage(reason)); });
   }, [ownerUid, accessScope.role]);
+  // Administrators see every teacher's boards. Listening to the whole wall_posts
+  // collection exhausted the daily read quota, so they only load the opened board
+  // and use count aggregations (one read per 1,000 posts) for the dashboard.
+  const administrator = accessScope.role === 'administrator';
+  const openedBoardCategoryIds = board ? [board.id, ...categories.filter(item => item.parentId === board.id).map(item => item.id)] : [];
+  const openedBoardKey = openedBoardCategoryIds.join(',');
+  const dashboardBoards = categories.filter(item => !item.parentId);
+  const dashboardKey = administrator && !board && categoriesReady
+    ? dashboardBoards.map(item => `${item.id}:${categories.filter(child => child.parentId === item.id).map(child => child.id).join('+')}`).join(',')
+    : '';
+  const [postCounts, setPostCounts] = useState<Record<string, number>>({});
   useEffect(() => {
     setPosts([]); setPostsReady(false);
     if (accessScope.role === 'guest') return;
-    const postsQuery = accessScope.role === 'administrator' ? collection(db, 'wall_posts') : query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid));
-    return onSnapshot(postsQuery, snapshot => {
-      setPosts(snapshot.docs.filter(item => item.data().kind !== 'plicker_report' && canAccessTeacherOwnedRecord(accessScope, item.data())).map(item => ({ ...item.data(), id: item.id } as WallPost)));
-      setPostsReady(true);
-    }, reason => { setPosts([]); setPostsReady(true); setError(errorMessage(reason)); });
-  }, [ownerUid, accessScope.role]);
+    if (administrator && !openedBoardKey) { setPostsReady(true); return; }
+    const keep = (items: { id: string; data: () => any }[]) => items.filter(item => item.data().kind !== 'plicker_report' && canAccessTeacherOwnedRecord(accessScope, item.data())).map(item => ({ ...item.data(), id: item.id } as WallPost));
+    if (!administrator) {
+      return onSnapshot(query(collection(db, 'wall_posts'), where('authorId', '==', accessScope.ownerUid)), snapshot => {
+        setPosts(keep(snapshot.docs)); setPostsReady(true);
+      }, reason => { setPosts([]); setPostsReady(true); setError(errorMessage(reason)); });
+    }
+    const ids = openedBoardKey.split(',');
+    const chunks: string[][] = [];
+    for (let index = 0; index < ids.length; index += 30) chunks.push(ids.slice(index, index + 30));
+    const loaded = new Map<number, WallPost[]>();
+    const stops = chunks.map((chunk, index) => onSnapshot(query(collection(db, 'wall_posts'), where('categoryId', 'in', chunk)), snapshot => {
+      loaded.set(index, keep(snapshot.docs));
+      setPosts([...loaded.values()].flat());
+      if (loaded.size === chunks.length) setPostsReady(true);
+    }, reason => { setPosts([]); setPostsReady(true); setError(errorMessage(reason)); }));
+    return () => stops.forEach(stop => stop());
+  }, [ownerUid, accessScope.role, openedBoardKey]);
+  useEffect(() => {
+    setPostCounts({});
+    if (!dashboardKey) return;
+    let cancelled = false;
+    void Promise.all(dashboardKey.split(',').map(async entry => {
+      const [boardId, children] = entry.split(':');
+      const ids = [boardId, ...(children ? children.split('+') : [])];
+      let total = 0;
+      for (let index = 0; index < ids.length; index += 30) {
+        const snapshot = await getCountFromServer(query(collection(db, 'wall_posts'), where('categoryId', 'in', ids.slice(index, index + 30))));
+        total += snapshot.data().count;
+      }
+      if (!cancelled) setPostCounts(previous => ({ ...previous, [boardId]: total }));
+    })).catch(reason => { if (!cancelled) setError(errorMessage(reason)); });
+    return () => { cancelled = true; };
+  }, [dashboardKey]);
   useEffect(() => {
     setShare(null); setSubmissions([]);
     if (!board?.wallShareId || accessScope.role === 'guest') return;
@@ -256,7 +295,7 @@ function PrivateLearningWall({ onBack, currentUser, onLogin }: Props) {
   };
   // Keep guest gating explicit: a link opens a separate, redacted collection below.
   return <>{accessScope.role !== 'guest' && (
-    <WallBoardSurface categories={categories} posts={posts} boardId={openedClassId} onOpen={setOpenedClassId} onBack={onBack} displayName={displayName} ownerUid={ownerUid} administrator={accessScope.role === 'administrator'} loading={!categoriesReady || !postsReady} error={error} offline={!online} actions={actions} submissions={submissions} sharePermission={share?.permission} shareUrl={board?.wallShareId && share?.enabled ? createWallLink(import.meta.env.BASE_URL, window.location.origin, board.wallShareId) : ''} />
+    <WallBoardSurface categories={categories} posts={posts} postCounts={administrator ? postCounts : undefined} boardId={openedClassId} onOpen={setOpenedClassId} onBack={onBack} displayName={displayName} ownerUid={ownerUid} administrator={accessScope.role === 'administrator'} loading={!categoriesReady || !postsReady} error={error} offline={!online} actions={actions} submissions={submissions} sharePermission={share?.permission} shareUrl={board?.wallShareId && share?.enabled ? createWallLink(import.meta.env.BASE_URL, window.location.origin, board.wallShareId) : ''} />
   )}{accessScope.role === 'guest' && <div className="lw-app"><div className="lw-main"><div className="lw-empty"><h1>Tường học tập</h1><p>Đăng nhập tài khoản giáo viên để tạo và quản lý bảng. Học sinh mở liên kết chia sẻ do giáo viên cung cấp.</p>{onLogin && <button className="lw-button lw-primary" onClick={onLogin}>Đăng nhập giáo viên</button>}<button className="lw-button" onClick={onBack}>Về trang chủ</button></div></div></div>}</>;
 }
 

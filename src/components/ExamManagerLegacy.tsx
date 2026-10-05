@@ -191,9 +191,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     : '';
 
   const ownedCollectionQuery = (name: string): any => {
-    if (!teacherAccessScope || teacherAccessScope.role === 'guest') return null;
-    return teacherAccessScope.role === 'teacher'
-      ? query(collection(db, name), where('teacherId', '==', teacherAccessScope.ownerUid))
+    const accessScope = teacherAccessScope;
+    if (!accessScope || accessScope.role === 'guest') return null;
+    return accessScope.role === 'teacher'
+      ? query(collection(db, name), where('teacherId', '==', accessScope.ownerUid))
       : collection(db, name);
   };
 
@@ -229,37 +230,41 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   useEffect(() => {
     setResults([]);
     const resultsQuery = ownedCollectionQuery('results');
-    if (teacherTab !== 'results' || !resultsQuery || !teacherAccessScope) return;
+    if (!resultsQuery || !teacherAccessScope) return;
     const accessScope = teacherAccessScope;
-    return onSnapshot(resultsQuery, (snapshot: any) => {
-      setResults(filterTeacherOwnedRecords(accessScope,
-        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamResult))));
-    }, () => setResults([]));
+    if (teacherTab === 'results') {
+      return onSnapshot(resultsQuery, (snapshot: any) => {
+        setResults(filterTeacherOwnedRecords(accessScope,
+          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamResult))));
+      }, () => setResults([]));
+    }
   }, [teacherScopeKey, teacherTab === 'results']);
 
   useEffect(() => {
     setActiveSessions([]);
     const sessionsQuery = ownedCollectionQuery('exam_sessions');
-    if (teacherTab !== 'monitoring' || !sessionsQuery || !teacherAccessScope) return;
+    if (!sessionsQuery || !teacherAccessScope) return;
     const accessScope = teacherAccessScope;
     let pendingSessions: ExamSession[] | null = null;
     let sessionUpdateTimer: NodeJS.Timeout | null = null;
-    const unsubscribe = onSnapshot(sessionsQuery, (snapshot: any) => {
-      pendingSessions = filterTeacherOwnedRecords(accessScope,
-        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamSession)));
-      if (!sessionUpdateTimer) {
-        sessionUpdateTimer = setTimeout(() => {
-          if (pendingSessions) {
-            setActiveSessions(pendingSessions);
-          }
-          sessionUpdateTimer = null;
-        }, 2000);
-      }
-    }, () => setActiveSessions([]));
-    return () => {
-      unsubscribe();
-      if (sessionUpdateTimer) clearTimeout(sessionUpdateTimer);
-    };
+    if (teacherTab === 'monitoring') {
+      const unsubscribe = onSnapshot(sessionsQuery, (snapshot: any) => {
+        pendingSessions = filterTeacherOwnedRecords(accessScope,
+          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamSession)));
+        if (!sessionUpdateTimer) {
+          sessionUpdateTimer = setTimeout(() => {
+            if (pendingSessions) {
+              setActiveSessions(pendingSessions);
+            }
+            sessionUpdateTimer = null;
+          }, 2000);
+        }
+      }, () => setActiveSessions([]));
+      return () => {
+        unsubscribe();
+        if (sessionUpdateTimer) clearTimeout(sessionUpdateTimer);
+      };
+    }
   }, [teacherScopeKey, teacherTab === 'monitoring']);
 
   useEffect(() => {
