@@ -6,7 +6,7 @@ import ExamReceiptDialog from './ExamReceiptDialog';
 import TeacherExamPrintStation from './TeacherExamPrintStation';
 import { loadExamRosterMetadata } from '../lib/examRoster';
 import { gradeSubmittedExam } from '../lib/teacherExamPrinting';
-import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, type ExamReceiptSettings } from '../lib/examReceipt';
+import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, getReceiptStudentClassId, type ExamReceiptSettings } from '../lib/examReceipt';
 import * as XLSX from 'xlsx';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -385,7 +385,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     if (selectedClassIdForResults !== 'all') {
       examResults = examResults.filter(r => {
         const student = students.find(s => s.id === r.studentId);
-        return student?.classId === selectedClassIdForResults;
+        return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
       });
     }
     
@@ -419,14 +419,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
     const data = examResults.map((result, index) => {
       const student = students.find(s => s.id === result.studentId);
-      const studentClass = classes.find(c => c.id === student?.classId);
+      const studentClass = classes.find(c => c.id === getReceiptStudentClassId(examToExport, student || { id: result.studentId }, result));
       const pendingTeacherGrade = getExamReceiptSettings(examToExport).autoPrint && !result.teacherGradedAt;
       const percentage = Math.round((result.score / result.totalQuestions) * 100);
       const calculatedScore = Math.round((result.score / result.totalQuestions) * 100) / 10;
       const rowData: any = {
         'STT': index + 1,
         'Họ tên': student?.name || 'Unknown',
-        'Lớp': studentClass?.name || 'Unknown',
+        'Lớp': studentClass?.name || examToExport.classNames?.[getReceiptStudentClassId(examToExport, student || { id: result.studentId }, result) || ''] || 'Unknown',
         'Điểm': pendingTeacherGrade ? 'Chờ máy giáo viên chấm' : calculatedScore,
         'Tỉ lệ %': pendingTeacherGrade ? '' : `${percentage}%`,
         'Mã đề': result.examVersion || 'Gốc',
@@ -2321,7 +2321,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                         if (selectedClassIdForResults !== 'all') {
                           examResults = examResults.filter(r => {
                             const student = students.find(s => s.id === r.studentId);
-                            return student?.classId === selectedClassIdForResults;
+                            return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
                           });
                         }
                         const correctCount = examResults.filter(r => r.answers?.[q.id] === q.correctAnswer).length;
@@ -2353,7 +2353,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                         .filter(r => {
                           if (selectedClassIdForResults === 'all') return true;
                           const student = students.find(s => s.id === r.studentId);
-                          return student?.classId === selectedClassIdForResults;
+                          return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
                         });
 
                       // Deduplicate by studentId, keeping the latest submission
@@ -2394,7 +2394,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                           <tr key={result.id} className="hover:bg-slate-50 transition-colors">
                             <td className="px-6 py-3 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 min-w-[250px] max-w-[250px] w-[250px] truncate">
                               <div className="font-bold text-slate-800 truncate" title={student?.name || 'Học sinh đã xóa'}>{student?.name || 'Học sinh đã xóa'}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">1st nỗ lực đang diễn ra</div>
+                              <div className="text-xs text-slate-500 mt-0.5">{exam && (classes.find(item => item.id === getReceiptStudentClassId(exam, student || { id: result.studentId }, result))?.name || exam.classNames?.[getReceiptStudentClassId(exam, student || { id: result.studentId }, result) || '']) || 'Chưa được gán lớp'}</div>
                             </td>
                             <td className="px-4 py-3 sticky left-[250px] bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 text-center font-medium text-slate-800 min-w-[120px] max-w-[120px] w-[120px]">
                               {exam && getExamReceiptSettings(exam).autoPrint && !result.teacherGradedAt ? <span className="text-xs text-amber-700">Chờ máy giáo viên chấm</span> : result.score === 0 ? '0' : `${calculatedScore} (${percentage}%)`}
@@ -2495,7 +2495,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                       .filter(r => {
                         if (selectedClassIdForResults === 'all') return true;
                         const student = students.find(s => s.id === r.studentId);
-                        return student?.classId === selectedClassIdForResults;
+                        return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
                       }).length === 0 && (
                       <tr>
                         <td colSpan={100} className="px-6 py-8 text-center text-slate-500">

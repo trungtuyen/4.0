@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withExamStudentClass } from '../src/lib/examStudentClasses';
 import { buildExamReceiptHtml, getExamReceiptSettings, receiptQuestionIsCorrect, type ReceiptExam, type ReceiptQuestion } from '../src/lib/examReceipt';
 import { toExamQuestion } from '../src/lib/questionExamBridge';
 import type { QuestionDefinition } from '../src/lib/questionEngine';
@@ -18,6 +19,10 @@ const recoveredClass = buildExamReceiptHtml({ ...exam, studentDirectory: { hashe
 assert.ok(recoveredClass.includes('<p>Lớp: 8A4</p>'));
 const noClass = buildExamReceiptHtml(exam, { id: 'guest', name: 'Học sinh chưa có lớp' }, result);
 assert.ok(noClass.includes('<p>Lớp: Chưa được gán lớp</p>') && !noClass.includes('<p>Lớp: 8A4</p>'));
+const savedClass = buildExamReceiptHtml(exam, { id: 'new-guest', name: 'Học sinh chọn lớp' }, { ...result, answers: withExamStudentClass(result.answers, 'class1') });
+assert.ok(savedClass.includes('<p>Lớp: 8A4</p>'));
+const invalidClass = buildExamReceiptHtml(exam, { id: 'new-guest', name: 'Học sinh chọn lớp' }, { ...result, answers: withExamStudentClass(result.answers, 'other-teacher-class') });
+assert.ok(invalidClass.includes('<p>Lớp: Chưa được gán lớp</p>'));
 const escapedClass = buildExamReceiptHtml({ ...exam, classNames: { class1: '<b>8A4</b>' } }, student, result);
 assert.ok(escapedClass.includes('<p>Lớp: &lt;b&gt;8A4&lt;/b&gt;</p>'));
 const hidden = buildExamReceiptHtml({ ...exam, receiptSettings: { includeCorrectAnswers: false } }, student, result);

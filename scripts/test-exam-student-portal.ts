@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { EXAM_ENROLLMENT_KEY, getExamStudentClasses, getSubmittedExamClassId, withExamStudentClass } from '../src/lib/examStudentClasses';
 import {
   buildStudentExamSchedule,
   canStudentEnterExam,
@@ -42,6 +43,14 @@ verify(getExamStartTimestamp('invalid') === null, 'Invalid dates fail safely.');
 verify(formatExamScheduleDate() === 'Theo thông báo của giáo viên', 'Missing dates have a clear fallback message.');
 verify(formatExamScheduleDate('2026-08-24T08:00:00.000Z').length > 10, 'Valid dates are formatted for Vietnamese students.');
 verify(exams[0].id === 'draft', 'Schedule sorting does not mutate Firestore snapshot data.');
+assert.deepEqual(getExamStudentClasses({ classNames: { a10: '8A10', a2: ' 8A2 ', invalid: '', '../bad': '9A' } }), [{ id: 'a2', name: '8A2' }, { id: 'a10', name: '8A10' }]);
+assert.deepEqual(getExamStudentClasses({}), []);
+const submittedAnswers = withExamStudentClass({ q1: 0 }, 'a2');
+assert.equal(submittedAnswers.q1, 0);
+assert.equal(getSubmittedExamClassId({ classNames: { a2: '8A2' } }, { answers: submittedAnswers }), 'a2');
+assert.equal(getSubmittedExamClassId({ classNames: { a10: '8A10' } }, { answers: submittedAnswers }), undefined);
+assert.equal(getSubmittedExamClassId({}, { answers: { [EXAM_ENROLLMENT_KEY]: 'a2' } }), undefined);
+assert.deepEqual(withExamStudentClass({ q1: 0, [EXAM_ENROLLMENT_KEY]: { classId: 'a2' } }), { q1: 0 });
 
 const wrapper = readFileSync(new URL('../src/components/ExamManager.tsx', import.meta.url), 'utf8');
 const component = readFileSync(new URL('../src/components/UnifiedStudentExamRunner.tsx', import.meta.url), 'utf8');

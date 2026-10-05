@@ -138,13 +138,14 @@ export async function createStudentRosterLookupKey(
   teacherUid: string,
   examId: string,
   studentName: string,
+  classId?: string,
 ): Promise<string> {
   const normalizedName = normalizeStudentRosterName(studentName);
-  if (!isValidTeacherUid(teacherUid) || !isValidTeacherUid(examId) || !normalizedName) {
+  if (!isValidTeacherUid(teacherUid) || !isValidTeacherUid(examId) || !normalizedName || (classId !== undefined && !isValidTeacherUid(classId))) {
     throw new RangeError('Không thể xác định học sinh trong kỳ thi này.');
   }
 
-  const input = new TextEncoder().encode(`${teacherUid}:${examId}:${normalizedName}`);
+  const input = new TextEncoder().encode(`${teacherUid}:${examId}:${normalizedName}${classId ? `:class:${classId}` : ''}`);
   const digest = await globalThis.crypto.subtle.digest('SHA-256', input);
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -160,11 +161,14 @@ export async function createPrivateStudentRosterDirectory(
     .sort((a, b) => Number(Boolean(a.classId)) - Number(Boolean(b.classId)))
     .map(async student => {
       const lookupKey = await createStudentRosterLookupKey(teacherUid, examId, student.name);
-      return [lookupKey, {
+      const entry = {
         id: student.id,
         ...(student.classId ? { classId: student.classId } : {}),
-      }] as const;
+      };
+      const keys = [[lookupKey, entry] as const];
+      if (student.classId) keys.push([await createStudentRosterLookupKey(teacherUid, examId, student.name, student.classId), entry]);
+      return keys;
     }));
 
-  return Object.fromEntries(entries);
+  return Object.fromEntries(entries.flat());
 }

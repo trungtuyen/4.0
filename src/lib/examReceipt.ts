@@ -1,4 +1,5 @@
 import { evaluateQuestion, type QuestionDefinition, type QuestionResponse } from './questionEngine';
+import { getSubmittedExamClassId } from './examStudentClasses';
 
 export interface ExamReceiptSettings {
   autoPrint: boolean;
@@ -58,8 +59,8 @@ export function getExamReceiptSettings(exam: ReceiptExam): ExamReceiptSettings {
   return { ...DEFAULT_EXAM_RECEIPT_SETTINGS, ...exam.receiptSettings };
 }
 
-export function getReceiptStudentClassId(exam: ReceiptExam, student: ReceiptStudent): string | undefined {
-  return student.classId || Object.values(exam.studentDirectory || {}).find(entry => entry.id === student.id)?.classId;
+export function getReceiptStudentClassId(exam: Pick<ReceiptExam, 'classNames' | 'studentDirectory'>, student: Pick<ReceiptStudent, 'id' | 'classId'>, result?: Pick<ReceiptResult, 'answers'>): string | undefined {
+  return student.classId || Object.values(exam.studentDirectory || {}).find(entry => entry.id === student.id)?.classId || getSubmittedExamClassId(exam, result);
 }
 
 const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char =>
@@ -174,7 +175,7 @@ export function buildExamReceiptHtml(exam: ReceiptExam, student: ReceiptStudent,
   </style></head><body><main class="sheet"><div class="sample">Mẫu số 01</div>
   <div class="heading"><div><p>${escape(settings.schoolName || 'TRƯỜNG ………………………')}</p><p><b>HỘI ĐỒNG KIỂM TRA</b></p><span class="rule">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div><div><p><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b></p><p><b class="rule">Độc lập – Tự do – Hạnh phúc</b></p></div></div>
   <h1>BIÊN BẢN LÀM BÀI KIỂM TRA</h1>
-  <div class="metadata"><div><p>Họ và tên: <b>${escape(student.name)}</b></p><p>Lớp: ${escape(exam.classNames?.[getReceiptStudentClassId(exam, student) || ''] || 'Chưa được gán lớp')}</p><p>Mã học sinh / SBD: ${escape(student.id)}</p><p>Môn: ${escape(settings.subject || '……………………')}</p></div><div><p>Kỳ thi: ${escape(exam.title)}</p><p>Mã đề: ${escape(result.examVersion || 'Gốc')}</p><p>Thời gian làm bài: ${exam.durationMinutes} phút</p><p>Bắt đầu: ${escape(date(startedAt))}</p><p>Kết thúc: ${escape(date(result.submittedAt))}</p></div></div>
+  <div class="metadata"><div><p>Họ và tên: <b>${escape(student.name)}</b></p><p>Lớp: ${escape(exam.classNames?.[getReceiptStudentClassId(exam, student, result) || ''] || 'Chưa được gán lớp')}</p><p>Mã học sinh / SBD: ${escape(student.id)}</p><p>Môn: ${escape(settings.subject || '……………………')}</p></div><div><p>Kỳ thi: ${escape(exam.title)}</p><p>Mã đề: ${escape(result.examVersion || 'Gốc')}</p><p>Thời gian làm bài: ${exam.durationMinutes} phút</p><p>Bắt đầu: ${escape(date(startedAt))}</p><p>Kết thúc: ${escape(date(result.submittedAt))}</p></div></div>
   ${tables}<p class="legend">Dấu ×: phương án học sinh đã chọn. Ô trống / dấu —: chưa trả lời. Câu đúng được tính theo cách chấm của kỳ thi.</p>
   <div class="summary"><span>Số câu đúng: ${result.score}/${result.totalQuestions}</span><span>Số câu chưa đúng: ${Math.max(0, result.totalQuestions - result.score)}</span><span>Điểm: ${grade.toLocaleString('vi-VN')} / 10</span></div>
   <p class="confirmation">Tôi xác nhận các câu trả lời trên là bài làm của tôi và đã nộp bài.</p>

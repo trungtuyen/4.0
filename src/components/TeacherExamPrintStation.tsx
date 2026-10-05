@@ -66,7 +66,7 @@ export default function TeacherExamPrintStation({ exams, authenticatedUid }: Pro
         if (!studentSnapshot.exists() || studentSnapshot.data().teacherId !== result.teacherId) throw new Error('Không tìm thấy học sinh thuộc giáo viên tổ chức kỳ thi.');
         const student = { ...studentSnapshot.data(), id: studentSnapshot.id } as ReceiptStudent;
         let receiptExam = exam;
-        const classId = getReceiptStudentClassId(exam, student);
+        const classId = getReceiptStudentClassId(exam, student, result);
         if (classId) {
           const classSnapshot = await getDoc(doc(db, 'classes', classId));
           if (classSnapshot.exists() && classSnapshot.data().teacherId === result.teacherId) {
