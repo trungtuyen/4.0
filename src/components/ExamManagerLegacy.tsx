@@ -7,8 +7,9 @@ import TeacherExamPrintStation from './TeacherExamPrintStation';
 import { gradeSubmittedExam } from '../lib/teacherExamPrinting';
 import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, type ExamReceiptSettings } from '../lib/examReceipt';
 import * as XLSX from 'xlsx';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { describeExamAccessError } from '../lib/examAccessError';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
 import {
   createExamAccessDocumentId,
@@ -118,50 +119,46 @@ interface ExamManagerProps {
 const EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000;
 const EXAM_SESSION_ONLINE_WINDOW_MS = 90_000;
 
-async function synchronizeExamPublication(exam: Exam, previousExam: Exam = exam): Promise<void> {
+async function synchronizeExamPublication(exam: Exam, previousExam: Exam = exam, savePrivateExam = true): Promise<void> {
   if (!isValidTeacherUid(exam.teacherId)) {
     throw new Error('Kỳ thi chưa được gắn với tài khoản giáo viên hợp lệ.');
   }
 
+  // Save the private exam, all access codes and its notice in one transaction.
+  // A denied public write must never leave the teacher UI showing an open exam.
+  const batch = writeBatch(db);
+  if (savePrivateExam) batch.set(doc(db, 'exams', exam.id), exam);
   const previousCodes = [previousExam.id, ...(previousExam.shuffledVersions || []).map(version => version.code)];
   if (exam.status !== 'published') {
-    if (previousExam.status !== 'published') return;
-    const previousAccessIds = await Promise.all(previousCodes.map(createExamAccessDocumentId));
-    await Promise.all([
-      deleteDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION,
-        await createPublicExamScheduleId(exam.teacherId, previousExam.id))),
-      ...previousAccessIds.map(accessId =>
-        deleteDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId))),
-    ]);
+    if (previousExam.status === 'published') {
+      batch.delete(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION,
+        await createPublicExamScheduleId(exam.teacherId, previousExam.id)));
+      for (const code of previousCodes) {
+        batch.delete(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, await createExamAccessDocumentId(code)));
+      }
+    }
+    await batch.commit();
     return;
   }
 
   const authorizedExams: { code: string; exam: Exam }[] = [{ code: exam.id, exam }];
   for (const version of exam.shuffledVersions || []) {
-    const selectedVersion: Exam = {
-      ...exam,
-      questions: version.questions,
-      accessVersionCode: version.code,
-    };
+    const selectedVersion: Exam = { ...exam, questions: version.questions, accessVersionCode: version.code };
     delete selectedVersion.shuffledVersions;
     delete selectedVersion.versionCodes;
     authorizedExams.push({ code: version.code, exam: selectedVersion });
   }
-
-  await Promise.all(authorizedExams.map(async authorized => {
-    const accessId = await createExamAccessDocumentId(authorized.code);
-    await setDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId),
+  for (const authorized of authorizedExams) {
+    batch.set(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, await createExamAccessDocumentId(authorized.code)),
       await protectExamForAccess(authorized.exam, authorized.code));
-  }));
-
+  }
   const schedule = await createPublicExamSchedule(exam);
-  await setDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, schedule.id), schedule);
-
+  batch.set(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, schedule.id), schedule);
   const activeCodes = new Set(authorizedExams.map(authorized => authorized.code));
-  await Promise.all(previousCodes
-    .filter(code => !activeCodes.has(code))
-    .map(async code => deleteDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION,
-      await createExamAccessDocumentId(code)))));
+  for (const code of previousCodes.filter(code => !activeCodes.has(code))) {
+    batch.delete(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, await createExamAccessDocumentId(code)));
+  }
+  await batch.commit();
 }
 
 export default function ExamManager({ onBack, initialMode = 'landing', currentUser }: ExamManagerProps) {
@@ -175,6 +172,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [results, setResults] = useState<ExamResult[]>([]);
   const [activeSessions, setActiveSessions] = useState<ExamSession[]>([]);
   const restoredPublishedExamIds = useRef(new Set<string>());
+  const [publicationError, setPublicationError] = useState('');
+  const [publicationRetry, setPublicationRetry] = useState(0);
 
   useEffect(() => {
     if (appMode !== 'teacher') return;
@@ -203,7 +202,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     }
 
     const subscriptions: (() => void)[] = [];
-    subscriptions.push(onSnapshot(examsQuery, (snapshot: any) => {
+    subscriptions.push(onSnapshot(examsQuery, { includeMetadataChanges: true }, (snapshot: any) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       setExams(filterTeacherOwnedRecords(accessScope,
         snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as Exam))));
     }, () => setExams([])));
@@ -253,22 +253,19 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   useEffect(() => {
     if (appMode !== 'teacher') return;
     const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
-    if (accessScope.role !== 'teacher') return;
+    if (accessScope.role === 'guest') return;
 
     for (const exam of exams) {
       if (exam.status !== 'published' || exam.teacherId !== accessScope.ownerUid ||
           restoredPublishedExamIds.current.has(exam.id)) continue;
       restoredPublishedExamIds.current.add(exam.id);
-      void (async () => {
-        const scheduleId = await createPublicExamScheduleId(accessScope.ownerUid, exam.id);
-        const existingSchedule = await getDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, scheduleId));
-        if (!existingSchedule.exists()) await synchronizeExamPublication(exam);
-      })().catch(error => {
-        restoredPublishedExamIds.current.delete(exam.id);
-        console.error('Không thể chuyển kỳ thi cũ sang lịch thi và đề thi bảo mật:', error);
+      // Repair both the notice and encrypted access, including partially published older exams.
+      void synchronizeExamPublication(exam, exam, false).catch(error => {
+        setPublicationError(describeExamAccessError(error, 'publish'));
+        console.error('Không thể khôi phục lịch thi và đề thi bảo mật:', error);
       });
     }
-  }, [appMode, currentUser, exams]);
+  }, [appMode, currentUser, exams, publicationRetry]);
 
   // --- Teacher State ---
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -508,12 +505,12 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         }
         const examToSave = { ...editingExam, classNames: Object.fromEntries(classes.filter(item => item.teacherId === editingExam.teacherId).map(item => [item.id, item.name])) };
         const previousExam = exams.find(exam => exam.id === editingExam.id) || editingExam;
-        await setDoc(doc(db, 'exams', examToSave.id), examToSave);
         await synchronizeExamPublication(examToSave, previousExam);
         setIsExamModalOpen(false);
         setEditingExam(null);
       } catch (error) {
         console.error("Error saving exam:", error);
+        alert(describeExamAccessError(error, 'publish'));
       }
     }
   };
@@ -826,11 +823,10 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
             classNames: Object.fromEntries(classes.filter(item => item.teacherId === exam.teacherId).map(item => [item.id, item.name])),
           };
         }
-        await setDoc(doc(db, 'exams', examId), nextExam);
         await synchronizeExamPublication(nextExam, exam);
       } catch (error) {
         console.error("Error updating exam status:", error);
-        alert('Không thể cập nhật kỳ thi. Hãy kiểm tra quyền Firebase và thử lại.');
+        alert(describeExamAccessError(error, 'publish'));
       }
     }
   };
@@ -843,7 +839,6 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       if (exam.isShuffled) {
         // Turn off shuffle
         const nextExam = { ...exam, isShuffled: false, shuffledVersions: [], versionCodes: [] };
-        await setDoc(doc(db, 'exams', examId), nextExam);
         await synchronizeExamPublication(nextExam, exam);
         alert('Đã tắt chế độ tự động trộn đề.');
       } else {
@@ -867,13 +862,12 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           versions.push({ code, questions: shuffledQuestions });
         }
         const nextExam = { ...exam, isShuffled: true, shuffledVersions: versions, versionCodes };
-        await setDoc(doc(db, 'exams', examId), nextExam);
         await synchronizeExamPublication(nextExam, exam);
         alert(`Đã tạo 5 mã đề: ${versions.map(v => v.code).join(', ')}`);
       }
     } catch (error) {
       console.error("Error updating shuffle status:", error);
-      alert('Có lỗi xảy ra khi trộn đề thi.');
+      alert(describeExamAccessError(error, 'publish'));
     }
   };
 
@@ -1786,6 +1780,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           </h1>
         </div>
       </header>
+
+      {publicationError && <div role="alert" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p>{publicationError}</p>
+        <button type="button" className="mt-2 font-bold underline" onClick={() => { restoredPublishedExamIds.current.clear(); setPublicationError(''); setPublicationRetry(value => value + 1); }}>Thử đồng bộ lại kỳ thi</button>
+      </div>}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}

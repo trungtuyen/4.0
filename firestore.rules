@@ -202,6 +202,13 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    // Publication writes the exam and access payload together; validate their committed state.
+    function publishedExamAfterWrite(examId, teacherId) {
+      return isValidId(examId) && isValidId(teacherId) &&
+        getAfter(/databases/$(database)/documents/exams/$(examId)).data.status == 'published' &&
+        getAfter(/databases/$(database)/documents/exams/$(examId)).data.teacherId == teacherId;
+    }
+
     function publishedExamBelongsToTeacher(examId, teacherId) {
       return isValidId(examId) && isValidId(teacherId) &&
         exists(/databases/$(database)/documents/exams/$(examId)) &&
@@ -392,11 +399,11 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create: if (isAdmin() || ownsField(incoming(), 'teacherId')) &&
         encryptedExamAccessIsSafe(accessId) &&
-        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId);
+        publishedExamAfterWrite(incoming().examId, incoming().teacherId);
       allow update: if (isAdmin() || (
         ownsField(existing(), 'teacherId') && ownerRemainsUnchanged('teacherId')
       )) && encryptedExamAccessIsSafe(accessId) &&
-        publishedExamBelongsToTeacher(incoming().examId, incoming().teacherId);
+        publishedExamAfterWrite(incoming().examId, incoming().teacherId);
       allow delete: if mayAccess(existing(), 'teacherId');
     }
 

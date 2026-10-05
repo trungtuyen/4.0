@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, BookOpen, CalendarDays, CheckCircle, Clock, Eye, EyeOff, FileText, GraduationCap, LoaderCircle, Printer, X } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { describeExamAccessError } from '../lib/examAccessError';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
 import {
   createExamAccessDocumentId,
@@ -112,7 +113,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   const [showLoginHelp, setShowLoginHelp] = useState(false);
   const [schedule, setSchedule] = useState<PublicExamSchedule[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(true);
-  const [scheduleError, setScheduleError] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
   const [activeExam, setActiveExam] = useState<UnifiedExam | null>(() => {
     try {
       const saved = sessionStorage.getItem('activeExam');
@@ -149,7 +150,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   useEffect(() => {
     if (status !== 'login') return;
     setScheduleLoading(true);
-    setScheduleError(false);
+    setScheduleError('');
     const published = query(collection(db, PUBLIC_EXAM_SCHEDULES_COLLECTION), where('status', '==', 'published'));
     return onSnapshot(published, snapshot => {
       setSchedule(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as PublicExamSchedule)));
@@ -157,7 +158,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
     }, error => {
       console.error('Không thể tải lịch thi công khai:', error);
       setSchedule([]);
-      setScheduleError(true);
+      setScheduleError(describeExamAccessError(error, 'schedule'));
       setScheduleLoading(false);
     });
   }, [status]);
@@ -257,7 +258,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
       sessionStorage.setItem('examVersion', selectedVersion);
     } catch (error) {
       console.error('Không thể mở bài kiểm tra:', error);
-      setLoginError('Không thể mở bài kiểm tra. Hãy kiểm tra mã và kết nối mạng.');
+      setLoginError(describeExamAccessError(error, 'login'));
     } finally {
       setLoginBusy(false);
     }
@@ -461,7 +462,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
                 <p className="sep-notice-intro">Các bài kiểm tra đang mở và sắp diễn ra được cập nhật tại đây. Học sinh sử dụng <strong>mã kỳ thi do giáo viên cung cấp</strong> để đăng nhập.</p>
                 <div aria-live="polite" aria-busy={scheduleLoading}>
                   {scheduleLoading ? <p className="sep-schedule-loading"><LoaderCircle size={16} className="sep-loading-icon" aria-hidden="true" />Đang tải thông báo lịch thi…</p> : scheduleError ? (
-                    <div className="sep-empty"><strong>Chưa thể tải thông báo lịch thi.</strong><p>Em vẫn có thể nhập mã kỳ thi để đăng nhập. Hãy kiểm tra kết nối mạng nếu không vào được bài.</p></div>
+                    <div className="sep-empty"><strong>Chưa thể tải thông báo lịch thi.</strong><p>{scheduleError}</p></div>
                   ) : visibleSchedule.length ? (
                     <div className="sep-schedule">
                       {visibleSchedule.map(item => {

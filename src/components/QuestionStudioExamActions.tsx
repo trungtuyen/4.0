@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ClipboardCheck, Copy, ExternalLink, Send, ShieldCheck } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { describeExamAccessError } from '../lib/examAccessError';
 import {
   createExamAccessDocumentId,
   createPublicExamSchedule,
@@ -97,30 +98,25 @@ export default function QuestionStudioExamActions({ onOpenExamManager }: Questio
     });
 
     try {
-      await setDoc(doc(db, 'exams', exam.id), exam);
-
       if (publish) {
-        try {
-          const accessId = await createExamAccessDocumentId(exam.id);
-          const protectedExam = await protectExamForAccess(exam, exam.id);
-          const publicSchedule = await createPublicExamSchedule(exam);
-          await Promise.all([
-            setDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId), protectedExam),
-            setDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, publicSchedule.id), publicSchedule),
-          ]);
-          setPublishedCode(exam.id);
-          setMessage('Đã giao bài. Học sinh vào Cổng thi Học sinh và nhập mã bên dưới.');
-        } catch (publishError) {
-          await setDoc(doc(db, 'exams', exam.id), { ...exam, status: 'draft' });
-          throw publishError;
-        }
+        const accessId = await createExamAccessDocumentId(exam.id);
+        const protectedExam = await protectExamForAccess(exam, exam.id);
+        const publicSchedule = await createPublicExamSchedule(exam);
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'exams', exam.id), exam);
+        batch.set(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId), protectedExam);
+        batch.set(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, publicSchedule.id), publicSchedule);
+        await batch.commit();
+        setPublishedCode(exam.id);
+        setMessage('Đã giao bài. Học sinh vào Cổng thi Học sinh và nhập mã bên dưới.');
       } else {
+        await setDoc(doc(db, 'exams', exam.id), exam);
         setMessage('Đã tạo bài kiểm tra nháp trong Tạo kỳ thi.');
         onOpenExamManager();
       }
     } catch (error) {
       console.error('Không thể tạo bài kiểm tra từ Question Studio:', error);
-      setMessage('Không thể tạo bài kiểm tra. Hãy kiểm tra quyền tài khoản và kết nối Firebase.');
+      setMessage(describeExamAccessError(error, 'publish'));
     } finally {
       setBusy(false);
     }
