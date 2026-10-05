@@ -28,13 +28,14 @@ export default function TeacherExamPrintStation({ exams, authenticatedUid }: Pro
   // Read existing document IDs before arming; student-computer clock drift must not hide a new submission.
   useEffect(() => {
     setBaselineReady(false); baselineRef.current = [];
-    if (!selected?.teacherId || !authenticatedUid) return;
-    return onSnapshot(query(collection(db, 'results'), where('teacherId', '==', selected.teacherId)), { includeMetadataChanges: true }, snapshot => {
+    // Only listen while the teacher is arming the station; every result read counts against the daily quota.
+    if (!selected?.teacherId || !authenticatedUid || !ready || station) return;
+    return onSnapshot(query(collection(db, 'results'), where('teacherId', '==', selected.teacherId), where('examId', '==', selected.id)), { includeMetadataChanges: true }, snapshot => {
       if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
       baselineRef.current = snapshot.docs.filter(item => item.data().examId === selected.id).map(item => item.id);
       setBaselineReady(true);
     }, () => setBaselineReady(false));
-  }, [selected?.id, selected?.teacherId, authenticatedUid]);
+  }, [selected?.id, selected?.teacherId, authenticatedUid, ready, Boolean(station)]);
 
   useEffect(() => {
     if (!station || !authenticatedUid) return;
@@ -99,7 +100,7 @@ export default function TeacherExamPrintStation({ exams, authenticatedUid }: Pro
       report,
     });
     const feed = () => { if (!latestExams.current.some(exam => exam.id === station.examId && exam.teacherId === station.teacherId)) return; queue.add(pendingTeacherPrintResults(latest, station.teacherId, station.examId, station.since, Date.now(), station.baselineIds)); };
-    const unsubscribe = onSnapshot(query(collection(db, 'results'), where('teacherId', '==', station.teacherId)), { includeMetadataChanges: true }, snapshot => {
+    const unsubscribe = onSnapshot(query(collection(db, 'results'), where('teacherId', '==', station.teacherId), where('examId', '==', station.examId)), { includeMetadataChanges: true }, snapshot => {
       if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
       latest = snapshot.docs.map(item => ({ ...item.data(), id: item.id } as TeacherPrintResult));
       setMessage('Đang nhận bài mới và tự động chấm, gửi lệnh in trên máy giáo viên.');

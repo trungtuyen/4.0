@@ -176,79 +176,91 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [activeSessions, setActiveSessions] = useState<ExamSession[]>([]);
   const restoredPublishedExamIds = useRef(new Set<string>());
 
+  // Each listener re-reads every matching document when it (re)subscribes, so tab
+  // switches must not tear down listeners whose data is still needed.
+  const [rosterNeeded, setRosterNeeded] = useState(false);
   useEffect(() => {
-    if (appMode !== 'teacher') return;
-    const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
+    if (teacherTab !== 'exams') setRosterNeeded(true);
+  }, [teacherTab]);
+
+  const teacherAccessScope = appMode === 'teacher'
+    ? resolveTeacherAccessScope(currentUser, auth.currentUser?.uid)
+    : null;
+  const teacherScopeKey = teacherAccessScope
+    ? `${teacherAccessScope.role}:${teacherAccessScope.role === 'guest' ? '' : teacherAccessScope.ownerUid}`
+    : '';
+
+  const ownedCollectionQuery = (name: string): any => {
+    if (!teacherAccessScope || teacherAccessScope.role === 'guest') return null;
+    return teacherAccessScope.role === 'teacher'
+      ? query(collection(db, name), where('teacherId', '==', teacherAccessScope.ownerUid))
+      : collection(db, name);
+  };
+
+  useEffect(() => {
     setExams([]);
-    setStudents([]);
-    setClasses([]);
-    setResults([]);
-    setActiveSessions([]);
-    if (accessScope.role === 'guest') {
-      return;
-    }
-
-    let examsQuery: any = collection(db, 'exams');
-    let studentsQuery: any = collection(db, 'students');
-    let classesQuery: any = collection(db, 'classes');
-    let resultsQuery: any = collection(db, 'results');
-    let sessionsQuery: any = collection(db, 'exam_sessions');
-
-    if (accessScope.role === 'teacher') {
-      examsQuery = query(collection(db, 'exams'), where('teacherId', '==', accessScope.ownerUid));
-      studentsQuery = query(collection(db, 'students'), where('teacherId', '==', accessScope.ownerUid));
-      classesQuery = query(collection(db, 'classes'), where('teacherId', '==', accessScope.ownerUid));
-      resultsQuery = query(collection(db, 'results'), where('teacherId', '==', accessScope.ownerUid));
-      sessionsQuery = query(collection(db, 'exam_sessions'), where('teacherId', '==', accessScope.ownerUid));
-    }
-
-    const subscriptions: (() => void)[] = [];
-    subscriptions.push(onSnapshot(examsQuery, (snapshot: any) => {
+    const examsQuery = ownedCollectionQuery('exams');
+    if (!examsQuery || !teacherAccessScope) return;
+    const accessScope = teacherAccessScope;
+    return onSnapshot(examsQuery, (snapshot: any) => {
       setExams(filterTeacherOwnedRecords(accessScope,
         snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as Exam))));
-    }, () => setExams([])));
+    }, () => setExams([]));
+  }, [teacherScopeKey]);
 
-    if (teacherTab !== 'exams') {
-      subscriptions.push(onSnapshot(studentsQuery, (snapshot: any) => {
-        setStudents(filterTeacherOwnedRecords(accessScope,
-          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as StudentAccount))));
-      }, () => setStudents([])));
-      subscriptions.push(onSnapshot(classesQuery, (snapshot: any) => {
-        setClasses(filterTeacherOwnedRecords(accessScope,
-          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as StudentClass))));
-      }, () => setClasses([])));
-    }
+  useEffect(() => {
+    setStudents([]);
+    setClasses([]);
+    const studentsQuery = ownedCollectionQuery('students');
+    const classesQuery = ownedCollectionQuery('classes');
+    if (!rosterNeeded || !studentsQuery || !classesQuery || !teacherAccessScope) return;
+    const accessScope = teacherAccessScope;
+    const stopStudents = onSnapshot(studentsQuery, (snapshot: any) => {
+      setStudents(filterTeacherOwnedRecords(accessScope,
+        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as StudentAccount))));
+    }, () => setStudents([]));
+    const stopClasses = onSnapshot(classesQuery, (snapshot: any) => {
+      setClasses(filterTeacherOwnedRecords(accessScope,
+        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as StudentClass))));
+    }, () => setClasses([]));
+    return () => { stopStudents(); stopClasses(); };
+  }, [teacherScopeKey, rosterNeeded]);
 
-    if (teacherTab === 'results') {
-      subscriptions.push(onSnapshot(resultsQuery, (snapshot: any) => {
-        setResults(filterTeacherOwnedRecords(accessScope,
-          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamResult))));
-      }, () => setResults([])));
-    }
+  useEffect(() => {
+    setResults([]);
+    const resultsQuery = ownedCollectionQuery('results');
+    if (teacherTab !== 'results' || !resultsQuery || !teacherAccessScope) return;
+    const accessScope = teacherAccessScope;
+    return onSnapshot(resultsQuery, (snapshot: any) => {
+      setResults(filterTeacherOwnedRecords(accessScope,
+        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamResult))));
+    }, () => setResults([]));
+  }, [teacherScopeKey, teacherTab === 'results']);
 
+  useEffect(() => {
+    setActiveSessions([]);
+    const sessionsQuery = ownedCollectionQuery('exam_sessions');
+    if (teacherTab !== 'monitoring' || !sessionsQuery || !teacherAccessScope) return;
+    const accessScope = teacherAccessScope;
     let pendingSessions: ExamSession[] | null = null;
     let sessionUpdateTimer: NodeJS.Timeout | null = null;
-
-    if (teacherTab === 'monitoring') {
-      subscriptions.push(onSnapshot(sessionsQuery, (snapshot: any) => {
-        pendingSessions = filterTeacherOwnedRecords(accessScope,
-          snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamSession)));
-        if (!sessionUpdateTimer) {
-          sessionUpdateTimer = setTimeout(() => {
-            if (pendingSessions) {
-              setActiveSessions(pendingSessions);
-            }
-            sessionUpdateTimer = null;
-          }, 2000);
-        }
-      }, () => setActiveSessions([])));
-    }
-
+    const unsubscribe = onSnapshot(sessionsQuery, (snapshot: any) => {
+      pendingSessions = filterTeacherOwnedRecords(accessScope,
+        snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as ExamSession)));
+      if (!sessionUpdateTimer) {
+        sessionUpdateTimer = setTimeout(() => {
+          if (pendingSessions) {
+            setActiveSessions(pendingSessions);
+          }
+          sessionUpdateTimer = null;
+        }, 2000);
+      }
+    }, () => setActiveSessions([]));
     return () => {
-      subscriptions.forEach(unsubscribe => unsubscribe());
+      unsubscribe();
       if (sessionUpdateTimer) clearTimeout(sessionUpdateTimer);
     };
-  }, [currentUser, appMode, teacherTab]);
+  }, [teacherScopeKey, teacherTab === 'monitoring']);
 
   useEffect(() => {
     if (appMode !== 'teacher') return;
