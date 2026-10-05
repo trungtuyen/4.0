@@ -85,13 +85,17 @@ const privateRoster = await createPrivateStudentRosterDirectory('teacher-one', '
   { id: 'student-one', name: 'Nguyễn Văn An', classId: 'class-8a' },
   { id: 'student-two', name: 'Trần Thị Bình', classId: 'class-8b' },
   { id: 'old-guest', name: 'Nguyễn Văn An' },
+  { id: 'same-name-other-class', name: 'Nguyễn Văn An', classId: 'class-8b' },
 ]);
 const firstStudentKey = await createStudentRosterLookupKey('teacher-one', 'exam-8a', '  NGUYỄN   VĂN AN ');
 const otherExamKey = await createStudentRosterLookupKey('teacher-one', 'exam-8b', 'Nguyễn Văn An');
 const otherTeacherKey = await createStudentRosterLookupKey('teacher-two', 'exam-8a', 'Nguyễn Văn An');
 verify(normalizeStudentRosterName('  Nguyễn   Văn AN ') === 'nguyễn văn an', 'Student matching remains case-insensitive and normalizes whitespace.');
-verify(privateRoster[firstStudentKey]?.id === 'student-one', 'An existing class student can enter without downloading the private student roster.');
-verify(privateRoster[firstStudentKey]?.classId === 'class-8a', 'Private roster matching preserves classroom membership and existing reports.');
+const firstClassKey = await createStudentRosterLookupKey('teacher-one', 'exam-8a', 'Nguyễn Văn An', 'class-8a');
+const secondClassKey = await createStudentRosterLookupKey('teacher-one', 'exam-8a', 'Nguyễn Văn An', 'class-8b');
+verify(privateRoster[firstClassKey]?.id === 'student-one', 'Selecting class resolves an enrolled student even when names are duplicated.');
+verify(privateRoster[secondClassKey]?.id === 'same-name-other-class', 'Students with the same name in different classes retain separate IDs.');
+verify(privateRoster[firstClassKey]?.classId === 'class-8a', 'Private roster matching preserves classroom membership and existing reports.');
 verify(/^[a-f0-9]{64}$/.test(firstStudentKey), 'Public exam lookup keys use SHA-256 instead of exposing student names.');
 verify(firstStudentKey !== otherExamKey, 'A student lookup key cannot be reused between exams.');
 verify(firstStudentKey !== otherTeacherKey, 'A student lookup key cannot be reused between teachers.');

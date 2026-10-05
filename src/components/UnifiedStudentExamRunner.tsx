@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, CalendarDays, CheckCircle, Clock, Eye, EyeOff, Fil
 import { collection, doc, getDoc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { describeExamAccessError } from '../lib/examAccessError';
+import { getExamStudentClasses } from '../lib/examStudentClasses';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
 import {
   createExamAccessDocumentId,
@@ -107,6 +108,10 @@ function legacyQuestionIsCorrect(question: UnifiedExamQuestion, answer: unknown)
 export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamRunnerProps) {
   const [studentName, setStudentName] = useState('');
   const [examCode, setExamCode] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [classExam, setClassExam] = useState<{ code: string; exam: UnifiedExam } | null>(null);
+  const [classLoading, setClassLoading] = useState(false);
+  const [classError, setClassError] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [showExamCode, setShowExamCode] = useState(false);
@@ -170,6 +175,32 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
   }, [status]);
 
   const visibleSchedule = useMemo(() => buildStudentExamSchedule(schedule, now), [schedule, now]);
+  const studentClasses = classExam?.code === examCode.trim() ? getExamStudentClasses(classExam.exam) : [];
+
+  useEffect(() => {
+    if (status !== 'login') return;
+    let cancelled = false;
+    setClassExam(null);
+    setSelectedClassId('');
+    setClassError('');
+    const code = examCode.trim();
+    if (!/^[a-zA-Z0-9_-]{3,128}$/.test(code)) { setClassLoading(false); return; }
+    setClassLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const accessId = await createExamAccessDocumentId(code);
+        const snapshot = await getDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId));
+        if (!snapshot.exists()) throw new Error('Mã kỳ thi không hợp lệ hoặc bài kiểm tra chưa được giao.');
+        const exam = await openProtectedExamAccess<UnifiedExam>(snapshot.data() as ProtectedExamAccess, code);
+        if (!cancelled) setClassExam({ code, exam });
+      } catch (error) {
+        if (!cancelled) setClassError(describeExamAccessError(error, 'login'));
+      } finally {
+        if (!cancelled) setClassLoading(false);
+      }
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [examCode, status]);
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -192,6 +223,13 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
       }
 
       const exam = await openProtectedExamAccess<UnifiedExam>(encrypted.data() as ProtectedExamAccess, normalizedCode);
+      setClassExam({ code: normalizedCode, exam });
+      const classes = getExamStudentClasses(exam);
+      const selectedClass = classes.find(item => item.id === selectedClassId);
+      if (classes.length && !selectedClass) {
+        setLoginError('Vui lòng chọn lớp của em trước khi đăng nhập.');
+        return;
+      }
       if (!canStudentEnterExam(exam)) {
         setLoginError(`Bài kiểm tra chưa đến giờ mở. Thời gian dự kiến: ${formatExamScheduleDate(exam.startTime)}.`);
         return;
@@ -223,8 +261,13 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
       }
 
       const lookupKey = await createStudentRosterLookupKey(exam.teacherId, exam.id, normalizedName);
-      const roster = exam.studentDirectory?.[lookupKey];
-      let student: StudentAccount | undefined = roster ? {
+      const classLookupKey = selectedClass ? await createStudentRosterLookupKey(exam.teacherId, exam.id, normalizedName, selectedClass.id) : lookupKey;
+      const roster = exam.studentDirectory?.[classLookupKey] || exam.studentDirectory?.[lookupKey];
+      if (selectedClass && roster?.classId && roster.classId !== selectedClass.id) {
+        setLoginError(`Họ tên này thuộc lớp ${exam.classNames?.[roster.classId] || 'khác'}. Em hãy kiểm tra họ tên và lớp đã chọn.`);
+        return;
+      }
+      let student: StudentAccount | undefined = roster && (!selectedClass || roster.classId) ? {
         id: roster.id,
         code: '',
         name: normalizedName,
@@ -239,6 +282,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
           name: normalizedName,
           teacherId: exam.teacherId,
           examId: exam.id,
+          ...(selectedClass ? { classId: selectedClass.id } : {}),
         };
         await setDoc(doc(db, 'students', student.id), student);
       }
@@ -431,7 +475,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
             <div className="sep-columns">
               <section className="sep-login" aria-labelledby="sep-login-heading">
                 <h2 id="sep-login-heading">ĐĂNG NHẬP</h2>
-                <p className="sep-intro">Nhập họ tên và mã kỳ thi do giáo viên cung cấp.</p>
+                <p className="sep-intro">Nhập họ tên, mã kỳ thi và chọn lớp của em.</p>
                 <form onSubmit={login} className="sep-form" aria-busy={loginBusy}>
                   <div className="sep-field">
                     <label htmlFor="sep-student-name">Họ và tên học sinh <span className="sep-required">(*)</span></label>
@@ -446,6 +490,14 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
                       </button>
                     </div>
                   </div>
+                  <div className="sep-field">
+                    <label htmlFor="sep-student-class">Lớp {studentClasses.length > 0 && <span className="sep-required">(*)</span>}</label>
+                    <select id="sep-student-class" name="studentClass" value={selectedClassId} onChange={event => { setSelectedClassId(event.target.value); setLoginError(''); }} required={studentClasses.length > 0} disabled={loginBusy || classLoading || studentClasses.length === 0} aria-describedby="sep-class-help">
+                      <option value="">{classLoading ? 'Đang tải danh sách lớp…' : studentClasses.length ? 'Chọn lớp của em' : classExam?.code === examCode.trim() ? 'Kỳ thi chưa có danh sách lớp' : 'Nhập mã kỳ thi để tải danh sách lớp'}</option>
+                      {studentClasses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                    <p id="sep-class-help" className="sep-code-help">{classError || (classExam?.code === examCode.trim() && studentClasses.length === 0 ? 'Giáo viên cần tạo lớp và mở lại kỳ thi để cập nhật danh sách lớp.' : 'Danh sách chỉ gồm các lớp do giáo viên của kỳ thi tạo.')}</p>
+                  </div>
                   <p id="sep-code-help" className="sep-code-help">Chưa có mã đăng nhập? Em hãy liên hệ giáo viên phụ trách kỳ thi.</p>
                   {loginError && <div id="sep-login-error" role="alert" className="sep-login-error">{loginError}</div>}
                   <button type="submit" className="sep-submit" disabled={loginBusy}>
@@ -454,7 +506,7 @@ export default function UnifiedStudentExamRunner({ onBack }: UnifiedStudentExamR
                   </button>
                 </form>
                 <button type="button" className="sep-help-button" onClick={() => setShowLoginHelp(value => !value)} aria-expanded={showLoginHelp} aria-controls="sep-login-help"><BookOpen size={16} aria-hidden="true" />Hướng dẫn vào thi</button>
-                {showLoginHelp && <div id="sep-login-help" className="sep-help"><ol><li>Nhập đầy đủ họ tên theo danh sách lớp và mã kỳ thi giáo viên đã cấp.</li><li>Chọn <strong>Đăng nhập</strong>, kiểm tra tên bài và thời gian, rồi chọn <strong>Bắt đầu làm bài</strong>.</li><li>Làm bài trong thời gian quy định và chọn <strong>Nộp bài</strong> khi hoàn thành.</li></ol></div>}
+                {showLoginHelp && <div id="sep-login-help" className="sep-help"><ol><li>Nhập đầy đủ họ tên và mã kỳ thi giáo viên đã cấp, rồi chọn lớp trong danh sách.</li><li>Chọn <strong>Đăng nhập</strong>, kiểm tra tên bài và thời gian, rồi chọn <strong>Bắt đầu làm bài</strong>.</li><li>Làm bài trong thời gian quy định và chọn <strong>Nộp bài</strong> khi hoàn thành.</li></ol></div>}
               </section>
 
               <section className="sep-notices" aria-labelledby="sep-notice-heading">

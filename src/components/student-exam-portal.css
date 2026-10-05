@@ -75,9 +75,10 @@
 .sep-field label { font-size: 14px; line-height: 1.4; }
 .sep-required { color: #e12c36; }
 .sep-input-wrap { position: relative; }
-.sep-form input { width: 100%; min-width: 0; height: 40px; border: 1px solid #d5d9e0; border-radius: 5px; background: #fff; padding: 8px 12px; color: #172538; font: inherit; font-size: 14px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.sep-form input, .sep-form select { width: 100%; min-width: 0; height: 40px; border: 1px solid #d5d9e0; border-radius: 5px; background: #fff; padding: 8px 12px; color: #172538; font: inherit; font-size: 14px; outline: none; transition: border-color .15s, box-shadow .15s; }
 .sep-form input::placeholder { color: #7d8798; opacity: 1; }
-.sep-form input:focus { border-color: var(--sep-blue); box-shadow: 0 0 0 3px #1354b81a; }
+.sep-form input:focus, .sep-form select:focus { border-color: var(--sep-blue); box-shadow: 0 0 0 3px #1354b81a; }
+.sep-form select:disabled { background: #f4f6f9; color: #69778a; }
 .sep-form input[aria-invalid='true'] { border-color: #cf3943; }
 .sep-input-wrap input { padding-right: 48px; }
 .sep-input-wrap input::-ms-reveal { display: none; }
@@ -151,7 +152,7 @@
   .sep-login::after { display: none; }
   .sep-notices { border-top: 1px solid #e4e9f1; padding-top: 28px; }
   .sep-columns h2 { font-size: 18px; }
-  .sep-form input { height: 44px; font-size: 16px; }
+  .sep-form input, .sep-form select { height: 44px; font-size: 16px; }
   .sep-code-toggle { height: 44px; }
   .sep-submit, .sep-help-button { min-height: 44px; }
   .sep-footer { flex-direction: column; align-items: flex-start; gap: 5px; padding-bottom: 20px; }
@@ -169,5 +170,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sep-loading-icon { animation: none; }
-  .sep-form input, .sep-submit { transition: none; }
+  .sep-form input, .sep-form select, .sep-submit { transition: none; }
 }

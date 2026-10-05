@@ -135,13 +135,20 @@ service cloud.firestore {
         get(/databases/$(database)/documents/exam_sessions/$(sessionId)).data.teacherId == teacherId;
     }
 
+    function classBelongsToExamTeacher(classId, teacherId) {
+      return isValidId(classId) &&
+        exists(/databases/$(database)/documents/classes/$(classId)) &&
+        get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == teacherId;
+    }
+
     function guestStudentIsSafe(studentId) {
       return incoming().keys().hasAll(['id', 'teacherId', 'name', 'code', 'examId']) &&
-        incoming().keys().hasOnly(['id', 'teacherId', 'name', 'code', 'examId']) &&
+        incoming().keys().hasOnly(['id', 'teacherId', 'name', 'code', 'examId', 'classId']) &&
         incoming().id == studentId && isValidId(studentId) &&
         isValidId(incoming().teacherId) && isValidId(incoming().examId) &&
         incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160 &&
-        incoming().code is string && incoming().code.matches('^[0-9]{6}$');
+        incoming().code is string && incoming().code.matches('^[0-9]{6}$') &&
+        (!('classId' in incoming()) || classBelongsToExamTeacher(incoming().classId, incoming().teacherId));
     }
 
     function guestResultIsSafe(resultId) {

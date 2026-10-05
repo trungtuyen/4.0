@@ -72,8 +72,12 @@ try {
   });
   await assertSucceeds(publish());
   await assertSucceeds(getDoc(doc(guest, 'public_exam_access', accessId)));
-  const student = { id: 'student-one', teacherId: exam.teacherId, name: 'Học sinh thử', code: '123456', examId: exam.id };
+  const student = { id: 'student-one', teacherId: exam.teacherId, name: 'Học sinh thử', code: '123456', examId: exam.id, classId: 'class-8a' };
+  await assertFails(setDoc(doc(guest, 'students/wrong-class'), { ...student, id: 'wrong-class', classId: 'class-9b' }));
+  await assertFails(setDoc(doc(guest, 'students/missing-class'), { ...student, id: 'missing-class', classId: 'does-not-exist' }));
   await assertSucceeds(setDoc(doc(guest, 'students', student.id), student));
+  assert.equal((await getDoc(doc(teacher, 'students', student.id))).data()?.classId, 'class-8a');
+  assert.ok(buildExamReceiptHtml(decoded, student, { id: 'class-receipt', score: 1, totalQuestions: 1, submittedAt: exam.createdAt }).includes('<p>Lớp: 8A</p>'));
   const sessionId = `${student.id}_${exam.id}`;
   const timestamp = new Date().toISOString();
   const session = { id: sessionId, examId: exam.id, studentId: student.id, teacherId: exam.teacherId, startTime: timestamp, lastActive: timestamp, status: 'taking', examVersion: 'Gốc' };
