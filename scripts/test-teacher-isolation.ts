@@ -112,7 +112,8 @@ verify(dashboard.includes('synchronizedReports={synchronizedPlickerReports}'), '
 verify(learningWall.includes("where('authorId', '==', accessScope.ownerUid)"), 'Learning wall requests only its teacher-owned categories and posts.');
 verify(legacyExamManager.includes("where('teacherId', '==', accessScope.ownerUid)"), 'Teacher exam, class, student, result and session queries remain owner-scoped.');
 verify(!studentRunner.includes("query(collection(db, 'results'), where('studentId'"), 'Students cannot enumerate the private results collection.');
-verify(legacyExamManager.includes('createPrivateStudentRosterDirectory'), 'Publishing a teacher-managed exam creates anonymous, owner-specific roster lookup keys.');
+const examRosterLoader = readFileSync(new URL('../src/lib/examRoster.ts', import.meta.url), 'utf8');
+verify(legacyExamManager.includes('loadExamRosterMetadata') && examRosterLoader.includes('createPrivateStudentRosterDirectory'), 'Publishing a teacher-managed exam creates anonymous, owner-specific roster lookup keys.');
 verify(studentRunner.includes('createStudentRosterLookupKey(exam.teacherId, exam.id, normalizedName)'), 'Student login checks a private matching key instead of reading all classmates.');
 verify(!studentRunner.includes('getDocs('), 'The public student portal never downloads a teacher’s student list.');
 verify(studentRunner.includes('const resultId = `${currentStudent.id}_${activeExam.id}`'), 'A student receives at most one protected result document per exam.');

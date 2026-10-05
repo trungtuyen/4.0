@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Printer } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, query, runTransaction, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { buildExamReceiptHtml, getExamReceiptSettings, printExamReceipt, type ReceiptExam, type ReceiptStudent } from '../lib/examReceipt';
+import { buildExamReceiptHtml, getExamReceiptSettings, getReceiptStudentClassId, printExamReceipt, type ReceiptExam, type ReceiptStudent } from '../lib/examReceipt';
 import { gradeSubmittedExam, pendingTeacherPrintResults, TeacherExamPrintQueue, type TeacherPrintResult, type TeacherPrintState } from '../lib/teacherExamPrinting';
 
 interface StationExam extends ReceiptExam { teacherId?: string; status: string }
@@ -65,9 +65,17 @@ export default function TeacherExamPrintStation({ exams, authenticatedUid }: Pro
         const studentSnapshot = await getDoc(doc(db, 'students', result.studentId));
         if (!studentSnapshot.exists() || studentSnapshot.data().teacherId !== result.teacherId) throw new Error('Không tìm thấy học sinh thuộc giáo viên tổ chức kỳ thi.');
         const student = { ...studentSnapshot.data(), id: studentSnapshot.id } as ReceiptStudent;
+        let receiptExam = exam;
+        const classId = getReceiptStudentClassId(exam, student);
+        if (classId) {
+          const classSnapshot = await getDoc(doc(db, 'classes', classId));
+          if (classSnapshot.exists() && classSnapshot.data().teacherId === result.teacherId) {
+            receiptExam = { ...exam, classNames: { ...exam.classNames, [classId]: String(classSnapshot.data().name || '') } };
+          }
+        }
         let startedAt: string | undefined;
         try { const session = await getDoc(doc(db, 'exam_sessions', result.id)); if (session.exists() && session.data().teacherId === result.teacherId) startedAt = session.data().startTime; } catch { /* Start time is optional on the receipt. */ }
-        return { ...grade, studentName: student.name, html: buildExamReceiptHtml(exam, student, { ...result, ...grade }, startedAt) };
+        return { ...grade, studentName: student.name, html: buildExamReceiptHtml(receiptExam, student, { ...result, ...grade }, startedAt) };
       },
       markDispatching: async (result, receipt) => runTransaction(db, async transaction => {
         const snapshot = await transaction.get(resultRef(result.id));

@@ -4,6 +4,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { describeExamAccessError } from '../lib/examAccessError';
+import { loadExamRosterMetadata } from '../lib/examRoster';
 import {
   createExamAccessDocumentId,
   createPublicExamSchedule,
@@ -88,7 +89,7 @@ export default function QuestionStudioExamActions({ onOpenExamManager }: Questio
 
     setBusy(true);
     const examId = createSecureExamAccessCode();
-    const exam = createExamFromQuestionBank(normalizeBank(selectedBank), {
+    let exam = createExamFromQuestionBank(normalizeBank(selectedBank), {
       teacherId: auth.currentUser.uid,
       durationMinutes,
       status: publish ? 'published' : 'draft',
@@ -99,6 +100,7 @@ export default function QuestionStudioExamActions({ onOpenExamManager }: Questio
 
     try {
       if (publish) {
+        exam = { ...exam, ...await loadExamRosterMetadata(db, exam.teacherId, exam.id) };
         const accessId = await createExamAccessDocumentId(exam.id);
         const protectedExam = await protectExamForAccess(exam, exam.id);
         const publicSchedule = await createPublicExamSchedule(exam);

@@ -4,6 +4,9 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { createExamAccessDocumentId, createPublicExamSchedule, protectExamForAccess, openProtectedExamAccess } from '../src/lib/examPrivacy';
 import { describeExamAccessError } from '../src/lib/examAccessError';
+import { loadExamRosterMetadata } from '../src/lib/examRoster';
+import { buildExamReceiptHtml } from '../src/lib/examReceipt';
+import { createStudentRosterLookupKey } from '../src/lib/teacherIsolation';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Run this test only in the Firestore emulator.');
 const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
@@ -19,6 +22,18 @@ try {
   const other = environment.authenticatedContext('teacher-two').firestore();
   const guest = environment.unauthenticatedContext().firestore();
   const exam = { id: '123456789012', teacherId: 'teacher-one', title: 'Kiểm tra Toán 8', durationMinutes: 45, questions: [{ id: 'q1', text: 'Câu hỏi', options: ['A', 'B'], correctAnswer: 0 }], status: 'published' as const, createdAt: new Date().toISOString() };
+  // Publishing from the Exams tab must work without an already-loaded Classes tab.
+  await assertSucceeds(setDoc(doc(teacher, 'classes/class-8a'), { id: 'class-8a', teacherId: exam.teacherId, name: '8A' }));
+  await assertSucceeds(setDoc(doc(teacher, 'students/roster-one'), { id: 'roster-one', teacherId: exam.teacherId, name: 'Nguyễn Văn An', code: '654321', classId: 'class-8a' }));
+  await assertSucceeds(setDoc(doc(other, 'classes/class-9b'), { id: 'class-9b', teacherId: 'teacher-two', name: '9B' }));
+  const rosterMetadata = await loadExamRosterMetadata(teacher, exam.teacherId, exam.id);
+  assert.deepEqual(rosterMetadata.classNames, { 'class-8a': '8A' });
+  const lookup = await createStudentRosterLookupKey(exam.teacherId, exam.id, 'Nguyễn Văn An');
+  assert.equal(rosterMetadata.studentDirectory[lookup].classId, 'class-8a');
+  const protectedRoster = await protectExamForAccess({ ...exam, ...rosterMetadata }, exam.id);
+  const decoded = await openProtectedExamAccess<typeof exam & typeof rosterMetadata>(protectedRoster, exam.id);
+  const receipt = buildExamReceiptHtml(decoded, { id: 'roster-one', name: 'Nguyễn Văn An', classId: decoded.studentDirectory[lookup].classId }, { id: 'receipt', score: 1, totalQuestions: 1, submittedAt: exam.createdAt });
+  assert.ok(receipt.includes('<p>Lớp: 8A</p>') && !receipt.includes('Ảnh học sinh'));
   const schedule = await createPublicExamSchedule(exam);
   const accessId = await createExamAccessDocumentId(exam.id);
   const access = await protectExamForAccess(exam, exam.id);

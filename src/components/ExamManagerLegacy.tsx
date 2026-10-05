@@ -4,10 +4,11 @@ import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
 import ExamReceiptDialog from './ExamReceiptDialog';
 import TeacherExamPrintStation from './TeacherExamPrintStation';
+import { loadExamRosterMetadata } from '../lib/examRoster';
 import { gradeSubmittedExam } from '../lib/teacherExamPrinting';
 import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, type ExamReceiptSettings } from '../lib/examReceipt';
 import * as XLSX from 'xlsx';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { describeExamAccessError } from '../lib/examAccessError';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
@@ -25,7 +26,6 @@ import {
 } from '../lib/examPrivacy';
 import {
   canAccessTeacherOwnedRecord,
-  createPrivateStudentRosterDirectory,
   createStudentRosterLookupKey,
   createTeacherStorageKey,
   filterTeacherOwnedRecords,
@@ -122,6 +122,10 @@ const EXAM_SESSION_ONLINE_WINDOW_MS = 90_000;
 async function synchronizeExamPublication(exam: Exam, previousExam: Exam = exam, savePrivateExam = true): Promise<void> {
   if (!isValidTeacherUid(exam.teacherId)) {
     throw new Error('Kỳ thi chưa được gắn với tài khoản giáo viên hợp lệ.');
+  }
+
+  if (exam.status === 'published') {
+    exam = { ...exam, ...await loadExamRosterMetadata(db, exam.teacherId, exam.id) };
   }
 
   // Save the private exam, all access codes and its notice in one transaction.
@@ -503,7 +507,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         if (!canAccessTeacherOwnedRecord(accessScope, editingExam)) {
           throw new Error('Bạn không có quyền thay đổi kỳ thi của giáo viên khác.');
         }
-        const examToSave = { ...editingExam, classNames: Object.fromEntries(classes.filter(item => item.teacherId === editingExam.teacherId).map(item => [item.id, item.name])) };
+        const examToSave = { ...editingExam };
         const previousExam = exams.find(exam => exam.id === editingExam.id) || editingExam;
         await synchronizeExamPublication(examToSave, previousExam);
         setIsExamModalOpen(false);
@@ -809,20 +813,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     if (exam) {
       try {
         const newStatus = exam.status === 'published' ? 'closed' : 'published';
-        let nextExam: Exam = { ...exam, status: newStatus };
-        if (newStatus === 'published' && exam.teacherId) {
-          const rosterQuery = query(collection(db, 'students'), where('teacherId', '==', exam.teacherId));
-          const rosterSnapshot = await getDocs(rosterQuery);
-          const teacherRoster = rosterSnapshot.docs.map(studentDoc => ({
-            ...(studentDoc.data() as Omit<StudentAccount, 'id'>),
-            id: studentDoc.id,
-          }));
-          nextExam = {
-            ...nextExam,
-            studentDirectory: await createPrivateStudentRosterDirectory(exam.teacherId, exam.id, teacherRoster),
-            classNames: Object.fromEntries(classes.filter(item => item.teacherId === exam.teacherId).map(item => [item.id, item.name])),
-          };
-        }
+        const nextExam: Exam = { ...exam, status: newStatus };
         await synchronizeExamPublication(nextExam, exam);
       } catch (error) {
         console.error("Error updating exam status:", error);
