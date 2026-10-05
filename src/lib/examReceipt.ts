@@ -5,6 +5,7 @@ export interface ExamReceiptSettings {
   includeCorrectAnswers: boolean;
   schoolName: string;
   subject: string;
+  invigilatorName: string;
 }
 
 export const DEFAULT_EXAM_RECEIPT_SETTINGS: ExamReceiptSettings = {
@@ -12,6 +13,7 @@ export const DEFAULT_EXAM_RECEIPT_SETTINGS: ExamReceiptSettings = {
   includeCorrectAnswers: true,
   schoolName: '',
   subject: '',
+  invigilatorName: '',
 };
 
 export interface ReceiptQuestion {
@@ -176,7 +178,7 @@ export function buildExamReceiptHtml(exam: ReceiptExam, student: ReceiptStudent,
   ${tables}<p class="legend">Dấu ×: phương án học sinh đã chọn. Ô trống / dấu —: chưa trả lời. Câu đúng được tính theo cách chấm của kỳ thi.</p>
   <div class="summary"><span>Số câu đúng: ${result.score}/${result.totalQuestions}</span><span>Số câu chưa đúng: ${Math.max(0, result.totalQuestions - result.score)}</span><span>Điểm: ${grade.toLocaleString('vi-VN')} / 10</span></div>
   <p class="confirmation">Tôi xác nhận các câu trả lời trên là bài làm của tôi và đã nộp bài.</p>
-  <div class="signatures"><div><b>HỌC SINH</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div><b>${escape(student.name)}</b></div><div><b>GIÁO VIÊN / GIÁM THỊ</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div>………………………………</div></div>
+  <div class="signatures"><div><b>HỌC SINH</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div><b>${escape(student.name)}</b></div><div><b>GIÁO VIÊN / GIÁM THỊ</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div>${settings.invigilatorName.trim() ? `<b>${escape(settings.invigilatorName.trim())}</b>` : '………………………………'}</div></div>
   <p class="record">Mã bài nộp: ${escape(result.id)} · Trạng thái: ĐÃ NỘP BÀI · Thời gian trên phiếu: giờ Việt Nam.</p></main></body></html>`;
 }
 

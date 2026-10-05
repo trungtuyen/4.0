@@ -26,6 +26,11 @@ const unsafe = buildExamReceiptHtml(exam, { ...student, name: '<script>alert(1)<
 assert.ok(!unsafe.includes('<script>') && !unsafe.includes('<img src=x'));
 assert.ok(unsafe.includes('&lt;script&gt;'));
 assert.equal(getExamReceiptSettings({ ...exam, receiptSettings: undefined }).autoPrint, false);
+assert.equal(getExamReceiptSettings(exam).invigilatorName, '');
+const namedInvigilator = buildExamReceiptHtml({ ...exam, receiptSettings: { ...exam.receiptSettings, invigilatorName: '  Nguyễn Văn Bình  ' } }, student, result);
+assert.ok(namedInvigilator.includes('<div class="signature-space"></div><b>Nguyễn Văn Bình</b>'));
+const unsafeInvigilator = buildExamReceiptHtml({ ...exam, receiptSettings: { invigilatorName: '<img src=x onerror=alert(1)>' } }, student, result);
+assert.ok(!unsafeInvigilator.includes('<img src=x') && unsafeInvigilator.includes('&lt;img src=x onerror=alert(1)&gt;'));
 const shuffled = { ...exam, shuffledVersions: [{ code: '123', questions: [{ ...exam.questions[0], options: ['D', 'C', 'B', 'A'], correctAnswer: 3 }] }] };
 assert.ok(buildExamReceiptHtml(shuffled, student, { ...result, examVersion: '123', answers: { q0: 3 } }).includes('<td class="answer-key">D</td>'));
 assert.ok(buildExamReceiptHtml({ ...exam, questions: [] }, student, { ...result, totalQuestions: 0, score: 0 }).includes('0 / 10'));
