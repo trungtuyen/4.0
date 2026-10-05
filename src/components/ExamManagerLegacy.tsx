@@ -830,7 +830,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         await synchronizeExamPublication(nextExam, exam);
       } catch (error) {
         console.error("Error updating exam status:", error);
-        alert('Không thể cập nhật kỳ thi. Hãy kiểm tra quyền Firebase và thử lại.');
+        const code = (error as { code?: string })?.code;
+        const detail = code === 'permission-denied'
+          ? 'Hãy kiểm tra quyền Firebase (tài khoản giáo viên phải ở trạng thái active và firestore.rules mới nhất phải được publish) và thử lại.'
+          : `Chi tiết: ${(error as Error)?.message || code || 'không xác định'}`;
+        alert(`Không thể cập nhật kỳ thi. ${detail}`);
       }
     }
   };
