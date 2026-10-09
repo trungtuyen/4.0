@@ -3,6 +3,96 @@ const { readFileSync } = require("node:fs");
 const { resolve } = require("node:path");
 const vm = require("node:vm");
 
+// Runs the shipped finger-counting and gesture-tracking code on landmarks that the real
+// MediaPipe hand model produced for photos of 1, 2, fist, thumb-up and open-hand poses.
+function checkHandGestures() {
+  const source = readFileSync(resolve(__dirname, "../public/gestureclass/app.js"), "utf8");
+  const extract = (startMarker, endMarker) => {
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker, start);
+    assert.ok(start >= 0 && end > start, `app.js contains ${startMarker.trim()}`);
+    return source.slice(start, end);
+  };
+  const labels = [];
+  const answers = [];
+  let clock = 0;
+  let frame = null;
+  const vision = {
+    Math,
+    console,
+    state: null,
+    document: { querySelector: (selector) => selector === "#camera-video" ? { readyState: 4, videoWidth: 640, videoHeight: 480 } : null },
+    performance: { now: () => clock },
+    requestAnimationFrame: () => 0,
+    updateGestureLabel: (value) => labels.push(value),
+    chooseAnswer: (index) => { answers.push(index); vision.state.game.revealed = true; }
+  };
+  vm.runInNewContext(`${[
+    extract("  function idleCamera() {", "  const state = {"),
+    extract("  const FINGER_JOINTS", '  document.addEventListener("click"'),
+    extract("  function requireFreshGesture() {", "  function nextQuestion() {")
+  ].join("\n")}\nthis.api = { idleCamera, countExtendedFingers, scanHands, requireFreshGesture };`, vision);
+  const { idleCamera, countExtendedFingers, scanHands, requireFreshGesture } = vision.api;
+
+  const fixture = JSON.parse(readFileSync(resolve(__dirname, "fixtures/gestureclass-hand-landmarks.json"), "utf8"));
+  const expectedCount = { one: 1, two: 2, fist: 0, thumbUp: 0, openHand: 5 };
+  const asPoints = (landmarks) => landmarks.map(([x, y]) => ({ x, y }));
+  // The square sample photos centred in a 640×480 webcam frame, as the play room sees them.
+  const inWebcamFrame = (landmarks) => landmarks.map(([x, y]) => ({ x: x * 0.75 + 0.125, y }));
+  const poses = {};
+  for (const sample of fixture.samples) {
+    const label = `${sample.pose} (${sample.photo}, ${sample.angle}°, mirrored ${sample.mirrored}, scale ${sample.scale})`;
+    assert.equal(countExtendedFingers(asPoints(sample.landmarks), sample.aspectRatio), expectedCount[sample.pose], label);
+    assert.equal(countExtendedFingers(inWebcamFrame(sample.landmarks), 640 / 480), expectedCount[sample.pose], `${label} in a 4:3 webcam frame`);
+    poses[sample.pose] ||= inWebcamFrame(sample.landmarks);
+  }
+
+  vision.state = { view: "play", game: { revealed: false, finished: false }, camera: { ...idleCamera(), active: true, detector: { detectForVideo: () => ({ landmarks: frame ? [frame] : [] }) } } };
+  const play = (...sequence) => {
+    for (const landmarks of sequence) { clock += 33; frame = landmarks; scanHands(); }
+  };
+  const hold = (landmarks, frames) => play(...Array(frames).fill(landmarks));
+  const nextQuestion = () => { vision.state.game.revealed = false; requireFreshGesture(); };
+
+  // A raised index finger answers 1 only after it stays steady for about half a second.
+  hold(poses.two, 2);
+  hold(poses.one, 10);
+  assert.deepEqual(answers, []);
+  hold(poses.one, 15);
+  assert.deepEqual(answers, [0]);
+  assert.equal(labels.at(-1), "1 ngón tay → đáp án 1");
+
+  // A hand still raised from the previous question does not answer the next one.
+  nextQuestion();
+  hold(poses.one, 40);
+  assert.deepEqual(answers, [0]);
+  assert.match(labels.at(-1), /hạ tay rồi giơ lại/);
+
+  // After lowering the hand, single-frame flickers to 2 neither answer 2 nor block answer 1.
+  hold(null, 4);
+  for (let index = 0; index < 5; index += 1) play(...Array(7).fill(poses.one), poses.two);
+  assert.deepEqual(answers, [0, 0]);
+
+  // An open hand (thumb spread) is not answer 4; two fingers answer 2.
+  nextQuestion();
+  hold(null, 4);
+  hold(poses.openHand, 40);
+  assert.equal(labels.at(-1), "Bàn tay đang xòe — gập ngón cái để chọn 4");
+  hold(poses.fist, 10);
+  assert.deepEqual(answers, [0, 0]);
+  hold(poses.two, 30);
+  assert.deepEqual(answers, [0, 0, 1]);
+
+  // A gesture changed while the answer is shown still has to be re-made for the next question.
+  hold(poses.one, 30);
+  nextQuestion();
+  hold(poses.one, 30);
+  assert.deepEqual(answers, [0, 0, 1]);
+  hold(null, 4);
+  hold(poses.one, 30);
+  assert.deepEqual(answers, [0, 0, 1, 0]);
+}
+
 async function main() {
   for (const filename of ["index.html", "styles.css", "app.js"]) {
     const contents = readFileSync(resolve(__dirname, "../public/gestureclass", filename), "utf8");
@@ -23,8 +113,10 @@ async function main() {
   const serviceWorker = readFileSync(resolve(__dirname, "../public/service-worker.js"), "utf8");
   assert.match(serviceWorker, /pathname\.startsWith\(`\$\{APP_ROOT\}gestureclass\/`\)/);
   assert.match(serviceWorker, /const fresh = await fetch\(request, \{ cache: 'no-store' \}\)/);
-  assert.match(serviceWorker, /\$\{CACHE_PREFIX\}v21/);
+  assert.match(serviceWorker, /\$\{CACHE_PREFIX\}v23/);
   assert.match(serviceWorker, /projector-readable-v1/);
+
+  checkHandGestures();
 
   let markup = "";
   let elements = new Map();
@@ -221,7 +313,7 @@ async function main() {
 
   process.stdout.write(JSON.stringify({
     status: "passed",
-    checked: ["static assets", "projector-scale classroom play mode", "fullscreen presentation controls", "dashboard", "question create/duplicate/delete", "question search", "class create/delete confirmation and persistence", "empty class list and synchronized counts", "gesture simulation", "keyboard answers", "flashcards", "random student picker", "responsive navigation", "local persistence"]
+    checked: ["static assets", "projector-scale classroom play mode", "fullscreen presentation controls", "dashboard", "question create/duplicate/delete", "question search", "class create/delete confirmation and persistence", "empty class list and synchronized counts", "camera finger counting on real hand landmarks", "steady-gesture answers and re-arming", "gesture simulation", "keyboard answers", "flashcards", "random student picker", "responsive navigation", "local persistence"]
   }) + "\n");
 }
 
