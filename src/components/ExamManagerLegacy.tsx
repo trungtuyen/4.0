@@ -4,11 +4,13 @@ import { RichTextEditor } from './RichTextEditor';
 import OMRScanner from './OMRScanner';
 import ExamReceiptDialog from './ExamReceiptDialog';
 import TeacherExamPrintStation from './TeacherExamPrintStation';
+import { loadExamRosterMetadata } from '../lib/examRoster';
 import { gradeSubmittedExam } from '../lib/teacherExamPrinting';
-import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, type ExamReceiptSettings } from '../lib/examReceipt';
+import { buildExamReceiptHtml, DEFAULT_EXAM_RECEIPT_SETTINGS, getExamReceiptSettings, getReceiptStudentClassId, type ExamReceiptSettings } from '../lib/examReceipt';
 import * as XLSX from 'xlsx';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDoc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { describeExamAccessError } from '../lib/examAccessError';
 import { buildStudentExamSchedule, canStudentEnterExam, formatExamScheduleDate, getExamScheduleState } from '../lib/examSchedule';
 import {
   createExamAccessDocumentId,
@@ -24,7 +26,6 @@ import {
 } from '../lib/examPrivacy';
 import {
   canAccessTeacherOwnedRecord,
-  createPrivateStudentRosterDirectory,
   createStudentRosterLookupKey,
   createTeacherStorageKey,
   filterTeacherOwnedRecords,
@@ -118,50 +119,50 @@ interface ExamManagerProps {
 const EXAM_SESSION_HEARTBEAT_INTERVAL_MS = 60_000;
 const EXAM_SESSION_ONLINE_WINDOW_MS = 90_000;
 
-async function synchronizeExamPublication(exam: Exam, previousExam: Exam = exam): Promise<void> {
+async function synchronizeExamPublication(exam: Exam, previousExam: Exam = exam, savePrivateExam = true): Promise<void> {
   if (!isValidTeacherUid(exam.teacherId)) {
     throw new Error('Kỳ thi chưa được gắn với tài khoản giáo viên hợp lệ.');
   }
 
+  if (exam.status === 'published') {
+    exam = { ...exam, ...await loadExamRosterMetadata(db, exam.teacherId, exam.id) };
+  }
+
+  // Save the private exam, all access codes and its notice in one transaction.
+  // A denied public write must never leave the teacher UI showing an open exam.
+  const batch = writeBatch(db);
+  if (savePrivateExam) batch.set(doc(db, 'exams', exam.id), exam);
   const previousCodes = [previousExam.id, ...(previousExam.shuffledVersions || []).map(version => version.code)];
   if (exam.status !== 'published') {
-    if (previousExam.status !== 'published') return;
-    const previousAccessIds = await Promise.all(previousCodes.map(createExamAccessDocumentId));
-    await Promise.all([
-      deleteDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION,
-        await createPublicExamScheduleId(exam.teacherId, previousExam.id))),
-      ...previousAccessIds.map(accessId =>
-        deleteDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId))),
-    ]);
+    if (previousExam.status === 'published') {
+      batch.delete(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION,
+        await createPublicExamScheduleId(exam.teacherId, previousExam.id)));
+      for (const code of previousCodes) {
+        batch.delete(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, await createExamAccessDocumentId(code)));
+      }
+    }
+    await batch.commit();
     return;
   }
 
   const authorizedExams: { code: string; exam: Exam }[] = [{ code: exam.id, exam }];
   for (const version of exam.shuffledVersions || []) {
-    const selectedVersion: Exam = {
-      ...exam,
-      questions: version.questions,
-      accessVersionCode: version.code,
-    };
+    const selectedVersion: Exam = { ...exam, questions: version.questions, accessVersionCode: version.code };
     delete selectedVersion.shuffledVersions;
     delete selectedVersion.versionCodes;
     authorizedExams.push({ code: version.code, exam: selectedVersion });
   }
-
-  await Promise.all(authorizedExams.map(async authorized => {
-    const accessId = await createExamAccessDocumentId(authorized.code);
-    await setDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, accessId),
+  for (const authorized of authorizedExams) {
+    batch.set(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, await createExamAccessDocumentId(authorized.code)),
       await protectExamForAccess(authorized.exam, authorized.code));
-  }));
-
+  }
   const schedule = await createPublicExamSchedule(exam);
-  await setDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, schedule.id), schedule);
-
+  batch.set(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, schedule.id), schedule);
   const activeCodes = new Set(authorizedExams.map(authorized => authorized.code));
-  await Promise.all(previousCodes
-    .filter(code => !activeCodes.has(code))
-    .map(async code => deleteDoc(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION,
-      await createExamAccessDocumentId(code)))));
+  for (const code of previousCodes.filter(code => !activeCodes.has(code))) {
+    batch.delete(doc(db, PUBLIC_EXAM_ACCESS_COLLECTION, await createExamAccessDocumentId(code)));
+  }
+  await batch.commit();
 }
 
 export default function ExamManager({ onBack, initialMode = 'landing', currentUser }: ExamManagerProps) {
@@ -175,6 +176,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   const [results, setResults] = useState<ExamResult[]>([]);
   const [activeSessions, setActiveSessions] = useState<ExamSession[]>([]);
   const restoredPublishedExamIds = useRef(new Set<string>());
+  const [publicationError, setPublicationError] = useState('');
+  const [publicationRetry, setPublicationRetry] = useState(0);
 
   // Each listener re-reads every matching document when it (re)subscribes, so tab
   // switches must not tear down listeners whose data is still needed.
@@ -203,7 +206,8 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     const examsQuery = ownedCollectionQuery('exams');
     if (!examsQuery || !teacherAccessScope) return;
     const accessScope = teacherAccessScope;
-    return onSnapshot(examsQuery, (snapshot: any) => {
+    return onSnapshot(examsQuery, { includeMetadataChanges: true }, (snapshot: any) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       setExams(filterTeacherOwnedRecords(accessScope,
         snapshot.docs.map((item: any) => ({ id: item.id, ...item.data() } as Exam))));
     }, () => setExams([]));
@@ -270,22 +274,19 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
   useEffect(() => {
     if (appMode !== 'teacher') return;
     const accessScope = resolveTeacherAccessScope(currentUser, auth.currentUser?.uid);
-    if (accessScope.role !== 'teacher') return;
+    if (accessScope.role === 'guest') return;
 
     for (const exam of exams) {
       if (exam.status !== 'published' || exam.teacherId !== accessScope.ownerUid ||
           restoredPublishedExamIds.current.has(exam.id)) continue;
       restoredPublishedExamIds.current.add(exam.id);
-      void (async () => {
-        const scheduleId = await createPublicExamScheduleId(accessScope.ownerUid, exam.id);
-        const existingSchedule = await getDoc(doc(db, PUBLIC_EXAM_SCHEDULES_COLLECTION, scheduleId));
-        if (!existingSchedule.exists()) await synchronizeExamPublication(exam);
-      })().catch(error => {
-        restoredPublishedExamIds.current.delete(exam.id);
-        console.error('Không thể chuyển kỳ thi cũ sang lịch thi và đề thi bảo mật:', error);
+      // Repair both the notice and encrypted access, including partially published older exams.
+      void synchronizeExamPublication(exam, exam, false).catch(error => {
+        setPublicationError(describeExamAccessError(error, 'publish'));
+        console.error('Không thể khôi phục lịch thi và đề thi bảo mật:', error);
       });
     }
-  }, [appMode, currentUser, exams]);
+  }, [appMode, currentUser, exams, publicationRetry]);
 
   // --- Teacher State ---
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -401,7 +402,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     if (selectedClassIdForResults !== 'all') {
       examResults = examResults.filter(r => {
         const student = students.find(s => s.id === r.studentId);
-        return student?.classId === selectedClassIdForResults;
+        return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
       });
     }
     
@@ -435,14 +436,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
     const data = examResults.map((result, index) => {
       const student = students.find(s => s.id === result.studentId);
-      const studentClass = classes.find(c => c.id === student?.classId);
+      const studentClass = classes.find(c => c.id === getReceiptStudentClassId(examToExport, student || { id: result.studentId }, result));
       const pendingTeacherGrade = getExamReceiptSettings(examToExport).autoPrint && !result.teacherGradedAt;
       const percentage = Math.round((result.score / result.totalQuestions) * 100);
       const calculatedScore = Math.round((result.score / result.totalQuestions) * 100) / 10;
       const rowData: any = {
         'STT': index + 1,
         'Họ tên': student?.name || 'Unknown',
-        'Lớp': studentClass?.name || 'Unknown',
+        'Lớp': studentClass?.name || examToExport.classNames?.[getReceiptStudentClassId(examToExport, student || { id: result.studentId }, result) || ''] || 'Unknown',
         'Điểm': pendingTeacherGrade ? 'Chờ máy giáo viên chấm' : calculatedScore,
         'Tỉ lệ %': pendingTeacherGrade ? '' : `${percentage}%`,
         'Mã đề': result.examVersion || 'Gốc',
@@ -523,14 +524,14 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         if (!canAccessTeacherOwnedRecord(accessScope, editingExam)) {
           throw new Error('Bạn không có quyền thay đổi kỳ thi của giáo viên khác.');
         }
-        const examToSave = { ...editingExam, classNames: Object.fromEntries(classes.filter(item => item.teacherId === editingExam.teacherId).map(item => [item.id, item.name])) };
+        const examToSave = { ...editingExam };
         const previousExam = exams.find(exam => exam.id === editingExam.id) || editingExam;
-        await setDoc(doc(db, 'exams', examToSave.id), examToSave);
         await synchronizeExamPublication(examToSave, previousExam);
         setIsExamModalOpen(false);
         setEditingExam(null);
       } catch (error) {
         console.error("Error saving exam:", error);
+        alert(describeExamAccessError(error, 'publish'));
       }
     }
   };
@@ -829,29 +830,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
     if (exam) {
       try {
         const newStatus = exam.status === 'published' ? 'closed' : 'published';
-        let nextExam: Exam = { ...exam, status: newStatus };
-        if (newStatus === 'published' && exam.teacherId) {
-          const rosterQuery = query(collection(db, 'students'), where('teacherId', '==', exam.teacherId));
-          const rosterSnapshot = await getDocs(rosterQuery);
-          const teacherRoster = rosterSnapshot.docs.map(studentDoc => ({
-            ...(studentDoc.data() as Omit<StudentAccount, 'id'>),
-            id: studentDoc.id,
-          }));
-          nextExam = {
-            ...nextExam,
-            studentDirectory: await createPrivateStudentRosterDirectory(exam.teacherId, exam.id, teacherRoster),
-            classNames: Object.fromEntries(classes.filter(item => item.teacherId === exam.teacherId).map(item => [item.id, item.name])),
-          };
-        }
-        await setDoc(doc(db, 'exams', examId), nextExam);
+        const nextExam: Exam = { ...exam, status: newStatus };
         await synchronizeExamPublication(nextExam, exam);
       } catch (error) {
         console.error("Error updating exam status:", error);
-        const code = (error as { code?: string })?.code;
-        const detail = code === 'permission-denied'
-          ? 'Hãy kiểm tra quyền Firebase (tài khoản giáo viên phải ở trạng thái active và firestore.rules mới nhất phải được publish) và thử lại.'
-          : `Chi tiết: ${(error as Error)?.message || code || 'không xác định'}`;
-        alert(`Không thể cập nhật kỳ thi. ${detail}`);
+        alert(describeExamAccessError(error, 'publish'));
       }
     }
   };
@@ -864,7 +847,6 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
       if (exam.isShuffled) {
         // Turn off shuffle
         const nextExam = { ...exam, isShuffled: false, shuffledVersions: [], versionCodes: [] };
-        await setDoc(doc(db, 'exams', examId), nextExam);
         await synchronizeExamPublication(nextExam, exam);
         alert('Đã tắt chế độ tự động trộn đề.');
       } else {
@@ -888,13 +870,12 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
           versions.push({ code, questions: shuffledQuestions });
         }
         const nextExam = { ...exam, isShuffled: true, shuffledVersions: versions, versionCodes };
-        await setDoc(doc(db, 'exams', examId), nextExam);
         await synchronizeExamPublication(nextExam, exam);
         alert(`Đã tạo 5 mã đề: ${versions.map(v => v.code).join(', ')}`);
       }
     } catch (error) {
       console.error("Error updating shuffle status:", error);
-      alert('Có lỗi xảy ra khi trộn đề thi.');
+      alert(describeExamAccessError(error, 'publish'));
     }
   };
 
@@ -1808,6 +1789,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
         </div>
       </header>
 
+      {publicationError && <div role="alert" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p>{publicationError}</p>
+        <button type="button" className="mt-2 font-bold underline" onClick={() => { restoredPublishedExamIds.current.clear(); setPublicationError(''); setPublicationRetry(value => value + 1); }}>Thử đồng bộ lại kỳ thi</button>
+      </div>}
+
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
         <div className="w-64 bg-white border-r border-slate-200 flex flex-col py-4">
@@ -2352,7 +2338,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                         if (selectedClassIdForResults !== 'all') {
                           examResults = examResults.filter(r => {
                             const student = students.find(s => s.id === r.studentId);
-                            return student?.classId === selectedClassIdForResults;
+                            return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
                           });
                         }
                         const correctCount = examResults.filter(r => r.answers?.[q.id] === q.correctAnswer).length;
@@ -2384,7 +2370,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                         .filter(r => {
                           if (selectedClassIdForResults === 'all') return true;
                           const student = students.find(s => s.id === r.studentId);
-                          return student?.classId === selectedClassIdForResults;
+                          return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
                         });
 
                       // Deduplicate by studentId, keeping the latest submission
@@ -2425,7 +2411,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                           <tr key={result.id} className="hover:bg-slate-50 transition-colors">
                             <td className="px-6 py-3 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 min-w-[250px] max-w-[250px] w-[250px] truncate">
                               <div className="font-bold text-slate-800 truncate" title={student?.name || 'Học sinh đã xóa'}>{student?.name || 'Học sinh đã xóa'}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">1st nỗ lực đang diễn ra</div>
+                              <div className="text-xs text-slate-500 mt-0.5">{exam && (classes.find(item => item.id === getReceiptStudentClassId(exam, student || { id: result.studentId }, result))?.name || exam.classNames?.[getReceiptStudentClassId(exam, student || { id: result.studentId }, result) || '']) || 'Chưa được gán lớp'}</div>
                             </td>
                             <td className="px-4 py-3 sticky left-[250px] bg-white group-hover:bg-slate-50 z-10 border-r border-slate-200 text-center font-medium text-slate-800 min-w-[120px] max-w-[120px] w-[120px]">
                               {exam && getExamReceiptSettings(exam).autoPrint && !result.teacherGradedAt ? <span className="text-xs text-amber-700">Chờ máy giáo viên chấm</span> : result.score === 0 ? '0' : `${calculatedScore} (${percentage}%)`}
@@ -2526,7 +2512,7 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
                       .filter(r => {
                         if (selectedClassIdForResults === 'all') return true;
                         const student = students.find(s => s.id === r.studentId);
-                        return student?.classId === selectedClassIdForResults;
+                        return getReceiptStudentClassId(exams.find(exam => exam.id === r.examId) || {}, student || { id: r.studentId }, r) === selectedClassIdForResults;
                       }).length === 0 && (
                       <tr>
                         <td colSpan={100} className="px-6 py-8 text-center text-slate-500">
@@ -2700,10 +2686,11 @@ export default function ExamManager({ onBack, initialMode = 'landing', currentUs
 
                 <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h4 className="flex items-center gap-2 text-lg font-bold text-slate-800"><Printer size={20} />Phiếu xác nhận nộp bài</h4>
-                  <p className="text-sm text-slate-500">Phiếu A4 theo Mẫu số 01: thông tin học sinh, ô ảnh, bảng đáp án, kết quả và chữ ký học sinh / giám thị. Máy giáo viên nhận bài, chấm lại theo đúng mã đề, lưu điểm rồi lần lượt gửi lệnh in.</p>
+                  <p className="text-sm text-slate-500">Phiếu A4 theo Mẫu số 01: thông tin học sinh, bảng đáp án, kết quả và chữ ký học sinh / giám thị. Máy giáo viên nhận bài, chấm lại theo đúng mã đề, lưu điểm rồi lần lượt gửi lệnh in.</p>
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="text-sm font-medium text-slate-700">Tên trường<input value={getExamReceiptSettings(editingExam).schoolName} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), schoolName: event.target.value } })} placeholder="TH & THCS Na Rì 1" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
                     <label className="text-sm font-medium text-slate-700">Môn kiểm tra<input value={getExamReceiptSettings(editingExam).subject} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), subject: event.target.value } })} placeholder="Ví dụ: Toán 8" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
+                    <label className="text-sm font-medium text-slate-700 md:col-span-2">Họ và tên giám thị<input type="text" maxLength={160} value={getExamReceiptSettings(editingExam).invigilatorName} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), invigilatorName: event.target.value } })} placeholder="Nhập họ và tên giám thị để in trên phiếu" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
                   </div>
                   <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).autoPrint} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), autoPrint: event.target.checked } })} />Tự động in tại máy giáo viên khi nhận bài nộp</label>
                   <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={getExamReceiptSettings(editingExam).includeCorrectAnswers} onChange={event => setEditingExam({ ...editingExam, receiptSettings: { ...getExamReceiptSettings(editingExam), includeCorrectAnswers: event.target.checked } })} />In đáp án đúng và kết quả từng câu trên phiếu</label>

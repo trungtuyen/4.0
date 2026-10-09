@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withExamStudentClass } from '../src/lib/examStudentClasses';
 import { readFileSync } from 'node:fs';
 import { gradeSubmittedExam, pendingTeacherPrintResults, TeacherExamPrintQueue, type TeacherPrintQueueDependencies, type TeacherPrintResult } from '../src/lib/teacherExamPrinting';
 import { printExamReceipt, type ReceiptExam } from '../src/lib/examReceipt';
@@ -7,6 +8,7 @@ const exam: ReceiptExam = { id: 'exam', title: 'Toán 8', durationMinutes: 45, q
 const since = '2026-10-04T14:00:00Z';
 const make = (id: string, offset = 0): TeacherPrintResult => ({ id, examId: 'exam', studentId: id, teacherId: 'teacher', submittedAt: new Date(Date.parse(since) + offset).toISOString(), score: 999, totalQuestions: 1, answers: { q: 1 }, examVersion: 'B' });
 assert.deepEqual(gradeSubmittedExam(exam, make('s')), { score: 1, totalQuestions: 1 });
+assert.deepEqual(gradeSubmittedExam(exam, { ...make('s'), answers: withExamStudentClass({ q: 1 }, 'class8a') }), { score: 1, totalQuestions: 1 });
 assert.equal(gradeSubmittedExam(exam, { ...make('s'), examVersion: 'Gốc' }).score, 0);
 assert.throws(() => gradeSubmittedExam(exam, { ...make('s'), examVersion: 'missing' }));
 assert.throws(() => gradeSubmittedExam(exam, { ...make('s'), totalQuestions: 2 }));

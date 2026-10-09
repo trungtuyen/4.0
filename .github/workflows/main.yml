@@ -96,6 +96,9 @@ jobs:
       - name: Verify public learning-wall submissions without login
         run: npx --yes firebase-tools@^15.17.0 emulators:exec --project demo-learning-wall --config firebase.learning-wall.json --only firestore "npm run test:learning-wall-rules && LEARNING_WALL_RULES_FILE=firestore.learning-wall.rules npm run test:learning-wall-rules"
 
+      - name: Verify exam publication, public notices and student submission permissions
+        run: npx --yes firebase-tools@^15.17.0 emulators:exec --project demo-learning-wall --config firebase.learning-wall.json --only firestore "npm run test:exam-access-rules && EXAM_RULES_FILE=firestore.learning-wall.rules npm run test:exam-access-rules"
+
       - name: Verify owner-scoped Plicker class and student synchronization
         run: npm run test:plicker-student-sync
 
@@ -121,9 +124,9 @@ jobs:
         shell: bash
         run: |
           if [[ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]]; then
-            echo "::warning::Firestore rules were not published. Student Word/Excel/file uploads need the updated rules. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
+            echo "::warning::Firestore rules were not published. Student exam login, public exam notices and student file uploads need the updated rules. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
             {
-              echo "### Learning Wall: Firebase permission setup required"
+              echo "### Exams and Learning Wall: Firebase permission setup required"
               echo "The website build passed, but public sharing and submissions require the current Firestore rules."
               echo "Student Word/Excel and other file submissions require the optional attachments policy in the updated rules; website deployment alone does not activate file uploads."
               echo "Publish firestore.rules in project gen-lang-client-0870957273, database ai-studio-51fdfd5e-caf8-4640-bdd8-404753ba685e, or configure FIREBASE_SERVICE_ACCOUNT_JSON."

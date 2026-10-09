@@ -1,10 +1,12 @@
 import { evaluateQuestion, type QuestionDefinition, type QuestionResponse } from './questionEngine';
+import { getSubmittedExamClassId } from './examStudentClasses';
 
 export interface ExamReceiptSettings {
   autoPrint: boolean;
   includeCorrectAnswers: boolean;
   schoolName: string;
   subject: string;
+  invigilatorName: string;
 }
 
 export const DEFAULT_EXAM_RECEIPT_SETTINGS: ExamReceiptSettings = {
@@ -12,6 +14,7 @@ export const DEFAULT_EXAM_RECEIPT_SETTINGS: ExamReceiptSettings = {
   includeCorrectAnswers: true,
   schoolName: '',
   subject: '',
+  invigilatorName: '',
 };
 
 export interface ReceiptQuestion {
@@ -32,6 +35,7 @@ export interface ReceiptExam {
   questions: ReceiptQuestion[];
   receiptSettings?: Partial<ExamReceiptSettings>;
   classNames?: Record<string, string>;
+  studentDirectory?: Record<string, { id: string; classId?: string }>;
   shuffledVersions?: { code: string; questions: ReceiptQuestion[] }[];
 }
 
@@ -53,6 +57,10 @@ export interface ReceiptResult {
 
 export function getExamReceiptSettings(exam: ReceiptExam): ExamReceiptSettings {
   return { ...DEFAULT_EXAM_RECEIPT_SETTINGS, ...exam.receiptSettings };
+}
+
+export function getReceiptStudentClassId(exam: Pick<ReceiptExam, 'classNames' | 'studentDirectory'>, student: Pick<ReceiptStudent, 'id' | 'classId'>, result?: Pick<ReceiptResult, 'answers'>): string | undefined {
+  return student.classId || Object.values(exam.studentDirectory || {}).find(entry => entry.id === student.id)?.classId || getSubmittedExamClassId(exam, result);
 }
 
 const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char =>
@@ -156,8 +164,7 @@ export function buildExamReceiptHtml(exam: ReceiptExam, student: ReceiptStudent,
     * { box-sizing: border-box; } body { margin: 0; color: #000; background: #fff; font: 14px 'Times New Roman', serif; line-height: 1.35; }
     .sheet { max-width: 180mm; margin: 0 auto; padding: 6mm 0; } .sample { text-align: right; font-weight: bold; }
     .heading { display: grid; grid-template-columns: 35% 65%; text-align: center; gap: 4px; } .heading p { margin: 2px 0; } .rule { display: inline-block; border-bottom: 1px solid; padding-bottom: 3px; }
-    h1 { font-size: 19px; text-align: center; margin: 12px 0; } .metadata { display: grid; grid-template-columns: 1fr 1fr 23mm; gap: 12px; margin-bottom: 18px; } .metadata p { margin: 0 0 5px; overflow-wrap: anywhere; }
-    .photo { border: 1px solid; height: 30mm; display: flex; align-items: center; justify-content: center; text-align: center; }
+    h1 { font-size: 19px; text-align: center; margin: 12px 0; } .metadata { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; } .metadata p { margin: 0 0 5px; overflow-wrap: anywhere; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 16px; table-layout: fixed; break-inside: avoid; } th, td { border: 1px solid; padding: 5px 3px; text-align: center; overflow-wrap: anywhere; }
     .answer-grid .row-title { width: 24mm; } .answer-grid th.row-title { font-size: 12px; } .answer-grid th, .answer-grid td { padding: 3px; } .answer-grid tbody td { height: 7mm; font-weight: bold; font-size: 18px; line-height: 1; } .option-label { width: 10mm; } small { display: inline; margin-left: 2px; font-weight: normal; font-size: 10px; }
     .answer-grid td.answer-key { font-size: 12px; } .answer-grid td.outcome { font-size: 11px; } .detail-table { break-inside: auto; } .detail-table th:first-child { width: 12mm; } .detail-table td { text-align: left; font-size: 12px; } .detail-table tr { break-inside: avoid; }
@@ -168,11 +175,11 @@ export function buildExamReceiptHtml(exam: ReceiptExam, student: ReceiptStudent,
   </style></head><body><main class="sheet"><div class="sample">Mẫu số 01</div>
   <div class="heading"><div><p>${escape(settings.schoolName || 'TRƯỜNG ………………………')}</p><p><b>HỘI ĐỒNG KIỂM TRA</b></p><span class="rule">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div><div><p><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b></p><p><b class="rule">Độc lập – Tự do – Hạnh phúc</b></p></div></div>
   <h1>BIÊN BẢN LÀM BÀI KIỂM TRA</h1>
-  <div class="metadata"><div><p>Họ và tên: <b>${escape(student.name)}</b></p><p>Lớp: ${escape(exam.classNames?.[student.classId || ''] || '……………………')}</p><p>Mã học sinh / SBD: ${escape(student.id)}</p><p>Môn: ${escape(settings.subject || '……………………')}</p></div><div><p>Kỳ thi: ${escape(exam.title)}</p><p>Mã đề: ${escape(result.examVersion || 'Gốc')}</p><p>Thời gian làm bài: ${exam.durationMinutes} phút</p><p>Bắt đầu: ${escape(date(startedAt))}</p><p>Kết thúc: ${escape(date(result.submittedAt))}</p></div><div class="photo"><span>Ảnh học sinh<br>(nếu có)</span></div></div>
+  <div class="metadata"><div><p>Họ và tên: <b>${escape(student.name)}</b></p><p>Lớp: ${escape(exam.classNames?.[getReceiptStudentClassId(exam, student, result) || ''] || 'Chưa được gán lớp')}</p><p>Mã học sinh / SBD: ${escape(student.id)}</p><p>Môn: ${escape(settings.subject || '……………………')}</p></div><div><p>Kỳ thi: ${escape(exam.title)}</p><p>Mã đề: ${escape(result.examVersion || 'Gốc')}</p><p>Thời gian làm bài: ${exam.durationMinutes} phút</p><p>Bắt đầu: ${escape(date(startedAt))}</p><p>Kết thúc: ${escape(date(result.submittedAt))}</p></div></div>
   ${tables}<p class="legend">Dấu ×: phương án học sinh đã chọn. Ô trống / dấu —: chưa trả lời. Câu đúng được tính theo cách chấm của kỳ thi.</p>
   <div class="summary"><span>Số câu đúng: ${result.score}/${result.totalQuestions}</span><span>Số câu chưa đúng: ${Math.max(0, result.totalQuestions - result.score)}</span><span>Điểm: ${grade.toLocaleString('vi-VN')} / 10</span></div>
   <p class="confirmation">Tôi xác nhận các câu trả lời trên là bài làm của tôi và đã nộp bài.</p>
-  <div class="signatures"><div><b>HỌC SINH</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div><b>${escape(student.name)}</b></div><div><b>GIÁO VIÊN / GIÁM THỊ</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div>………………………………</div></div>
+  <div class="signatures"><div><b>HỌC SINH</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div><b>${escape(student.name)}</b></div><div><b>GIÁO VIÊN / GIÁM THỊ</b><div><i>(Ký và ghi rõ họ tên)</i></div><div class="signature-space"></div>${settings.invigilatorName.trim() ? `<b>${escape(settings.invigilatorName.trim())}</b>` : '………………………………'}</div></div>
   <p class="record">Mã bài nộp: ${escape(result.id)} · Trạng thái: ĐÃ NỘP BÀI · Thời gian trên phiếu: giờ Việt Nam.</p></main></body></html>`;
 }
 
