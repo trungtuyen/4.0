@@ -61,7 +61,7 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   },
   {
     id: 'learning-wall',
-    name: 'Tường học tập',
+    name: 'Tường học tập AI',
     description: 'Chia sẻ sản phẩm học tập, nhận xét và tổ chức nội dung theo lớp học.',
     dependency: 'firebase',
     category: 'Quản lý',
