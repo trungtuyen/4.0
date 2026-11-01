@@ -22,7 +22,7 @@ type SchoolGroup = {
 };
 
 type CountResult = { value: number | null; error: string | null };
-type UsageCounts = { exams: CountResult; classes: CountResult };
+type UsageCounts = { exams: CountResult; classes: CountResult; results: CountResult };
 
 const panel='rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_45px_-32px_rgba(15,23,42,.25)] sm:p-6';
 const primary='inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700';
@@ -64,7 +64,7 @@ function exportReport(schools:SchoolGroup[]): void {
   URL.revokeObjectURL(url);
 }
 
-async function countOwnedDocuments(collectionName:'exams'|'classes',uidList:string[]):Promise<CountResult>{
+async function countOwnedDocuments(collectionName:'exams'|'classes'|'results',uidList:string[]):Promise<CountResult>{
   if(uidList.length===0)return {value:0,error:null};
   try {
     let total=0;
@@ -100,8 +100,8 @@ export default function SchoolAdministration({teachers,onAddTeacher,onEditTeache
     let live=true;
     setLoadingCounts(true);setCounts(null);
     const ids=[...new Set(selected.teachers.map(t=>t.id).filter(Boolean))];
-    void Promise.all([countOwnedDocuments('exams',ids),countOwnedDocuments('classes',ids)]).then(([exams,classes])=>{
-      if(live)setCounts({exams,classes});
+    void Promise.all([countOwnedDocuments('exams',ids),countOwnedDocuments('classes',ids),countOwnedDocuments('results',ids)]).then(([exams,classes,results])=>{
+      if(live)setCounts({exams,classes,results});
     }).finally(()=>{if(live)setLoadingCounts(false);});
     return()=>{live=false;};
   },[selected?.key,selected?.teachers,refresh]);
@@ -170,20 +170,21 @@ export default function SchoolAdministration({teachers,onAddTeacher,onEditTeache
               <button type="button" onClick={()=>onAddTeacher(selected.name)} className={primary}><Plus size={15}/> Thêm giáo viên</button>
             </div>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="rounded-2xl bg-indigo-50 p-4"><p className="text-xs font-semibold text-indigo-700">Giáo viên</p><p className="mt-1 text-2xl font-black text-indigo-900">{selected.teachers.length}</p></div>
             <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-semibold text-emerald-700">Tài khoản được kích hoạt</p><p className="mt-1 text-2xl font-black text-emerald-900">{selected.active}</p></div>
             <div className="rounded-2xl bg-sky-50 p-4"><p className="text-xs font-semibold text-sky-700">Số kỳ thi đã tạo</p><p className="mt-1 text-2xl font-black text-sky-900">{loadingCounts?'…':counts?.exams.value??'—'}</p>{counts?.exams.error&&<p className="mt-1 text-xs text-rose-700">Chưa có quyền đọc số liệu</p>}</div>
             <div className="rounded-2xl bg-violet-50 p-4"><p className="text-xs font-semibold text-violet-700">Số lớp dữ liệu</p><p className="mt-1 text-2xl font-black text-violet-900">{loadingCounts?'…':counts?.classes.value??'—'}</p>{counts?.classes.error&&<p className="mt-1 text-xs text-rose-700">Chưa có quyền đọc số liệu</p>}</div>
+            <div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs font-semibold text-amber-700">Kết quả bài thi đã ghi</p><p className="mt-1 text-2xl font-black text-amber-900">{loadingCounts?'…':counts?.results.value??'—'}</p>{counts?.results.error&&<p className="mt-1 text-xs text-rose-700">Chưa có quyền đọc số liệu</p>}</div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
             <div><p className="font-bold text-slate-800">Kết quả KPI trường học</p><p className="mt-1 text-xs text-slate-500">Mở EduKPI AI để xem báo cáo và kết quả theo quyền của tài khoản đó.</p></div>
             <a href={EDUKPI_APPLICATION_URL} target="_blank" rel="noopener noreferrer" className={secondary}><BarChart3 size={16}/> Mở EduKPI AI <ExternalLink size={14}/></a>
           </div>
           <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-slate-500"><ShieldCheck size={16} className="shrink-0 text-indigo-600"/>
-            Số kỳ thi và lớp được đếm trực tiếp từ Firebase theo tài khoản giáo viên của trường; không đọc đề thi, đáp án hay bài làm. Chưa có số liệu điểm thi hoặc hoạt động đăng nhập gần đây nên hệ thống không suy đoán các chỉ số đó.
+            Số kỳ thi, lớp và bản ghi kết quả được đếm trực tiếp từ Firebase theo tài khoản giáo viên của trường; không tải đề thi, đáp án hay bài làm. Chưa có chỉ số điểm trung bình hoặc lượt đăng nhập gần đây nên hệ thống không suy đoán các chỉ số đó.
           </p>
-          <button type="button" onClick={()=>setRefresh(n=>n+1)} className="mt-3 text-xs font-semibold text-indigo-700 hover:underline">Làm mới số kỳ thi và lớp học</button>
+          <button type="button" onClick={()=>setRefresh(n=>n+1)} className="mt-3 text-xs font-semibold text-indigo-700 hover:underline">Làm mới thống kê hoạt động</button>
         </section>
 
         <section className={panel}>
@@ -200,7 +201,7 @@ export default function SchoolAdministration({teachers,onAddTeacher,onEditTeache
             </tr>)}</tbody></table></div>
         </section>
       </>}
-      <p className="text-xs leading-5 text-slate-500">Phạm vi giám sát hiện tại: hồ sơ giáo viên và số lượng kỳ thi/lớp đã tạo. Tên trường được lấy từ trường “Đơn vị công tác”; hãy chuẩn hóa tên trường nếu có nhiều cách viết. Đây không phải dữ liệu điểm đánh giá xếp loại hoặc lượt đăng nhập thực tế.</p>
+      <p className="text-xs leading-5 text-slate-500">Phạm vi giám sát hiện tại: hồ sơ giáo viên và số lượng kỳ thi, lớp, kết quả thi đã ghi. Tên trường được lấy từ trường “Đơn vị công tác”; hãy chuẩn hóa tên trường nếu có nhiều cách viết. Đây không phải dữ liệu điểm đánh giá xếp loại hoặc lượt đăng nhập thực tế.</p>
     </div>
   </div>;
 }
