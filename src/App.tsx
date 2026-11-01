@@ -1,10 +1,10 @@
 import React, { lazy, useState, useEffect, useRef } from 'react';
-import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, ListChecks, type LucideIcon } from 'lucide-react';
+import { BookOpen, MonitorPlay, Users, Zap, CheckCircle2, ArrowRight, X, User, Lock, Eye, EyeOff, Plus, Trash2, Key, LogOut, Search, Edit2, MoreVertical, ShieldCheck, Gamepad2, Library, Layers, Layout, Smile, Brain, FileEdit, Sparkles, ArrowLeft, MessageSquare, Gift, Target, QrCode, ClipboardCheck, FileSpreadsheet, FileText, ListChecks, BarChart3, type LucideIcon } from 'lucide-react';
 import { Teacher } from './types';
 import { collection, onSnapshot, doc, setDoc, getDocFromServer } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithCredential, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from './firebase';
-import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, type EcosystemApplicationId } from './ecosystem';
+import { ECOSYSTEM_APPLICATIONS, ECOSYSTEM_DEPENDENCY_LABELS, EDUKPI_APPLICATION_URL, type EcosystemApplicationId } from './ecosystem';
 import PlatformFooter, { publishPlatformRegistrationMetrics } from './components/PlatformFooter';
 import { isAdministratorAlias, readRememberedAdministratorEmail, rememberVerifiedAdministratorEmail, resolveAdministratorLoginEmail } from './lib/adminAuth';
 import { createPlickerLaunchPath, readRequestedApplication, selectApplicationManifest } from './lib/plickerPwa';
@@ -37,6 +37,7 @@ const PRODUCT_ICONS: Record<EcosystemApplicationId, LucideIcon> = {
   'head-shake-game': Smile,
   chatbot: Brain,
   'exam-manager': ClipboardCheck,
+  'kpi-manager': BarChart3,
   'secret-box': Gift,
   'drag-drop-game': Gamepad2,
   'excel-merger': FileSpreadsheet,
@@ -333,6 +334,10 @@ export default function App() {
   };
 
   const launchApplication = (applicationId: EcosystemApplicationId) => {
+    if (applicationId === 'kpi-manager') {
+      window.location.assign(EDUKPI_APPLICATION_URL);
+      return;
+    }
     if (applicationId === 'plicker') {
       selectApplicationManifest('plicker', import.meta.env.BASE_URL);
       window.history.replaceState(window.history.state, '', createPlickerLaunchPath(import.meta.env.BASE_URL));
