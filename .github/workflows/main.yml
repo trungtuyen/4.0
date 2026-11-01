@@ -120,9 +120,18 @@ jobs:
       - name: Deploy named-database Firestore rules when credentials are available
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          ENABLE_FIRESTORE_RULES_DEPLOY: ${{ vars.ENABLE_FIRESTORE_RULES_DEPLOY }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/smartclass-firebase-service-account.json
         shell: bash
         run: |
+          # This site shares its named Firestore database with EduKPI.
+          # Never overwrite the consolidated KPI rules from this older rules snapshot
+          # unless an administrator has explicitly reviewed and opted in.
+          if [[ "${ENABLE_FIRESTORE_RULES_DEPLOY:-false}" != "true" ]]; then
+            echo "::notice::Skipped Firestore rules deployment; preserving the shared EduKPI rules."
+            echo "Firestore deployment intentionally disabled. Build and GitHub Pages deployment continue normally." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [[ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]]; then
             echo "::warning::Firestore rules were not published. Student exam login, public exam notices and student file uploads need the updated rules. Configure FIREBASE_SERVICE_ACCOUNT_JSON or publish firestore.rules in Firebase Console."
             {
