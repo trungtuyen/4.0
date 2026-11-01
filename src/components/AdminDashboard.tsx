@@ -28,6 +28,7 @@ const ExcelMerger = lazy(() => import('./ExcelMerger'));
 const PdfMerger = lazy(() => import('./PdfMerger'));
 const GestureClass = lazy(() => import('./GestureClass'));
 const LearningWall = lazy(() => import('./LearningWall'));
+const SchoolAdministration = lazy(() => import('./SchoolAdministration'));
 
 interface CameraCaptureProps {
   onCapture: (imageSrc: string) => void;
@@ -154,7 +155,7 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const currentUserId = accessScope.ownerUid;
   const currentUserName = currentUser === 'admin' ? 'Admin' : currentUser?.name;
   const studentsStorageKey = createTeacherStorageKey('students', accessScope.ownerUid);
-  const [activeTab, setActiveTab] = useState<'teachers' | 'library'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
+  const [activeTab, setActiveTab] = useState<'teachers' | 'library' | 'schools'>(initialApplication === 'plicker' || currentUser !== 'admin' ? 'library' : 'teachers');
   const [activeLibraryView, setActiveLibraryView] = useState<'main' | 'gesture-class' | 'learning-wall' | 'lucky-draw' | 'lucky-draw-cards' | 'plicker' | 'head-shake-game' | 'chatbot' | 'create-exam' | 'secret-box' | 'drag-drop-game' | 'excel-merger' | 'pdf-merger'>(initialApplication === 'plicker' ? 'plicker' : 'main');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -649,7 +650,8 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
   const filteredTeachers = sortedTeachers.filter(t => 
     t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     t.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.username.toLowerCase().includes(searchTerm.toLowerCase())
+    t.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (t.school||'').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -690,6 +692,12 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               >
                 <Users className="w-5 h-5" />
                 <span className="font-medium">Quản lý giáo viên</span>
+              </button>
+            )}
+            {currentUser === 'admin' && (
+              <button type="button" onClick={()=>setActiveTab('schools')}
+                className={'flex w-full items-center gap-3 rounded-xl px-4 py-3 transition-colors '+(activeTab==='schools'?'bg-indigo-600 text-white':'text-slate-400 hover:bg-slate-800 hover:text-white')}>
+                <Globe className="h-5 w-5"/><span className="font-medium">Quản trị trường</span>
               </button>
             )}
             <button 
@@ -853,6 +861,20 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
               </div>
             </div>
           </>
+        ) : activeTab === 'schools' && currentUser === 'admin' ? (
+          <SchoolAdministration
+            teachers={teachers}
+            onAddTeacher={(school) => {
+              setNewTeacher(prev=>({...prev,school}));
+              setTeacherAccountError('');
+              setIsAddModalOpen(true);
+            }}
+            onEditTeacher={openEditModal}
+            onManageTeachers={(school) => {
+              setSearchTerm(school);
+              setActiveTab('teachers');
+            }}
+          />
         ) : activeLibraryView === 'main' ? (
           <>
             <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 md:py-5 flex items-center justify-between">
@@ -1632,6 +1654,11 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
             >
               <Users className="w-6 h-6" />
               <span className="text-[10px] font-medium">Giáo viên</span>
+            </button>
+          )}
+          {currentUser === 'admin' && (
+            <button type="button" onClick={()=>setActiveTab('schools')} className={'flex flex-col items-center gap-1 p-2 transition-colors '+(activeTab==='schools'?'text-indigo-600':'text-slate-400')}>
+              <Globe className="h-6 w-6"/><span className="text-[10px] font-medium">Trường</span>
             </button>
           )}
           <button 
