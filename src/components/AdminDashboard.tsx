@@ -1,10 +1,10 @@
 import React, { lazy, useState, useRef, useEffect, useMemo } from 'react';
-import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText, Eye, EyeOff } from 'lucide-react';
+import { Users, Plus, Trash2, Key, LogOut, Search, Edit2, ShieldCheck, BookOpen, CheckCircle, Lock, Unlock, Library, Gift, Target, QrCode, Camera, X, LayoutDashboard, FolderPlus, UserPlus, Star, ArrowLeft, MoreVertical, Clock, Bookmark, Globe, Filter, MessageCircle, CheckSquare, ChevronUp, ChevronDown, Settings, ClipboardCheck, BarChart3, MonitorPlay, MessageSquare, Hand, FileSpreadsheet, FileText, Eye, EyeOff } from 'lucide-react';
 import { Teacher } from '../types';
 import { doc, setDoc, deleteDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, arrayUnion, where } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { ECOSYSTEM_APPLICATIONS } from '../ecosystem';
+import { ECOSYSTEM_APPLICATIONS, EDUKPI_APPLICATION_URL } from '../ecosystem';
 import { describeTeacherAccountError, MINIMUM_TEACHER_PASSWORD_LENGTH, provisionTeacherAccount, validateTeacherCredentials } from '../lib/teacherAccounts';
 import { assignPlickerCardIds, filterPlickerStudentsByClasses, removePlickerStudent, renamePlickerStudent } from '../lib/plickerStudents';
 import { isPlickerSystemCategory, mergePlickerCloudRosters, type PlickerLiveQuestionSet } from '../lib/plickerLive';
@@ -951,6 +951,21 @@ export default function AdminDashboard({ onLogout, teachers, setTeachers, curren
                   <h3 className="text-sm md:text-lg font-bold text-slate-800 mb-1 md:mb-2">Tạo kì thi</h3>
                   <p className="text-slate-500 text-[10px] md:text-sm line-clamp-2">Công cụ tạo và quản lý các kì thi, bài kiểm tra trực tuyến.</p>
                 </div>
+
+                <a
+                  href={EDUKPI_APPLICATION_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Mở EduKPI AI: quản lý KPI giáo viên"
+                  className="group block rounded-2xl border border-indigo-200 bg-white p-3 text-left shadow-sm transition-all hover:border-indigo-400 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 md:p-6"
+                >
+                  <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 transition-transform group-hover:scale-110 md:mb-4 md:h-12 md:w-12">
+                    <BarChart3 className="h-5 w-5 md:h-6 md:w-6" />
+                  </div>
+                  <h3 className="mb-1 text-sm font-bold text-slate-800 md:mb-2 md:text-lg">EduKPI AI</h3>
+                  <p className="line-clamp-2 text-[10px] text-slate-500 md:text-sm">Đánh giá KPI theo tháng, quý, năm. Tổng hợp cấp trường, tổ và giáo viên.</p>
+                  <span className="mt-3 inline-flex text-[10px] font-semibold text-indigo-600 md:text-xs">Mở phần mềm KPI ↗</span>
+                </a>
 
                 <div 
                   onClick={() => setActiveLibraryView('secret-box')}
