@@ -212,6 +212,8 @@ export default function ProductTrialController() {
       if (signedIn) return;
       const applicationId = findProductId(event.target);
       if (!applicationId) return;
+      // EduKPI is hosted in a separate authenticated workspace; it is not a local trial.
+      if (applicationId === 'kpi-manager') return;
 
       if (applicationId === 'exam-manager') {
         event.preventDefault();
