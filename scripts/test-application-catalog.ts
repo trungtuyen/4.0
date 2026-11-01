@@ -24,15 +24,16 @@ const expectedIds = [
   'head-shake-game',
   'chatbot',
   'exam-manager',
+  'kpi-manager',
   'secret-box',
   'drag-drop-game',
   'excel-merger',
   'pdf-merger',
 ];
 
-equal(ECOSYSTEM_APPLICATIONS.length, 13, 'The ecosystem displays exactly thirteen applications.');
+equal(ECOSYSTEM_APPLICATIONS.length, 14, 'The ecosystem displays exactly fourteen applications.');
 equal(ECOSYSTEM_APPLICATIONS.map(application => application.id), expectedIds, 'The supported applications remain available in their expected order.');
-equal(new Set(ECOSYSTEM_APPLICATIONS.map(application => application.id)).size, 13, 'Application identifiers remain unique.');
+equal(new Set(ECOSYSTEM_APPLICATIONS.map(application => application.id)).size, 14, 'Application identifiers remain unique.');
 verify(ECOSYSTEM_APPLICATIONS.every(application => application.name !== 'GestureCore Edu'), 'The removed application cannot appear in the public catalog.');
 
 const application = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -73,14 +74,17 @@ verify(questionStudioApp.includes('<QuestionStudio />'), 'The standalone applica
 verify(questionStudio.includes('onAuthStateChanged'), 'Question Studio follows the authenticated teacher after a library-page reload.');
 verify(questionStudio.includes('question_studio_v1:'), 'Question Studio keeps browser data namespaced per account.');
 verify(footer.includes("onOpenProduct('gesture-class')"), 'The footer promotes the supported GestureClass application.');
-verify(readme.includes('Danh mục 13 ứng dụng'), 'Project documentation reports thirteen available applications.');
+verify(readme.includes('Danh mục 14 ứng dụng'), 'Project documentation reports thirteen available applications.');
 verify(!readme.includes('GestureCore Edu'), 'Project documentation does not advertise the removed application.');
-verify(serviceWorker.includes('${CACHE_PREFIX}v23'), 'Existing installations refresh the Plicker camera-stability assets.');
+verify(serviceWorker.includes('${CACHE_PREFIX}v24'), 'Existing installations refresh the Plicker camera-stability assets.');
 verify(!existsSync(new URL('../src/components/GestureCoreEdu.tsx', import.meta.url)), 'The removed application source is no longer distributed.');
 verify(!packageManifest.scripts['test:gesture'], 'Package scripts no longer point to deleted GestureCore-only tests.');
 verify(packageManifest.scripts['test:catalog'] === 'node --import tsx scripts/test-application-catalog.ts', 'The application catalog has a dedicated regression suite.');
 verify(ECOSYSTEM_APPLICATIONS.some(application => application.name === 'Trắc nghiệm 10 dạng'), 'The standalone Question Studio application is registered.');
 verify(ECOSYSTEM_APPLICATIONS.some(application => application.name === 'Tách, gộp file PDF'), 'The existing PDF split-and-merge tool remains available.');
 verify(ECOSYSTEM_APPLICATIONS.some(application => application.name === 'Tương tác thẻ Plicker'), 'Plicker remains available.');
+verify(ECOSYSTEM_APPLICATIONS.some(application => application.name === 'EduKPI AI'), 'EduKPI is registered as app 14.');
+verify(dashboard.includes('href={EDUKPI_APPLICATION_URL}'), 'Teacher library has a direct EduKPI link.');
+verify(application.includes("applicationId === 'kpi-manager'"), 'Public landing opens the hosted EduKPI workspace.');
 
-console.info(`Thirteen-application catalog with fast bootstrap: ${checks} checks passed.`);
+console.info(`Fourteen-application catalog with fast bootstrap: ${checks} checks passed.`);
