@@ -10,6 +10,7 @@ export type EcosystemApplicationId =
   | 'head-shake-game'
   | 'chatbot'
   | 'exam-manager'
+  | 'kpi-manager'
   | 'secret-box'
   | 'drag-drop-game'
   | 'excel-merger'
@@ -22,6 +23,8 @@ export interface EcosystemApplication {
   dependency: EcosystemDependency;
   category: 'Cử chỉ' | 'Trò chơi' | 'Đánh giá' | 'Quản lý' | 'Công cụ' | 'AI giáo dục';
 }
+
+export const EDUKPI_APPLICATION_URL = 'https://thiebithocsovn.github.io/hesinhthai4.0/?app=kpi-manager';
 
 export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
   {
@@ -86,6 +89,13 @@ export const ECOSYSTEM_APPLICATIONS: EcosystemApplication[] = [
     description: 'Tạo đề, quản lý lớp, tổ chức thi, theo dõi bài làm và tổng hợp kết quả.',
     dependency: 'firebase',
     category: 'Đánh giá',
+  },
+  {
+    id: 'kpi-manager',
+    name: 'EduKPI AI',
+    description: 'Đánh giá KPI giáo viên theo tháng, quý, năm; tổng hợp cấp trường, tổ chuyên môn và cá nhân.',
+    dependency: 'firebase',
+    category: 'Quản lý',
   },
   {
     id: 'secret-box',
