@@ -8,7 +8,7 @@ Nền tảng trò chơi và công cụ giáo dục tương tác dành cho giáo 
 
 Website: <https://trungtuyen.github.io/4.0/>
 
-## Danh mục 13 ứng dụng
+## Danh mục 14 ứng dụng
 
 | Ứng dụng | Mục đích | Điều kiện hoạt động |
 | --- | --- | --- |
@@ -21,6 +21,7 @@ Website: <https://trungtuyen.github.io/4.0/>
 | Lắc đầu chọn đáp án | Trả lời câu hỏi bằng chuyển động đầu | Trình duyệt, camera; tự tạo câu hỏi ngay trên GitHub Pages |
 | Tư vấn học đường AI | Hỗ trợ phân tích và trao đổi về tình huống học đường | Google Gemini qua Firebase AI Logic; có dự phòng trên thiết bị |
 | Quản lý kỳ thi | Tạo đề, tổ chức thi và tổng hợp kết quả | Firebase; chấm phiếu OMR cần máy chủ AI |
+| **EduKPI AI** | Chấm KPI giáo viên, tổng hợp cấp trường – tổ – cá nhân theo tháng, quý, năm | Liên kết EduKPI tại `thiebithocsovn.github.io/hesinhthai4.0/?app=kpi-manager`; Firebase |
 | Mở ô bí mật | Tổ chức trò chơi câu hỏi hoặc phần thưởng | Trình duyệt |
 | Kéo thả đúng chỗ | Tạo bài tập kéo thả đáp án | Trình duyệt |
 | Gộp tệp Excel | Ghép dữ liệu từ nhiều bảng tính | Trình duyệt |
