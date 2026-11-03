@@ -31,6 +31,7 @@ const usePersistentFirestoreCache =
   import.meta.env.VITE_FIRESTORE_CACHE_MODE === 'persistent';
 
 export const db = initializeFirestore(app, {
+  ignoreUndefinedProperties: true,
   localCache: usePersistentFirestoreCache
     ? persistentLocalCache({
       cacheSizeBytes: 64 * 1024 * 1024,

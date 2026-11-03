@@ -85,6 +85,10 @@
     }
   }
 
+  function idleCamera() {
+    return { stream: null, detector: null, active: false, detecting: false, stableGesture: null, stableSince: 0, pendingGesture: null, pendingFrames: 0, lockedGesture: null, answerLocked: false, raf: null, modelMessage: "Camera chưa bật" };
+  }
+
   const state = {
     data: loadData(),
     view: "dashboard",
@@ -93,7 +97,7 @@
     modal: null,
     drawerOpen: false,
     game: { questionIds: [], index: 0, selected: null, revealed: false, correct: 0, score: 0, finished: false, classId: "class-8a" },
-    camera: { stream: null, detector: null, active: false, detecting: false, lastGesture: null, stableGesture: null, stableFrames: 0, lastSelectionAt: 0, raf: null, modelMessage: "Camera chưa bật" },
+    camera: idleCamera(),
     flashcard: { index: 0, revealed: false }
   };
 
@@ -226,9 +230,9 @@
     const stage = state.game.finished ? resultMarkup() : `<div class="stage-content"><div class="game-kicker"><span>${esc(question.subject)} · ${esc(classItem?.name || "Lớp minh hoạ")}</span><span>Câu ${state.game.index + 1}/${total}</span></div><div class="progress-track"><div class="progress-value" style="width:${((state.game.index + 1) / total) * 100}%"></div></div><div class="question-block"><h2>${esc(question.text)}</h2><p>Giơ số ngón tay tương ứng hoặc chọn bằng chuột / bàn phím.</p></div><div class="answer-grid">${question.options.map((answer, index) => `<button class="answer-card ${answerClass(index, question)}" data-action="choose-answer" data-index="${index}"><span class="answer-number">${index + 1}</span><span class="answer-copy">${esc(answer)}</span></button>`).join("")}</div><div class="stage-footer"><div class="keyboard-hint">Phím tắt <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd> · <kbd>Enter</kbd> câu tiếp</div>${state.game.revealed ? `<button class="button" data-action="next-question">${state.game.index === total - 1 ? "Xem kết quả" : "Câu tiếp theo"} ${icon("chevron", 13)}</button>` : `<button class="button secondary" data-action="reveal-answer" ${state.game.selected === null ? "disabled" : ""}>${icon("check", 13)} Chốt đáp án</button>`}</div></div>`;
     return `${heading("Trải nghiệm trực tiếp", "Phòng chơi cử chỉ", "Camera xử lý ngay trên thiết bị. Có sẵn nút bấm và phím 1–4 để trải nghiệm không cần camera.", `<button class="button secondary presentation-button" data-action="fullscreen" aria-label="Mở chế độ trình chiếu toàn màn hình">${icon("fullscreen", 16)} Trình chiếu</button>`)}
       <section class="play-layout"><article class="panel play-stage"><div class="play-stage-header"><div class="play-stage-title"><span class="live-indicator"></span>Phiên chơi đang hoạt động</div><div class="play-stage-actions"><button class="button ghost small fullscreen-exit" data-action="fullscreen">${icon("fullscreen", 14)} Thoát trình chiếu</button><button class="button ghost small" data-action="restart-game">${icon("shuffle", 13)} Chơi lại</button></div></div>${stage}</article>
-      <aside class="play-sidebar"><article class="panel camera-card"><div class="camera-header"><div class="camera-title">${icon("camera", 15)} Nhận diện bàn tay</div><span class="tag ${state.camera.active ? "green" : ""}">${state.camera.active ? "Đang bật" : "Chưa bật"}</span></div><div class="camera-frame"><video id="camera-video" autoplay playsinline muted></video><canvas id="camera-canvas"></canvas><div class="camera-placeholder" id="camera-placeholder" style="${state.camera.active ? "display:none" : ""}">${icon("camera", 32)}<span>Bật camera và giơ 1–4 ngón tay trước màn hình.</span></div><span class="camera-badge">Xử lý trên thiết bị</span></div><div class="camera-bottom"><button class="button ${state.camera.active ? "secondary" : ""}" data-action="toggle-camera">${icon("camera", 14)} ${state.camera.active ? "Tắt camera" : "Bật camera nhận diện"}</button><div class="gesture-result"><span>Cử chỉ nhận được</span><strong id="gesture-label">${esc(state.camera.modelMessage)}</strong></div><div class="gesture-controls">${[1, 2, 3, 4].map((number) => `<button class="gesture-button" data-action="simulate-gesture" data-index="${number - 1}"><strong>${["☝️", "✌️", "🤟", "🖖"][number - 1]}</strong><span>${number} ngón</span></button>`).join("")}</div></div></article>
+      <aside class="play-sidebar"><article class="panel camera-card"><div class="camera-header"><div class="camera-title">${icon("camera", 15)} Nhận diện bàn tay</div><span class="tag ${state.camera.active ? "green" : ""}">${state.camera.active ? "Đang bật" : "Chưa bật"}</span></div><div class="camera-frame"><video id="camera-video" autoplay playsinline muted></video><canvas id="camera-canvas"></canvas><div class="camera-placeholder" id="camera-placeholder" style="${state.camera.active ? "display:none" : ""}">${icon("camera", 32)}<span>Bật camera và giơ 1–4 ngón tay trước màn hình.</span></div><span class="camera-badge">Xử lý trên thiết bị</span></div><div class="camera-bottom"><button class="button ${state.camera.active ? "secondary" : ""}" data-action="toggle-camera">${icon("camera", 14)} ${state.camera.active ? "Tắt camera" : "Bật camera nhận diện"}</button><div class="gesture-result"><span>Cử chỉ nhận được</span><strong id="gesture-label">${esc(state.camera.modelMessage)}</strong></div><div class="gesture-controls">${[1, 2, 3, 4].map((number) => `<button class="gesture-button" data-action="simulate-gesture" data-index="${number - 1}"><strong>${number}</strong><span>${["Ngón trỏ", "Trỏ, giữa", "Thêm áp út", "Thêm út"][number - 1]}</span></button>`).join("")}</div></div></article>
       <article class="panel score-card"><div class="panel-title">Kết quả hiện tại</div><div class="score-row"><div class="score-stat"><strong>${state.game.score}</strong><span>Điểm số</span></div><div class="score-stat"><strong>${state.game.correct}/${state.game.questionIds.length}</strong><span>Trả lời đúng</span></div><div class="score-stat"><strong>${state.game.index + (state.game.revealed ? 1 : 0)}</strong><span>Đã trả lời</span></div></div></article>
-      <article class="panel instructions-card"><div class="panel-title">Cách chơi bằng cử chỉ</div><ol class="instructions"><li><span class="instruction-step">1</span>Cho phép camera; để bàn tay rõ, đủ sáng trong khung hình.</li><li><span class="instruction-step">2</span>Giơ 1, 2, 3 hoặc 4 ngón tay tương ứng đáp án.</li><li><span class="instruction-step">3</span>Giữ cử chỉ ổn định; đáp án sẽ được chọn và chấm tự động.</li><li><span class="instruction-step">4</span>Nếu chưa bật camera, hãy bấm nút cử chỉ hoặc dùng phím số.</li></ol></article></aside></section>`;
+      <article class="panel instructions-card"><div class="panel-title">Cách chơi bằng cử chỉ</div><ol class="instructions"><li><span class="instruction-step">1</span>Cho phép camera; để bàn tay rõ, đủ sáng trong khung hình.</li><li><span class="instruction-step">2</span>Giơ ngón trỏ (1), thêm ngón giữa (2), áp út (3), út (4). Ngón cái không được tính — hãy gập vào lòng bàn tay.</li><li><span class="instruction-step">3</span>Giữ yên khoảng nửa giây; đáp án được chọn và chấm tự động. Sang câu mới, hạ tay rồi giơ lại.</li><li><span class="instruction-step">4</span>Nếu chưa bật camera, hãy bấm nút cử chỉ hoặc dùng phím số.</li></ol></article></aside></section>`;
   }
 
   function answerClass(index, question) {
@@ -263,8 +267,15 @@
     if (shouldRender) render({ preserveCamera: true });
   }
 
+  // Whatever the hand shows when a question appears must change before it can answer.
+  function requireFreshGesture() {
+    state.camera.answerLocked = true;
+    state.camera.lockedGesture = state.camera.stableGesture;
+  }
+
   function nextQuestion() {
     if (!state.game.revealed) return;
+    requireFreshGesture();
     if (state.game.index >= state.game.questionIds.length - 1) {
       state.game.finished = true;
       const classItem = state.data.classes.find((item) => item.id === state.game.classId);
@@ -513,7 +524,7 @@
     if (state.camera.raf) cancelAnimationFrame(state.camera.raf);
     state.camera.stream?.getTracks().forEach((track) => track.stop());
     state.camera.detector?.close?.();
-    state.camera = { stream: null, detector: null, active: false, detecting: false, lastGesture: null, stableGesture: null, stableFrames: 0, lastSelectionAt: 0, raf: null, modelMessage: "Camera chưa bật" };
+    state.camera = idleCamera();
   }
 
   function updateGestureLabel(value) {
@@ -522,12 +533,37 @@
     if (label) label.textContent = value;
   }
 
-  function countExtendedFingers(landmarks) {
+  // Fingers are judged in the hand's own frame: "up" runs from the wrist to the
+  // middle knuckle, so tilted, sideways or downward hands and the mirrored selfie
+  // camera all count the same way. Only the index, middle, ring and little fingers
+  // are counted: a relaxed thumb beside a raised index finger must not turn answer 1
+  // into answer 2.
+  const FINGER_JOINTS = [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
+  const FINGER_REACH_MIN = 0.6; // fingertip reach along the palm, as a share of the finger's length
+  const OPEN_THUMB_REACH_MIN = 0.55; // thumb tip distance from the index knuckle, in palm lengths
+
+  function countExtendedFingers(landmarks, aspectRatio = 1) {
+    // Normalised x and y use different pixel scales; restore the frame's proportions first.
+    const point = (index) => [landmarks[index].x * aspectRatio, landmarks[index].y];
+    const minus = (a, b) => [a[0] - b[0], a[1] - b[1]];
+    const length = (vector) => Math.hypot(vector[0], vector[1]);
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+    const palm = minus(point(9), point(0));
+    const palmLength = length(palm);
+    if (!palmLength) return 0;
+    const up = [palm[0] / palmLength, palm[1] / palmLength];
     let count = 0;
-    for (const [tip, pip] of [[8, 6], [12, 10], [16, 14], [20, 18]]) if (landmarks[tip].y < landmarks[pip].y - .025) count += 1;
-    const thumbDistance = Math.hypot(landmarks[4].x - landmarks[17].x, landmarks[4].y - landmarks[17].y);
-    const palmWidth = Math.hypot(landmarks[5].x - landmarks[17].x, landmarks[5].y - landmarks[17].y);
-    if (thumbDistance > palmWidth * 1.2 && Math.abs(landmarks[4].x - landmarks[3].x) > .035) count += 1;
+    for (const [base, middle, upper, tip] of FINGER_JOINTS) {
+      const fingerLength = length(minus(point(middle), point(base))) + length(minus(point(upper), point(middle))) + length(minus(point(tip), point(upper)));
+      if (fingerLength && dot(minus(point(tip), point(base)), up) / fingerLength > FINGER_REACH_MIN) count += 1;
+    }
+    // Four fingers with the thumb spread out past the index knuckle is an open hand (5), not answer 4.
+    if (count === 4) {
+      const side = minus(point(5), point(17));
+      const across = minus(side, [up[0] * dot(side, up), up[1] * dot(side, up)]);
+      const thumb = minus(point(4), point(5));
+      if (length(thumb) / palmLength > OPEN_THUMB_REACH_MIN && dot(thumb, across) > 0) return 5;
+    }
     return count;
   }
 
@@ -544,25 +580,49 @@
     for (const landmark of landmarks) { context.beginPath(); context.fillStyle = "#52e0ae"; context.arc(landmark.x * canvas.width, landmark.y * canvas.height, 4, 0, 2 * Math.PI); context.fill(); }
   }
 
+  const GESTURE_CHANGE_FRAMES = 3; // ignore one- or two-frame flickers between counts
+  const GESTURE_HOLD_MS = 600; // a count must stay steady this long before it answers
+
+  // Smooths raw per-frame counts (null = no hand) into a steady gesture.
+  function trackGesture(reading, now) {
+    const camera = state.camera;
+    if (reading === camera.stableGesture) {
+      camera.pendingFrames = 0;
+    } else if (reading === camera.pendingGesture && camera.pendingFrames + 1 >= GESTURE_CHANGE_FRAMES) {
+      camera.stableGesture = reading;
+      camera.stableSince = now;
+      camera.pendingFrames = 0;
+    } else {
+      camera.pendingFrames = reading === camera.pendingGesture ? camera.pendingFrames + 1 : 1;
+      camera.pendingGesture = reading;
+    }
+    // A gesture held when the question appeared must change (e.g. hand lowered) before it can answer.
+    if (camera.answerLocked && camera.stableGesture !== camera.lockedGesture) camera.answerLocked = false;
+    return camera.stableGesture;
+  }
+
+  function gestureMessage(gesture) {
+    if (gesture === null) return "Đưa bàn tay vào khung hình";
+    if (gesture === 0) return "Nắm tay — hãy giơ 1–4 ngón";
+    if (gesture === 5) return "Bàn tay đang xòe — gập ngón cái để chọn 4";
+    if (state.camera.answerLocked && !state.game.revealed) return `${gesture} ngón · hạ tay rồi giơ lại để chọn`;
+    return `${gesture} ngón tay → đáp án ${gesture}`;
+  }
+
   function scanHands() {
     if (!state.camera.active || !state.camera.detector || state.view !== "play") return;
     const video = document.querySelector("#camera-video");
     const canvas = document.querySelector("#camera-canvas");
     if (video?.readyState >= 2) {
       try {
-        const result = state.camera.detector.detectForVideo(video, performance.now());
+        const now = performance.now();
+        const result = state.camera.detector.detectForVideo(video, now);
         const landmarks = result.landmarks?.[0];
         drawLandmarks(canvas, video, landmarks);
-        if (landmarks) {
-          const fingers = countExtendedFingers(landmarks);
-          updateGestureLabel(fingers >= 1 && fingers <= 4 ? `${fingers} ngón tay → đáp án ${fingers}` : fingers === 0 ? "Nắm tay — hãy giơ 1–4 ngón" : "Hãy giơ từ 1 đến 4 ngón");
-          if (fingers === state.camera.stableGesture) state.camera.stableFrames += 1;
-          else { state.camera.stableGesture = fingers; state.camera.stableFrames = 1; }
-          if (fingers >= 1 && fingers <= 4 && state.camera.stableFrames >= 7 && performance.now() - state.camera.lastSelectionAt > 1800 && !state.game.revealed) {
-            state.camera.lastSelectionAt = performance.now();
-            chooseAnswer(fingers - 1, true);
-          }
-        } else { state.camera.stableFrames = 0; updateGestureLabel("Đưa bàn tay vào khung hình"); }
+        const reading = landmarks ? countExtendedFingers(landmarks, (video.videoWidth || 640) / (video.videoHeight || 480)) : null;
+        const gesture = trackGesture(reading, now);
+        updateGestureLabel(gestureMessage(gesture));
+        if (gesture >= 1 && gesture <= 4 && !state.camera.answerLocked && now - state.camera.stableSince >= GESTURE_HOLD_MS && !state.game.revealed && !state.game.finished) chooseAnswer(gesture - 1, true);
       } catch (error) { console.warn("Hand detection frame skipped", error); }
     }
     state.camera.raf = requestAnimationFrame(scanHands);
@@ -591,7 +651,7 @@
     if (action === "simulate-gesture") { toast(`Đã nhận cử chỉ ${Number(target.dataset.index) + 1} ngón tay.`); return chooseAnswer(Number(target.dataset.index), true); }
     if (action === "reveal-answer") return revealAnswer();
     if (action === "next-question") return nextQuestion();
-    if (action === "restart-game") { const classItem = state.data.classes.find((item) => item.id === state.game.classId); prepareGame(classItem?.subject || "Toán 8", classItem?.id || state.data.classes[0]?.id); render({ preserveCamera: true }); toast("Đã bắt đầu phiên chơi mới."); return; }
+    if (action === "restart-game") { const classItem = state.data.classes.find((item) => item.id === state.game.classId); prepareGame(classItem?.subject || "Toán 8", classItem?.id || state.data.classes[0]?.id); requireFreshGesture(); render({ preserveCamera: true }); toast("Đã bắt đầu phiên chơi mới."); return; }
     if (action === "toggle-camera") { if (state.camera.active) { stopCamera(); render(); toast("Đã tắt camera."); } else await startCamera(); return; }
     if (action === "fullscreen") { const stage = document.querySelector(".play-layout"); if (document.fullscreenElement) await document.exitFullscreen(); else if (stage?.requestFullscreen) await stage.requestFullscreen(); else toast("Trình duyệt chưa hỗ trợ chế độ toàn màn hình.", "error"); return; }
     if (action === "import") { state.modal = { type: "import" }; return render(); }
